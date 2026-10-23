@@ -1,11 +1,14 @@
 // In-memory backend used when the UI runs outside Tauri (browser dev, screenshots).
 // It implements every command in docs/API.md with realistic data so each screen can be exercised.
 
+import { BUILTIN_EVENT_TYPES, EVENT_COLORS, EVENT_ICONS, ROUND_KINDS, eventId } from "./eventTypes";
 import type {
   AudioInput,
   ClipRecord,
   DetectorDef,
   EventMap,
+  EventTypeDef,
+  EventTypeInput,
   FrameResult,
   FrameSource,
   GameEvent,
@@ -56,6 +59,7 @@ const GAME_COLORS: Record<string, string> = {
   cs2: "#e8913a",
   "marvel-rivals": "#8f6bff",
   fortnite: "#4fb3ff",
+  "r6-siege": "#4fd1c5",
   manual: "#8d9099",
 };
 
@@ -83,7 +87,17 @@ function detector(partial: Partial<DetectorDef> & Pick<DetectorDef, "id" | "labe
   };
 }
 
-let games: GameInfo[] = [
+/** Stored game shape; event types, rounds and match detection are derived in gameInfo(). */
+type BaseGame = Omit<GameInfo, "eventTypes" | "hasRounds" | "matchDetection">;
+
+/** Custom event types per game (built-ins are added in gameInfo()). */
+const customTypes: Record<string, EventTypeDef[]> = {
+  valorant: [{ id: "ult_used", label: "Ult used", icon: "zap", color: "#c99bff", builtin: false }],
+  cs2: [{ id: "clutch", label: "Clutch", icon: "crown", color: "#e9d38a", builtin: false }],
+  "marvel-rivals": [{ id: "team_up", label: "Team-up", icon: "heart", color: "#ff9bd2", builtin: false }],
+};
+
+let games: BaseGame[] = [
   {
     id: "valorant",
     name: "VALORANT",
@@ -99,6 +113,11 @@ let games: GameInfo[] = [
     detectors: [
       detector({ id: "kill-banner", label: "Kill banner", event: "kill" }, "valorant", true),
       detector({ id: "death-recap", label: "Death recap panel", event: "death", templateBox: { x: 0.36, y: 0.08, w: 0.28, h: 0.06 } }, "valorant", false),
+      detector({ id: "buy-phase", label: "Buy phase banner", event: "round_start", templateBox: { x: 0.42, y: 0.12, w: 0.16, h: 0.05 } }, "valorant", true),
+      detector({ id: "round-won", label: "Round won banner", event: "round_win", templateBox: { x: 0.38, y: 0.22, w: 0.24, h: 0.09 } }, "valorant", true),
+      detector({ id: "round-lost", label: "Round lost banner", event: "round_loss", templateBox: { x: 0.38, y: 0.22, w: 0.24, h: 0.09 } }, "valorant", true),
+      detector({ id: "ult-cast", label: "Ultimate cast", event: "ult_used", templateBox: { x: 0.47, y: 0.88, w: 0.06, h: 0.07 } }, "valorant", true),
+      detector({ id: "match-found", label: "Agent select ends", event: "match_start", templateBox: { x: 0.4, y: 0.45, w: 0.2, h: 0.06 } }, "valorant", true),
     ],
   },
   {
@@ -144,6 +163,28 @@ let games: GameInfo[] = [
     detectors: [
       detector({ id: "elimination", label: "Elimination callout", event: "kill", templateBox: { x: 0.44, y: 0.6, w: 0.12, h: 0.05 } }, "marvel-rivals", false),
       detector({ id: "knocked-out", label: "You were knocked out", event: "death", templateBox: { x: 0.4, y: 0.3, w: 0.2, h: 0.08 } }, "marvel-rivals", false),
+      detector({ id: "round-start", label: "Round start countdown", event: "round_start", templateBox: { x: 0.44, y: 0.18, w: 0.12, h: 0.06 } }, "marvel-rivals", true),
+      detector({ id: "round-won", label: "Round victory", event: "round_win", templateBox: { x: 0.36, y: 0.3, w: 0.28, h: 0.1 } }, "marvel-rivals", true),
+      detector({ id: "round-lost", label: "Round defeat", event: "round_loss", templateBox: { x: 0.36, y: 0.3, w: 0.28, h: 0.1 } }, "marvel-rivals", true),
+    ],
+  },
+  {
+    id: "r6-siege",
+    name: "Rainbow Six Siege",
+    processes: ["RainbowSix.exe", "RainbowSix_Vulkan.exe"],
+    capture: "game",
+    api: null,
+    preferApi: true,
+    autoClipEvents: ["kill", "ace"],
+    color: GAME_COLORS["r6-siege"],
+    enabled: true,
+    userModified: true,
+    hasPostMatch: true,
+    detectors: [
+      detector({ id: "kill-feed", label: "Your kill in the feed", event: "kill", templateBox: { x: 0.78, y: 0.18, w: 0.2, h: 0.035 } }, "r6-siege", true),
+      detector({ id: "action-phase", label: "Action phase starts", event: "round_start", templateBox: { x: 0.45, y: 0.04, w: 0.1, h: 0.04 } }, "r6-siege", true),
+      detector({ id: "round-won", label: "Round won", event: "round_win", templateBox: { x: 0.38, y: 0.32, w: 0.24, h: 0.08 } }, "r6-siege", true),
+      detector({ id: "round-lost", label: "Round lost", event: "round_loss", templateBox: { x: 0.38, y: 0.32, w: 0.24, h: 0.08 } }, "r6-siege", false),
     ],
   },
   {
@@ -180,6 +221,7 @@ let settings: Settings = {
   gamesEnabled: { fortnite: false },
   storageLimitGb: 200,
   notifyOnBookmark: true,
+  splitMatches: true,
 };
 
 // ---------- matches, events, clips ----------
@@ -199,14 +241,17 @@ interface MatchSeed {
   deaths: number;
   assists: number;
   extra?: Array<[string, number]>;
+  /** Round results; `starts` adds round_start markers, `meta` sets meta.round (API games). */
+  rounds?: { won: number; lost: number; starts: boolean; meta: boolean };
 }
 
 const seeds: MatchSeed[] = [
   { id: "m-live", gameId: "valorant", start: now - 23 * MIN, durMin: 23, status: "recording", kills: 0, deaths: 0, assists: 0 },
-  { id: "m-val-1", gameId: "valorant", start: startOfToday + 13.5 * 60 * MIN, durMin: 41.2, status: "ready", kills: 24, deaths: 15, assists: 7, extra: [["bookmark", 2]] },
+  { id: "m-val-1", gameId: "valorant", start: startOfToday + 13.5 * 60 * MIN, durMin: 41.2, status: "ready", kills: 24, deaths: 15, assists: 7, extra: [["bookmark", 2], ["ult_used", 6]], rounds: { won: 13, lost: 9, starts: true, meta: false } },
   { id: "m-lol-1", gameId: "league-of-legends", start: startOfToday + 11 * 60 * MIN, durMin: 31.4, status: "processing", kills: 9, deaths: 4, assists: 13, extra: [["objective", 5], ["multikill", 1]] },
-  { id: "m-cs-1", gameId: "cs2", start: startOfToday - DAY + 21 * 60 * MIN, durMin: 47.8, status: "ready", kills: 27, deaths: 18, assists: 4, extra: [["round_win", 13], ["round_loss", 11], ["mvp", 4], ["bomb_plant", 3], ["ace", 1]] },
-  { id: "m-mr-1", gameId: "marvel-rivals", start: startOfToday - DAY + 19 * 60 * MIN, durMin: 18.6, status: "ready", kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 3]] },
+  { id: "m-cs-1", gameId: "cs2", start: startOfToday - DAY + 21 * 60 * MIN, durMin: 47.8, status: "ready", kills: 27, deaths: 18, assists: 4, extra: [["mvp", 4], ["bomb_plant", 3], ["ace", 1], ["clutch", 2]], rounds: { won: 13, lost: 11, starts: true, meta: true } },
+  { id: "m-mr-1", gameId: "marvel-rivals", start: startOfToday - DAY + 19 * 60 * MIN, durMin: 18.6, status: "ready", kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 3], ["team_up", 4]], rounds: { won: 2, lost: 1, starts: true, meta: false } },
+  { id: "m-r6-1", gameId: "r6-siege", start: startOfToday - 2 * DAY + 20.5 * 60 * MIN, durMin: 33.5, status: "ready", kills: 11, deaths: 6, assists: 3, extra: [["ace", 1]], rounds: { won: 5, lost: 4, starts: true, meta: false } },
   { id: "m-lol-2", gameId: "league-of-legends", start: startOfToday - 3 * DAY + 22 * 60 * MIN, durMin: 36.1, status: "ready", title: "Kai'Sa pentakill game", favorite: true, kills: 17, deaths: 3, assists: 9, extra: [["multikill", 3], ["objective", 7]] },
   { id: "m-man-1", gameId: "manual", start: startOfToday - 3 * DAY + 17 * 60 * MIN, durMin: 12.3, status: "ready", title: "Slay the Spire 2 run", kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 4]] },
   { id: "m-cs-2", gameId: "cs2", start: startOfToday - 4 * DAY + 20 * 60 * MIN, durMin: 2.1, status: "error", error: "The recorder stopped unexpectedly. The file may be incomplete.", kills: 1, deaths: 1, assists: 0 },
@@ -222,17 +267,27 @@ function makeEvents(seed: MatchSeed): GameEvent[] {
   const dur = seed.durMin * MIN;
   const evs: GameEvent[] = [];
   const isApi = seed.gameId === "league-of-legends" || seed.gameId === "cs2";
+  const VISION: Record<string, string> = {
+    death: "death-recap",
+    round_start: "round-start",
+    round_win: "round-won",
+    round_loss: "round-lost",
+    ult_used: "ult-cast",
+    clutch: "clutch-banner",
+    team_up: "team-up",
+  };
+  const apiKinds = ["kill", "death", "assist", "mvp", "bomb_plant", "bomb_defuse", "ace", "multikill", "objective", ...ROUND_KINDS];
   const src = (kind: string): GameEvent["source"] =>
     kind === "bookmark"
       ? { type: "manual" }
-      : isApi
+      : isApi && apiKinds.includes(kind)
         ? { type: "api", name: seed.gameId === "cs2" ? "cs2-gsi" : "league-live-client" }
-        : { type: "vision", detector: kind === "death" ? "death-recap" : "kill-banner" };
+        : { type: "vision", detector: VISION[kind] ?? "kill-banner" };
   const add = (kind: string, n: number) => {
     for (let i = 0; i < n; i++) {
       const tMs = Math.round(40_000 + r() * (dur - 60_000));
       const e: GameEvent = { kind, tMs, source: src(kind) };
-      if (!isApi && kind !== "bookmark") e.confidence = 0.8 + r() * 0.19;
+      if (e.source.type === "vision") e.confidence = 0.8 + r() * 0.19;
       if (kind === "multikill") e.meta = { count: 2 + Math.floor(r() * 3) };
       evs.push(e);
     }
@@ -241,6 +296,30 @@ function makeEvents(seed: MatchSeed): GameEvent[] {
   add("death", seed.deaths);
   add("assist", seed.assists);
   for (const [k, n] of seed.extra ?? []) add(k, n);
+  if (seed.rounds) {
+    const { won, lost, starts, meta } = seed.rounds;
+    const n = won + lost;
+    // Spread wins and losses so the score swings a little, like a real match.
+    const results: Array<"win" | "loss"> = [];
+    let w = won;
+    let l = lost;
+    for (let i = 0; i < n; i++) {
+      const pickWin = w > 0 && (l === 0 || r() < w / (w + l) + (i % 5 === 0 ? 0.15 : -0.05));
+      results.push(pickWin ? "win" : "loss");
+      if (pickWin) w--;
+      else l--;
+    }
+    const first = 25_000;
+    const len = (dur - first - 20_000) / n;
+    results.forEach((res, i) => {
+      const s = Math.round(first + i * len + r() * 2000);
+      const end = Math.round(first + (i + 1) * len - 3000 - r() * 4000);
+      const m = meta ? { round: i + 1 } : undefined;
+      if (starts) evs.push({ kind: "round_start", tMs: s, source: src("round_start"), ...(m ? { meta: m } : {}), ...(isApi ? {} : { confidence: 0.86 + r() * 0.12 }) });
+      const kind = res === "win" ? "round_win" : "round_loss";
+      evs.push({ kind, tMs: end, source: src(kind), ...(m ? { meta: m } : {}), ...(isApi ? {} : { confidence: 0.84 + r() * 0.14 }) });
+    });
+  }
   evs.sort((a, b) => a.tMs - b.tMs);
   return evs.map((e, i) => ({ ...e, id: i + 1 }));
 }
@@ -421,7 +500,20 @@ const delay = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 function gameInfo(id: string): GameInfo {
   const g = games.find((x) => x.id === id);
   if (!g) throw `Unknown game "${id}"`;
-  return { ...g, enabled: settings.gamesEnabled[id] ?? true };
+  const events = g.detectors.map((d) => d.event);
+  return {
+    ...g,
+    enabled: settings.gamesEnabled[id] ?? true,
+    eventTypes: [...BUILTIN_EVENT_TYPES, ...(customTypes[id] ?? [])],
+    hasRounds: g.api === "cs2-gsi" || events.some((e) => ROUND_KINDS.includes(e)),
+    matchDetection: g.api ? "api" : events.some((e) => e === "match_start" || e === "match_end") ? "detectors" : "process",
+  };
+}
+
+function allEventTypes(): EventTypeDef[] {
+  const out = new Map(BUILTIN_EVENT_TYPES.map((t) => [t.id, t]));
+  Object.values(customTypes).forEach((list) => list.forEach((t) => out.has(t.id) || out.set(t.id, t)));
+  return [...out.values()];
 }
 
 function matchDetail(id: string): MatchDetail {
@@ -593,9 +685,35 @@ const handlers: Record<string, (a: any) => unknown> = {
     if (!/^[a-z0-9_-]+$/i.test(game.id)) throw "Game id can only use letters, digits, - and _.";
     if (!game.processes.length) throw "Add at least one process name.";
     const existing = games.find((g) => g.id === game.id);
-    const info: GameInfo = { ...game, enabled: true, userModified: true, detectors: existing?.detectors ?? [], hasPostMatch: false };
+    const info: BaseGame = { ...game, enabled: true, userModified: true, detectors: existing?.detectors ?? [], hasPostMatch: false };
     games = existing ? games.map((g) => (g.id === game.id ? info : g)) : [...games, info];
     return gameInfo(game.id);
+  },
+  list_event_types: () => allEventTypes(),
+  save_event_type: ({ gameId, eventType }: { gameId: string; eventType: EventTypeInput }) => {
+    if (!games.some((g) => g.id === gameId)) throw "Unknown game";
+    const label = eventType.label.trim();
+    if (!label) throw "Give the event type a name.";
+    if (!EVENT_ICONS.includes(eventType.icon)) throw `Unknown icon "${eventType.icon}"`;
+    const list = (customTypes[gameId] ??= []);
+    const id = eventType.id ?? eventId(label);
+    if (!id) throw "The name needs at least one letter or digit.";
+    if (BUILTIN_EVENT_TYPES.some((t) => t.id === id)) throw `“${label}” is a built-in event type. Pick it from the list instead.`;
+    const existing = list.find((t) => t.id === id);
+    if (!eventType.id && existing) throw `${gameInfo(gameId).name} already has an event type called “${existing.label}”.`;
+    const color = eventType.color ?? existing?.color ?? EVENT_COLORS[(list.length + 3) % EVENT_COLORS.length];
+    const def: EventTypeDef = { id, label, icon: eventType.icon, color, builtin: false };
+    customTypes[gameId] = existing ? list.map((t) => (t.id === id ? def : t)) : [...list, def];
+    return gameInfo(gameId);
+  },
+  delete_event_type: ({ gameId, eventTypeId }) => {
+    const g = games.find((x) => x.id === gameId);
+    if (!g) throw "Unknown game";
+    if (BUILTIN_EVENT_TYPES.some((t) => t.id === eventTypeId)) throw "Built-in event types cannot be deleted.";
+    const users = g.detectors.filter((d) => d.event === eventTypeId);
+    if (users.length) throw `Detector “${users[0].label || users[0].id}” still marks this event. Change it or delete it first.`;
+    customTypes[gameId] = (customTypes[gameId] ?? []).filter((t) => t.id !== eventTypeId);
+    return gameInfo(gameId);
   },
   get_settings: () => structuredClone(settings),
   update_settings: ({ settings: s }) => {

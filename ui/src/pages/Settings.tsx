@@ -226,6 +226,12 @@ export function SettingsPage() {
         <Row label="Scan each recording when the match ends">
           <Toggle checked={s.scanAfterMatch} onChange={(v) => set("scanAfterMatch", v)} label="Scan after match" />
         </Row>
+        <Row
+          label="Split game sessions into separate matches"
+          hint="Uses Match start / Match end markers. Without them (or with this off), one recording covers the whole time the game is open."
+        >
+          <Toggle checked={s.splitMatches ?? true} onChange={(v) => set("splitMatches", v)} label="Split sessions into matches" />
+        </Row>
         <Field label="Analysis resolution" htmlFor="set-ah" hint="Frames are scaled to this height before matching. Lower is faster; 720p suits most HUDs.">
           <select id="set-ah" className="input" value={s.analysisHeight} onChange={(e) => set("analysisHeight", Number(e.target.value))}>
             {[540, 720, 1080].map((h) => (

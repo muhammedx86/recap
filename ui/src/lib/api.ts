@@ -9,6 +9,8 @@ import type {
   ClipRecord,
   DetectorDef,
   EventMap,
+  EventTypeDef,
+  EventTypeInput,
   FrameResult,
   FrameSource,
   GameEvent,
@@ -91,6 +93,10 @@ export const api = {
   listGames: () => call<GameInfo[]>("list_games"),
   setGameEnabled: (gameId: string, enabled: boolean) => call<GameInfo>("set_game_enabled", { gameId, enabled }),
   saveGame: (game: GameInput) => call<GameInfo>("save_game", { game }),
+
+  listEventTypes: () => call<EventTypeDef[]>("list_event_types"),
+  saveEventType: (gameId: string, eventType: EventTypeInput) => call<GameInfo>("save_event_type", { gameId, eventType }),
+  deleteEventType: (gameId: string, eventTypeId: string) => call<GameInfo>("delete_event_type", { gameId, eventTypeId }),
 
   getSettings: () => call<Settings>("get_settings"),
   updateSettings: (settings: Settings) => call<Settings>("update_settings", { settings }),

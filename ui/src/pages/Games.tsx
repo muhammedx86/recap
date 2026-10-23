@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { useLoad } from "../lib/hooks";
 import { COMMON_KINDS, kindStyle } from "../lib/kinds";
 import { useToast } from "../lib/toast";
-import type { ApiSource, CaptureMode, GameInfo, GameInput } from "../lib/types";
+import type { ApiSource, CaptureMode, GameInfo, GameInput, MatchDetection } from "../lib/types";
 import { Empty, Field, KindDot, Modal, Toggle } from "../components/ui";
 import { gameColor } from "./Library";
 
@@ -13,6 +13,17 @@ const CAPTURE_LABEL: Record<CaptureMode, string> = {
   window: "Window capture",
   monitor: "Whole screen",
 };
+const MATCH_LABEL: Record<MatchDetection, string> = {
+  api: "Matches: API",
+  detectors: "Matches: detectors",
+  process: "Matches: whole session",
+};
+const MATCH_HINT: Record<MatchDetection, string> = {
+  api: "The game's API says when each match starts and ends.",
+  detectors: "Match start / Match end detectors split each session into matches.",
+  process: "One recording per game session. Add Match start / Match end detectors in Studio to split sessions into matches.",
+};
+
 const API_LABEL: Record<ApiSource, string> = {
   "league-live-client": "League Live Client API",
   "cs2-gsi": "CS2 Game State Integration",
@@ -57,7 +68,18 @@ export function Games() {
               <div className="game-head">
                 <span className="game-bar" style={{ background: gameColor(g.id, g.color) }} aria-hidden />
                 <div className="game-title">
-                  <h2>{g.name}</h2>
+                  <div className="game-title-row">
+                    <h2>{g.name}</h2>
+                    {g.hasRounds && (
+                      <span className="badge">
+                        <KindDot kind="round_start" size={12} />
+                        Rounds
+                      </span>
+                    )}
+                    <span className={`badge badge-${g.matchDetection}`} title={MATCH_HINT[g.matchDetection]}>
+                      {MATCH_LABEL[g.matchDetection]}
+                    </span>
+                  </div>
                   <p className="muted small">
                     Watches for {g.processes.join(", ")}
                     {g.userModified ? ". Customised by you" : ""}
@@ -92,6 +114,26 @@ export function Games() {
                   </p>
                 </div>
               </div>
+              {g.matchDetection === "process" && (
+                <p className="game-hint muted small">
+                  {MATCH_HINT.process} <Link to={`/studio?game=${g.id}`}>Open Studio</Link>
+                </p>
+              )}
+              {g.eventTypes.some((t) => !t.builtin) && (
+                <div className="game-types">
+                  <p className="fact-label">Your event types</p>
+                  <p className="kind-inline">
+                    {g.eventTypes
+                      .filter((t) => !t.builtin)
+                      .map((t) => (
+                        <span key={t.id} className="kind-chip">
+                          <KindDot kind={t.id} />
+                          {t.label}
+                        </span>
+                      ))}
+                  </p>
+                </div>
+              )}
               <div className="detectors">
                 <p className="fact-label">Detectors</p>
                 {g.detectors.length === 0 ? (
@@ -186,6 +228,9 @@ function AddGame({ onClose, onSaved }: { onClose: () => void; onSaved: (g: GameI
       <Field label="Process names" htmlFor="ag-proc" hint="The game's .exe file names, separated by commas. Find them in Task Manager under Details.">
         <input id="ag-proc" className="input" value={processes} onChange={(e) => setProcesses(e.target.value)} placeholder="Overwatch.exe" />
       </Field>
+      <p className="field-note">
+        Recap records while this .exe runs. To split sessions into individual matches, add Match start / Match end detectors in Detector Studio.
+      </p>
       <Field label="Capture" htmlFor="ag-cap" hint="Game capture is best. Use window or whole screen if the recording comes out black.">
         <select id="ag-cap" className="input" value={capture} onChange={(e) => setCapture(e.target.value as CaptureMode)}>
           {(Object.keys(CAPTURE_LABEL) as CaptureMode[]).map((c) => (

@@ -78,6 +78,38 @@ export interface DetectorDef {
   notes?: string;
 }
 
+export type EventIcon =
+  | "crosshair"
+  | "skull"
+  | "handshake"
+  | "flame"
+  | "crown"
+  | "gem"
+  | "flag"
+  | "trophy"
+  | "circle-x"
+  | "star"
+  | "bomb"
+  | "shield"
+  | "bookmark"
+  | "zap"
+  | "heart";
+
+export interface EventTypeDef {
+  id: string;
+  label: string;
+  icon: EventIcon;
+  color: string;
+  builtin: boolean;
+}
+
+export interface EventTypeInput {
+  id?: string;
+  label: string;
+  icon: EventIcon;
+  color?: string | null;
+}
+
 export type GameDetector = DetectorDef & { ready: boolean; user: boolean; templateUrls: string[] };
 
 export interface GameInfo {
@@ -93,7 +125,13 @@ export interface GameInfo {
   userModified: boolean;
   detectors: GameDetector[];
   hasPostMatch: boolean;
+  hasRounds: boolean;
+  eventTypes: EventTypeDef[];
+  /** How Recap finds where a match starts and ends inside a game session. */
+  matchDetection: MatchDetection;
 }
+
+export type MatchDetection = "api" | "detectors" | "process";
 
 export interface GameInput {
   id: string;
@@ -134,6 +172,8 @@ export interface Settings {
   gamesEnabled: Record<string, boolean>;
   storageLimitGb: number | null;
   notifyOnBookmark: boolean;
+  /** Split game sessions into separate matches using Match start / Match end markers. */
+  splitMatches: boolean;
 }
 
 export interface RecorderStatus {

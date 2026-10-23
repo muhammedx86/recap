@@ -5,10 +5,11 @@ import { bytes, clockTime, dayLabel, duration, timecode } from "../lib/format";
 import { useLibraryChanged, useLoad, useProcessing } from "../lib/hooks";
 import { kindStyle, sortKinds, sourceLabel } from "../lib/kinds";
 import { useToast } from "../lib/toast";
+import { computeRounds, type Round } from "../lib/rounds";
 import type { ClipRecord, GameEvent } from "../lib/types";
 import { Player, type PlayerHandle } from "../components/Player";
 import { Timeline } from "../components/Timeline";
-import { Empty, Icon, KindDot, ProgressBar, Thumb } from "../components/ui";
+import { Empty, Icon, KindDot, ProgressBar, RoundScore, Thumb } from "../components/ui";
 import { gameColor, matchHeading } from "./Library";
 
 const LEAD_IN_MS = 3000;
@@ -31,6 +32,7 @@ export function MatchPage() {
   const m = data?.match;
   const kinds = useMemo(() => sortKinds([...new Set(events.map((e) => e.kind))]), [events]);
   const visible = useMemo(() => events.filter((e) => !hidden.has(e.kind)), [events, hidden]);
+  const rounds = useMemo(() => computeRounds(events, m?.durationMs ?? 0), [events, m?.durationMs]);
 
   const addMarker = useCallback(async () => {
     if (!m) return;
@@ -157,7 +159,10 @@ export function MatchPage() {
                 {dayLabel(m.startedUnixMs)}, {clockTime(m.startedUnixMs)}
               </span>
             </p>
-            <h1 className="match-h1">{matchHeading(m)}</h1>
+            <div className="match-h1-row">
+              <h1 className="match-h1">{matchHeading(m)}</h1>
+              <RoundScore counts={m.eventCounts} large />
+            </div>
           </div>
           <div className="head-actions">
             <button className="btn" onClick={() => api.openPath(m.path).catch((e) => toast.error(e))}>
@@ -185,6 +190,7 @@ export function MatchPage() {
           <Player ref={player} path={m.path} poster={m.thumbnail} durationMs={m.durationMs} onTime={setTime} />
           <Timeline
             events={events}
+            rounds={rounds}
             durationMs={m.durationMs}
             timeMs={time}
             inMs={inMs}
@@ -193,6 +199,7 @@ export function MatchPage() {
             onSeek={(ms) => player.current?.seek(ms)}
             onEventClick={jump}
           />
+          {rounds.length > 0 && <RoundsStrip rounds={rounds} timeMs={time} onJump={(r) => player.current?.seek(Math.max(0, r.startMs - 2000))} />}
           <div className="tools">
             <div className="clipper" aria-label="Make a clip">
               <span className="clipper-label">Clip</span>
@@ -287,6 +294,47 @@ export function MatchPage() {
         </aside>
       </div>
     </div>
+  );
+}
+
+/** One pill per round: number and result. Click to jump to just before the round starts. */
+function RoundsStrip({ rounds, timeMs, onJump }: { rounds: Round[]; timeMs: number; onJump: (r: Round) => void }) {
+  const current = [...rounds].reverse().find((r) => r.startMs <= timeMs + 500);
+  const won = rounds.filter((r) => r.result === "win").length;
+  const lost = rounds.filter((r) => r.result === "loss").length;
+  return (
+    <section className="rounds" aria-label="Rounds">
+      <div className="rounds-head">
+        <h2>Rounds</h2>
+        <span className="muted small">
+          {won || lost ? (
+            <>
+              <span className="num">{won}</span> won, <span className="num">{lost}</span> lost
+            </>
+          ) : (
+            `${rounds.length} rounds`
+          )}
+        </span>
+      </div>
+      <ol className="round-pills">
+        {rounds.map((r) => (
+          <li key={`${r.n}-${r.startMs}`}>
+            <button
+              className={`round-pill ${r.result ?? "none"} ${current === r ? "current" : ""}`}
+              onClick={() => onJump(r)}
+              aria-current={current === r ? "true" : undefined}
+              title={`Round ${r.n}: ${r.result === "win" ? "won" : r.result === "loss" ? "lost" : "no result"}, starts ${timecode(r.startMs)}`}
+            >
+              <span className="num">{r.n}</span>
+              <span className="round-pill-res" aria-hidden>
+                {r.result === "win" ? "W" : r.result === "loss" ? "L" : "·"}
+              </span>
+              <span className="sr-only">{r.result === "win" ? "won" : r.result === "loss" ? "lost" : "no result"}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

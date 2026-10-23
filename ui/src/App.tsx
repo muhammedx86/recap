@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { HashRouter, Route, Routes } from "react-router-dom";
+import { refreshEventTypes, useEventTypes } from "./lib/kinds";
 import { Sidebar } from "./components/Sidebar";
 import { ToastProvider } from "./lib/toast";
 import { Library } from "./pages/Library";
@@ -9,6 +11,11 @@ import { Games } from "./pages/Games";
 import { SettingsPage } from "./pages/Settings";
 
 export function App() {
+  // Subscribing here re-renders every screen when event types load or change.
+  useEventTypes();
+  useEffect(() => {
+    refreshEventTypes();
+  }, []);
   return (
     <ToastProvider>
       <HashRouter>

@@ -5,7 +5,7 @@ import { bytes, clockTime, dayKey, dayLabel, duration, plural } from "../lib/for
 import { useLibraryChanged, useLoad, useProcessing } from "../lib/hooks";
 import { useToast } from "../lib/toast";
 import type { MatchRecord } from "../lib/types";
-import { Confirm, Empty, Icon, KindCounts, Modal, ProgressBar, Thumb } from "../components/ui";
+import { Confirm, Empty, Icon, KindCounts, Modal, ProgressBar, RoundScore, Thumb } from "../components/ui";
 
 /** Full name for pickers and dialogs: the custom title, or game and start time. */
 export function matchTitle(m: MatchRecord): string {
@@ -156,7 +156,10 @@ function MatchRow({ m, progress, onFav, onRename, onDelete }: { m: MatchRecord; 
               {clockTime(m.startedUnixMs)}, {duration(m.durationMs)}
             </span>
           </p>
-          <h3 className="match-title">{matchHeading(m)}</h3>
+          <div className="match-title-row">
+            <h3 className="match-title">{matchHeading(m)}</h3>
+            {!live && !processing && <RoundScore counts={m.eventCounts} />}
+          </div>
           {live && (
             <p className="match-status live">
               <span className="rec-dot" aria-hidden /> Recording now
@@ -196,6 +199,7 @@ const COLORS: Record<string, string> = {
   cs2: "#e8913a",
   "marvel-rivals": "#8f6bff",
   fortnite: "#4fb3ff",
+  "r6-siege": "#4fd1c5",
 };
 export function gameColor(id: string, fallback?: string | null): string {
   return fallback || COLORS[id] || "#8d9099";

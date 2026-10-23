@@ -3,11 +3,12 @@ import { useSearchParams } from "react-router-dom";
 import { api, fileSrc, pickPath } from "../lib/api";
 import { timecode } from "../lib/format";
 import { useLoad } from "../lib/hooks";
-import { COMMON_KINDS, kindStyle } from "../lib/kinds";
+import { kindStyle } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import type { DetectorDef, FrameResult, FrameSource, GameInfo, MatchRecord, Region, TestResult } from "../lib/types";
 import { ScoreChart, computeHits } from "../components/ScoreChart";
-import { Confirm, Empty, Field, Icon, Toggle } from "../components/ui";
+import { Confirm, Empty, Field, Icon, KindDot, Toggle } from "../components/ui";
+import { EventTypePicker } from "../components/EventTypePicker";
 import { matchTitle } from "./Library";
 
 const NEW = "__new__";
@@ -203,22 +204,41 @@ export function Studio() {
             ))}
           </select>
         </Field>
-        <Field label="Detector" htmlFor="st-det">
-          <select id="st-det" className="input" value={detId} onChange={(e) => setDetId(e.target.value)}>
-            <option value={NEW}>New detector</option>
-            {(game?.detectors ?? []).map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.label || d.id}
-                {d.ready ? "" : " (needs a reference image)"}
-              </option>
-            ))}
-          </select>
-        </Field>
         {game?.api && (
           <p className="studio-note">
             {game.name} also reports events through its official local API. Detectors here are extra, for anything the API misses.
           </p>
         )}
+      </div>
+
+      <div className="det-rail" role="tablist" aria-label={`Detectors for ${game?.name ?? "this game"}`}>
+        {(game?.detectors ?? []).map((d) => (
+          <button
+            key={d.id}
+            role="tab"
+            aria-selected={detId === d.id}
+            className={`det-card ${detId === d.id ? "on" : ""}`}
+            onClick={() => setDetId(d.id)}
+          >
+            <span className="det-card-top">
+              <KindDot kind={d.event} size={15} />
+              <span className="det-card-name">{d.label || d.id}</span>
+            </span>
+            <span className="det-card-meta">
+              <span>Marks {kindStyle(d.event).label.toLowerCase()}</span>
+              <span className={d.ready ? "ok" : "todo"}>{d.ready ? "Ready" : d.enabled ? "Needs image" : "Off"}</span>
+            </span>
+          </button>
+        ))}
+        <button role="tab" aria-selected={isNew} className={`det-card det-card-new ${isNew ? "on" : ""}`} onClick={() => setDetId(NEW)}>
+          <span className="det-card-top">
+            <Icon name="plus" size={15} />
+            <span className="det-card-name">New detector</span>
+          </span>
+          <span className="det-card-meta">
+            <span>One per event: kills, deaths, rounds, anything</span>
+          </span>
+        </button>
       </div>
 
       <div className="studio-grid">
@@ -331,16 +351,18 @@ export function Studio() {
           <Field label="Name" htmlFor="st-label" hint={isNew ? `Saved as ${draft.id || slug(draft.label) || "…"}` : `Id ${draft.id}`}>
             <input id="st-label" className="input" value={draft.label} placeholder="Kill banner" onChange={(e) => set("label", e.target.value)} />
           </Field>
-          <Field label="Event it marks" htmlFor="st-kind" hint="What the timeline calls this moment.">
-            <input id="st-kind" className="input" list="kinds" value={draft.event} onChange={(e) => set("event", e.target.value.trim().toLowerCase().replace(/\s+/g, "_"))} />
-            <datalist id="kinds">
-              {COMMON_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {kindStyle(k).label}
-                </option>
-              ))}
-            </datalist>
-          </Field>
+          <div className="field">
+            <p className="field-label">Event it marks</p>
+            {game && (
+              <EventTypePicker
+                game={game}
+                value={draft.event}
+                onChange={(id) => set("event", id)}
+                onGameUpdated={(g) => setGames((gs) => (gs ?? []).map((x) => (x.id === g.id ? g : x)))}
+              />
+            )}
+            <p className="field-hint">What the timeline calls this moment. Make your own types with any name and icon.</p>
+          </div>
           <Field label={`Match threshold ${Math.round(draft.threshold * 100)}%`} htmlFor="st-thr" hint="How closely the frame must match. Higher means fewer false alarms but more misses.">
             <input id="st-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} onChange={(e) => set("threshold", Number(e.target.value))} />
           </Field>

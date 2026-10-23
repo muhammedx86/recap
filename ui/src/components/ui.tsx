@@ -1,15 +1,40 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fileSrc } from "../lib/api";
 import { kindStyle, sortKinds } from "../lib/kinds";
+import { ROUND_KINDS } from "../lib/eventTypes";
+import { hasRoundEvents, roundScore } from "../lib/rounds";
+import { EventIcon } from "./EventIcon";
 
-export function KindDot({ kind, size = 8 }: { kind: string; size?: number }) {
-  return <span className="kind-dot" style={{ background: kindStyle(kind).color, width: size, height: size }} aria-hidden />;
+/** The event kind's icon in its colour. (Named for history: it used to be a dot.) */
+export function KindDot({ kind, size = 14 }: { kind: string; size?: number }) {
+  const st = kindStyle(kind);
+  return (
+    <span className="kind-icon" style={{ color: st.color }} aria-hidden>
+      <EventIcon icon={st.icon} size={size} />
+    </span>
+  );
 }
 
-/** Compact event count summary, e.g. ● 24 kills ● 15 deaths. */
+/** Won–lost round score, e.g. 13–9. Renders nothing when the match has no round results. */
+export function RoundScore({ counts, large }: { counts: Record<string, number>; large?: boolean }) {
+  const s = roundScore(counts);
+  if (!s) return null;
+  const outcome = s.won > s.lost ? "win" : s.won < s.lost ? "loss" : "draw";
+  return (
+    <span className={`round-score ${outcome} ${large ? "large" : ""}`} title={`${s.won} rounds won, ${s.lost} lost`}>
+      <span className="num">{s.won}</span>
+      <span className="round-score-dash" aria-hidden>
+        –
+      </span>
+      <span className="num">{s.lost}</span>
+    </span>
+  );
+}
+
+/** Compact event count summary, e.g. 24 kills 15 deaths, each with its icon. Round markers are shown as a score instead. */
 export function KindCounts({ counts, max = 4 }: { counts: Record<string, number>; max?: number }) {
-  const kinds = sortKinds(Object.keys(counts).filter((k) => counts[k] > 0 && k !== "match_start" && k !== "match_end"));
-  if (!kinds.length) return <span className="muted small">No events</span>;
+  const kinds = sortKinds(Object.keys(counts).filter((k) => counts[k] > 0 && k !== "match_start" && k !== "match_end" && !ROUND_KINDS.includes(k)));
+  if (!kinds.length) return hasRoundEvents(counts) ? null : <span className="muted small">No events</span>;
   return (
     <span className="kind-counts">
       {kinds.slice(0, max).map((k) => (
@@ -133,6 +158,8 @@ const ICONS: Record<string, string> = {
   volume: "M4 9h4l5-4v14l-5-4H4zM16 9a4 4 0 0 1 0 6",
   mute: "M4 9h4l5-4v14l-5-4H4zM16 9l5 6M21 9l-5 6",
   up: "M12 19V5M6 11l6-6 6 6",
+  "chev-down": "M6 9l6 6 6-6",
+  "chev-up": "M6 15l6-6 6 6",
   down: "M12 5v14M6 13l6 6 6-6",
   record: "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z",
   stop: "M7 7h10v10H7z",
