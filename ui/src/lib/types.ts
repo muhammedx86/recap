@@ -1,0 +1,196 @@
+// Mirrors docs/API.md exactly. All JSON is camelCase.
+
+export type CaptureMode = "game" | "window" | "monitor";
+export type ApiSource = "league-live-client" | "cs2-gsi";
+
+export type EventSource =
+  | { type: "vision"; detector: string }
+  | { type: "api"; name: string }
+  | { type: "postMatch"; processor: string }
+  | { type: "manual" };
+
+export interface GameEvent {
+  id?: number;
+  kind: string;
+  tMs: number;
+  source: EventSource;
+  confidence?: number;
+  meta?: any;
+}
+
+export type MatchStatus = "recording" | "processing" | "ready" | "error";
+
+export interface MatchRecord {
+  id: string;
+  gameId: string;
+  gameName: string;
+  path: string;
+  startedUnixMs: number;
+  durationMs: number;
+  sizeBytes: number;
+  status: MatchStatus;
+  title: string | null;
+  favorite: boolean;
+  thumbnail: string | null;
+  eventCounts: Record<string, number>;
+  error: string | null;
+}
+
+export type ClipKind = "auto" | "manual" | "montage";
+
+export interface ClipRecord {
+  id: string;
+  matchId: string | null;
+  path: string;
+  startMs: number;
+  endMs: number;
+  durationMs: number;
+  kind: ClipKind;
+  title: string;
+  eventKinds: string[];
+  createdUnixMs: number;
+  thumbnail: string | null;
+  sizeBytes: number;
+}
+
+export interface Region {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface DetectorDef {
+  id: string;
+  label: string;
+  event: string;
+  region: Region;
+  templateBox?: Region;
+  templates: string[];
+  templateFrameHeight: number;
+  method: "ncc";
+  threshold: number;
+  cooldownMs: number;
+  minConsecutive: number;
+  sampleFps: number;
+  scales: number[];
+  enabled: boolean;
+  notes?: string;
+}
+
+export type GameDetector = DetectorDef & { ready: boolean; user: boolean; templateUrls: string[] };
+
+export interface GameInfo {
+  id: string;
+  name: string;
+  processes: string[];
+  capture: CaptureMode;
+  api: ApiSource | null;
+  preferApi: boolean;
+  autoClipEvents: string[];
+  color: string | null;
+  enabled: boolean;
+  userModified: boolean;
+  detectors: GameDetector[];
+  hasPostMatch: boolean;
+}
+
+export interface GameInput {
+  id: string;
+  name: string;
+  processes: string[];
+  capture: CaptureMode;
+  api: ApiSource | null;
+  preferApi: boolean;
+  autoClipEvents: string[];
+  color: string | null;
+}
+
+export type EncoderChoice = "auto" | "nvenc" | "amf" | "qsv" | "x264";
+
+export interface AutoClipSettings {
+  enabled: boolean;
+  secondsBefore: number;
+  secondsAfter: number;
+  mergeGapSeconds: number;
+  eventsOverride: string[];
+  preciseCuts: boolean;
+}
+
+export interface Settings {
+  recordingsDir: string;
+  fps: number;
+  bitrateKbps: number;
+  outputHeight: number | null;
+  encoder: EncoderChoice;
+  recordDesktopAudio: boolean;
+  recordMicrophone: boolean;
+  microphoneDevice: string | null;
+  bookmarkHotkey: string;
+  manualRecordHotkey: string;
+  autoClip: AutoClipSettings;
+  scanAfterMatch: boolean;
+  analysisHeight: number;
+  gamesEnabled: Record<string, boolean>;
+  storageLimitGb: number | null;
+  notifyOnBookmark: boolean;
+}
+
+export interface RecorderStatus {
+  state: "idle" | "starting" | "recording" | "stopping" | "unavailable";
+  matchId: string | null;
+  gameId: string | null;
+  gameName: string | null;
+  startedUnixMs: number | null;
+  encoder: string | null;
+  capture: CaptureMode | null;
+  bookmarks: number;
+  message: string | null;
+}
+
+export interface StorageInfo {
+  recordingsDir: string;
+  usedBytes: number;
+  freeBytes: number;
+  matchCount: number;
+  clipCount: number;
+}
+
+export type FrameSource = { kind: "video"; path: string; tMs: number } | { kind: "image"; path: string };
+
+export interface FrameResult {
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+export interface TestResult {
+  events: GameEvent[];
+  samples: Array<[number, number]>;
+  durationMs: number;
+}
+
+export interface ProcessingProgress {
+  matchId: string;
+  stage: "scanning" | "postMatch" | "clipping" | "done" | "error";
+  progress: number;
+  message?: string;
+}
+
+export interface MatchDetail {
+  match: MatchRecord;
+  events: GameEvent[];
+  clips: ClipRecord[];
+}
+
+export interface AudioInput {
+  id: string;
+  name: string;
+}
+
+export interface EventMap {
+  "status-changed": RecorderStatus;
+  "library-changed": { matchId?: string };
+  "processing-progress": ProcessingProgress;
+  "bookmark-added": { matchId: string; tMs: number };
+}
