@@ -50,6 +50,9 @@ impl EventSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameEvent {
+    /// Row id when read from the library.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
     /// Event kind, e.g. `kill`. See [`kind`].
     pub kind: String,
     /// Milliseconds from the start of the recording.
@@ -66,6 +69,7 @@ pub struct GameEvent {
 impl GameEvent {
     pub fn new(kind: impl Into<String>, t_ms: u64, source: EventSource) -> Self {
         Self {
+            id: None,
             kind: kind.into(),
             t_ms,
             source,
