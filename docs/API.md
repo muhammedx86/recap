@@ -148,7 +148,9 @@ Arguments are passed as an object with these camelCase keys.
 | `studio_test_detector` | `{ gameId, detector: DetectorDef, matchId }` | `TestResult` (runs the unsaved detector over the recording; templates are read from the game folders) |
 | `studio_delete_detector` | `{ gameId, detectorId }` | `GameInfo` |
 | `open_path` | `{ path }` | `null` (reveal in Explorer) |
-| `file_url` | `{ path }` | `string` — not needed; the UI uses `convertFileSrc(path)` from `@tauri-apps/api/core` for video/images |
+| `refresh` | – | `null` (re-broadcasts `status-changed`) |
+
+Media files are shown with `convertFileSrc(path)` from `@tauri-apps/api/core` (asset protocol); there is no command for it.
 
 Errors are returned as rejected promises with a string message.
 

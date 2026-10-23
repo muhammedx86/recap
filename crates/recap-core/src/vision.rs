@@ -181,8 +181,26 @@ impl PreparedDetector {
         } else {
             crop.clone()
         };
-        self.templates.iter().map(|t| best_zncc(&hay, t)).fold(-1.0, f32::max)
+        self.templates
+            .iter()
+            .map(|t| best_zncc(&pad_to(&hay, t.img.width(), t.img.height()), t))
+            .fold(-1.0, f32::max)
     }
+}
+
+/// Extend `img` by repeating its edge pixels so it is at least `w`x`h` (rounding can leave a
+/// tight search region a pixel smaller than its template).
+fn pad_to(img: &GrayImage, w: u32, h: u32) -> std::borrow::Cow<'_, GrayImage> {
+    if img.width() >= w && img.height() >= h {
+        return std::borrow::Cow::Borrowed(img);
+    }
+    let (nw, nh) = (img.width().max(w), img.height().max(h));
+    let (ox, oy) = ((nw - img.width()) / 2, (nh - img.height()) / 2);
+    std::borrow::Cow::Owned(GrayImage::from_fn(nw, nh, |x, y| {
+        let sx = x.saturating_sub(ox).min(img.width() - 1);
+        let sy = y.saturating_sub(oy).min(img.height() - 1);
+        *img.get_pixel(sx, sy)
+    }))
 }
 
 pub fn load_gray(path: &Path) -> Result<GrayImage> {
@@ -385,6 +403,25 @@ mod tests {
         ];
         let fired: Vec<_> = samples.iter().filter_map(|&(ms, s)| t.push(ms, s)).map(|(ms, _)| ms).collect();
         assert_eq!(fired, vec![200, 2000]);
+    }
+
+    #[test]
+    fn tight_region_still_matches() {
+        // Region exactly the template size at a resolution where rounding shrinks it.
+        let tpl = pattern(41, 25);
+        let mut frame = noise_frame(641, 361, 5);
+        paste(&mut frame, &tpl, 300, 250, 1.0, 0.0);
+        let region = Region {
+            x: 300.0 / 641.0,
+            y: 250.0 / 361.0,
+            w: 41.0 / 641.0,
+            h: 25.0 / 361.0,
+        };
+        let mut d = def(region);
+        d.template_frame_height = 361;
+        let det = PreparedDetector::from_images(d, vec![tpl], 320, 180).unwrap();
+        let small = image::imageops::resize(&frame, 320, 180, FilterType::Triangle);
+        assert!(det.score_frame(&small) > 0.5);
     }
 
     #[test]

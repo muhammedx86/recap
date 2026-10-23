@@ -5,14 +5,24 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc, Arc, Mutex,
+    },
     time::Duration,
 };
 
 use anyhow::{bail, Context, Result};
 use recap_core::protocol::{RecorderCommand, RecorderEvent};
 
-type Handler = Arc<dyn Fn(RecorderEvent) + Send + Sync>;
+/// What the reader thread reports to the app.
+pub enum RecorderSignal {
+    Event(RecorderEvent),
+    /// The process closed its stdout (exited or was killed).
+    Exited,
+}
+
+type Handler = Arc<dyn Fn(RecorderSignal) + Send + Sync>;
 
 struct Proc {
     child: Child,
@@ -27,18 +37,20 @@ pub struct Recorder {
     handler: Handler,
     /// Waiters for an `Encoders` reply.
     encoder_waiters: Arc<Mutex<Vec<mpsc::Sender<Vec<String>>>>>,
+    /// Bumped on every spawn/kill so a dead process's late `Exited` is ignored.
+    generation: Arc<AtomicU64>,
 }
 
 impl Recorder {
-    /// `handler` receives every event except `Encoders` replies (and a synthetic
-    /// `Error { id: None }` when the process exits unexpectedly).
-    pub fn new(exe: PathBuf, log_file: PathBuf, handler: impl Fn(RecorderEvent) + Send + Sync + 'static) -> Self {
+    /// `handler` receives every event except `Encoders` replies, plus `Exited` when the process goes away.
+    pub fn new(exe: PathBuf, log_file: PathBuf, handler: impl Fn(RecorderSignal) + Send + Sync + 'static) -> Self {
         Self {
             exe,
             log_file,
             proc: Mutex::new(None),
             handler: Arc::new(handler),
             encoder_waiters: Arc::default(),
+            generation: Arc::default(),
         }
     }
 
@@ -82,6 +94,8 @@ impl Recorder {
         let stdout = child.stdout.take().context("recorder stdout")?;
         let handler = self.handler.clone();
         let waiters = self.encoder_waiters.clone();
+        let generation = self.generation.clone();
+        let my_gen = generation.fetch_add(1, Ordering::SeqCst) + 1;
         std::thread::Builder::new().name("recorder-reader".into()).spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
@@ -95,14 +109,13 @@ impl Recorder {
                             let _ = w.send(encoders.clone());
                         }
                     }
-                    Ok(ev) => handler(ev),
+                    Ok(ev) => handler(RecorderSignal::Event(ev)),
                     Err(e) => log::warn!("unparseable recorder line {line:?}: {e}"),
                 }
             }
-            handler(RecorderEvent::Error {
-                id: None,
-                message: "recorder process exited".into(),
-            });
+            if generation.load(Ordering::SeqCst) == my_gen {
+                handler(RecorderSignal::Exited);
+            }
         })?;
         log::info!("recorder started (pid {})", child.id());
         Ok(Proc { child, stdin })
@@ -120,17 +133,31 @@ impl Recorder {
         Ok(())
     }
 
+    /// Kill the process (a fresh one is spawned on the next command).
+    pub fn kill(&self) {
+        if let Some(mut p) = self.proc.lock().unwrap().take() {
+            self.generation.fetch_add(1, Ordering::SeqCst);
+            let _ = p.child.kill();
+            let _ = p.child.wait();
+        }
+    }
+
     pub fn list_encoders(&self) -> Result<Vec<String>> {
         let (tx, rx) = mpsc::channel();
         self.encoder_waiters.lock().unwrap().push(tx);
         self.send(&RecorderCommand::ListEncoders)?;
-        rx.recv_timeout(Duration::from_secs(15)).context("recorder did not answer")
+        let res = rx.recv_timeout(Duration::from_secs(15)).context("recorder did not answer");
+        if res.is_err() {
+            self.encoder_waiters.lock().unwrap().clear();
+        }
+        res
     }
 
     /// Ask the recorder to finish and exit; kill it if it does not within a few seconds.
     pub fn shutdown(&self) {
         let mut guard = self.proc.lock().unwrap();
         if let Some(mut p) = guard.take() {
+            self.generation.fetch_add(1, Ordering::SeqCst);
             let _ = writeln!(p.stdin, "{}", serde_json::to_string(&RecorderCommand::Shutdown).unwrap_or_default());
             let _ = p.stdin.flush();
             for _ in 0..50 {

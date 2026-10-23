@@ -26,7 +26,7 @@ use tauri::{
 
 use crate::{
     paths::Paths,
-    recorder::Recorder,
+    recorder::{Recorder, RecorderSignal},
     state::{refresh_status, AppState, RecState, RecorderStatus},
 };
 
@@ -67,9 +67,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let games = load_games(&paths.game_roots());
 
     let rec_app = handle.clone();
-    let recorder = Recorder::new(paths.recorder_exe.clone(), paths.data_dir.join("recorder.log"), move |ev| {
-        session::on_recorder_event(&rec_app, ev)
-    });
+    let recorder = Recorder::new(
+        paths.recorder_exe.clone(),
+        paths.data_dir.join("recorder.log"),
+        move |sig| match sig {
+            RecorderSignal::Event(ev) => session::on_recorder_event(&rec_app, ev),
+            RecorderSignal::Exited => session::on_recorder_exited(&rec_app),
+        },
+    );
     let available = recorder.available();
     let token = gsi_token(&paths);
 
@@ -92,7 +97,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Recordings cut short by a crash still have a playable (hybrid MP4) file: process them.
     for m in interrupted {
         if std::path::Path::new(&m.path).exists() {
-            processing::spawn(handle.clone(), m.id, false);
+            processing::spawn(handle.clone(), m.id, true);
         }
     }
 
@@ -200,9 +205,15 @@ pub fn run() {
 
     app.run(|app, event| {
         if let RunEvent::Exit = event {
-            // Stop cleanly so the recorder finalises the file.
+            // Stop cleanly and give the recorder time to finalise the file.
             let _ = session::stop(app);
             if let Some(st) = app.try_state::<AppState>() {
+                for _ in 0..150 {
+                    if st.session.lock().unwrap().is_none() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
                 st.recorder.shutdown();
             }
         }

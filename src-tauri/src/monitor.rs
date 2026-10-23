@@ -24,13 +24,16 @@ pub fn spawn(app: AppHandle) {
                     true,
                     ProcessRefreshKind::nothing().with_exe(UpdateKind::OnlyIfNotSet),
                 );
-                // exe name (lowercase) -> pid
-                let running: HashMap<String, u32> = sys
-                    .processes()
-                    .iter()
-                    .map(|(pid, p)| (p.name().to_string_lossy().to_lowercase(), pid.as_u32()))
-                    .collect();
-                handled.retain(|pid| running.values().any(|p| p == pid));
+                // exe name (lowercase) -> pids (several processes can share a name)
+                let mut running: HashMap<String, Vec<u32>> = HashMap::new();
+                for (pid, p) in sys.processes() {
+                    running
+                        .entry(p.name().to_string_lossy().to_lowercase())
+                        .or_default()
+                        .push(pid.as_u32());
+                }
+                let alive: HashSet<u32> = running.values().flatten().copied().collect();
+                handled.retain(|pid| alive.contains(pid));
                 tick(&app, &running, &mut handled);
                 std::thread::sleep(Duration::from_secs(2));
             }
@@ -38,13 +41,13 @@ pub fn spawn(app: AppHandle) {
         .expect("spawn monitor");
 }
 
-fn tick(app: &AppHandle, running: &HashMap<String, u32>, handled: &mut HashSet<u32>) {
+fn tick(app: &AppHandle, running: &HashMap<String, Vec<u32>>, handled: &mut HashSet<u32>) {
     let st = state(app);
     // Is the current game session's process gone?
     let active = st.session.lock().unwrap().as_ref().map(|s| (s.game.is_some(), s.pid, s.stopping));
     match active {
         Some((true, Some(pid), false)) => {
-            if !running.values().any(|&p| p == pid) {
+            if !running.values().flatten().any(|&p| p == pid) {
                 log::info!("game process {pid} exited; stopping recording");
                 let _ = session::stop(app);
             }
@@ -57,7 +60,7 @@ fn tick(app: &AppHandle, running: &HashMap<String, u32>, handled: &mut HashSet<u
                 let hit = g.def.processes.iter().find_map(|p| {
                     running
                         .get(&p.to_lowercase())
-                        .filter(|pid| !handled.contains(pid))
+                        .and_then(|pids| pids.iter().find(|pid| !handled.contains(pid)))
                         .map(|pid| (*pid, p.clone()))
                 });
                 if let Some((pid, exe)) = hit {

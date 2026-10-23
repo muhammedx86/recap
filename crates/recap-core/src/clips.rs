@@ -177,7 +177,14 @@ pub fn concat(ff: &Ffmpeg, inputs: &[PathBuf], out: &Path) -> Result<()> {
     ));
     let list_body: String = inputs
         .iter()
-        .map(|p| fs::canonicalize(p).unwrap_or_else(|_| p.clone()))
+        // Plain absolute paths: canonicalize() would add a Windows `\\?\` prefix ffmpeg's concat demuxer dislikes.
+        .map(|p| {
+            if p.is_absolute() {
+                p.clone()
+            } else {
+                std::env::current_dir().map(|d| d.join(p)).unwrap_or_else(|_| p.clone())
+            }
+        })
         .map(|p| concat_entry(&p))
         .collect();
     fs::write(&list, list_body)?;

@@ -328,32 +328,40 @@ pub fn enforce_storage_limit(app: &AppHandle) {
         return;
     };
     let limit = (limit_gb as f64 * 1024.0 * 1024.0 * 1024.0) as u64;
-    let lib = st.library.lock().unwrap();
-    let Ok(all) = lib.list_matches(None) else { return };
-    let mut used: u64 = all.iter().map(|m| m.size_bytes).sum();
-    if used <= limit {
-        return;
-    }
-    let Ok(candidates) = lib.oldest_deletable_matches() else { return };
+    // Lock order: never hold the library lock while taking session/processing.
     let active = st.session.lock().unwrap().as_ref().map(|s| s.match_id.clone());
+    let busy = st.processing.lock().unwrap().clone();
+    let (mut used, candidates) = {
+        let lib = st.library.lock().unwrap();
+        let Ok(all) = lib.list_matches(None) else { return };
+        let used: u64 = all.iter().map(|m| m.size_bytes).sum();
+        if used <= limit {
+            return;
+        }
+        let Ok(c) = lib.oldest_deletable_matches() else { return };
+        (used, c)
+    };
+    let mut deleted = false;
     for m in candidates {
         if used <= limit {
             break;
         }
-        if Some(&m.id) == active.as_ref() || st.processing.lock().unwrap().contains(&m.id) {
+        if Some(&m.id) == active.as_ref() || busy.contains(&m.id) {
             continue;
         }
         log::info!("storage limit: deleting {} ({} bytes)", m.path, m.size_bytes);
-        let _ = fs::remove_file(&m.path);
-        if let Some(t) = &m.thumbnail {
-            let _ = fs::remove_file(t);
-        }
-        if lib.delete_match(&m.id).is_ok() {
+        if st.library.lock().unwrap().delete_match(&m.id).is_ok() {
+            let _ = fs::remove_file(&m.path);
+            if let Some(t) = &m.thumbnail {
+                let _ = fs::remove_file(t);
+            }
             used = used.saturating_sub(m.size_bytes);
+            deleted = true;
         }
     }
-    drop(lib);
-    let _ = app.emit("library-changed", serde_json::json!({}));
+    if deleted {
+        let _ = app.emit("library-changed", serde_json::json!({}));
+    }
 }
 
 #[cfg(test)]

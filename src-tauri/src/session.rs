@@ -31,8 +31,7 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
     if !st.recorder.available() {
         bail!("The recorder is not installed (missing {}).", st.paths.recorder_exe.display());
     }
-    let mut session_guard = st.session.lock().unwrap();
-    if session_guard.is_some() {
+    if st.session.lock().unwrap().is_some() {
         bail!("Already recording");
     }
 
@@ -94,10 +93,18 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
         event_counts: Default::default(),
         error: None,
     };
+    // Never hold the session lock while taking the library lock (lock order: library, then session).
     st.library.lock().unwrap().insert_match(&record)?;
 
     let stop_flag = Arc::new(AtomicBool::new(false));
     let api = game.as_ref().and_then(|g| g.def.api);
+    let mut session_guard = st.session.lock().unwrap();
+    if session_guard.is_some() {
+        // Lost a race with another start: discard our row.
+        drop(session_guard);
+        let _ = st.library.lock().unwrap().delete_match(&match_id);
+        bail!("Already recording");
+    }
     *session_guard = Some(Session {
         match_id: match_id.clone(),
         game,
@@ -176,7 +183,9 @@ pub fn stop(app: &AppHandle) -> Result<()> {
             .as_ref()
             .is_some_and(|s| s.match_id == match_id);
         if still {
-            log::warn!("recorder did not confirm stop; finalising {match_id}");
+            log::warn!("recorder did not confirm stop; restarting it and finalising {match_id}");
+            // Kill the stuck recorder so the next recording starts on a fresh process.
+            state(&app2).recorder.kill();
             finalize(&app2, &match_id, None);
         }
     });
@@ -239,6 +248,25 @@ fn finalize(app: &AppHandle, match_id: &str, duration_ms: Option<u64>) {
     }
 }
 
+/// The recorder process exited (crash or kill). Keep whatever was written.
+pub fn on_recorder_exited(app: &AppHandle) {
+    let st = state(app);
+    let current = st
+        .session
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|s| (s.match_id.clone(), s.started.is_some()));
+    match current {
+        Some((mid, true)) => {
+            finalize(app, &mid, None);
+            refresh_status(app, Some("The recorder stopped unexpectedly; the recording was saved".into()));
+        }
+        Some((mid, false)) => fail_start(app, &mid, "The recorder stopped unexpectedly"),
+        None => refresh_status(app, None),
+    }
+}
+
 /// Called on the recorder reader thread.
 pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
     log::debug!("recorder: {ev:?}");
@@ -260,6 +288,13 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
                 if let Some(s) = guard.as_mut().filter(|s| s.match_id == id) {
                     s.started = Some(Instant::now());
                     s.started_unix_ms = started_unix_ms;
+                }
+            }
+            {
+                let lib = st.library.lock().unwrap();
+                if let Ok(Some(mut m)) = lib.get_match(&id) {
+                    m.started_unix_ms = started_unix_ms;
+                    let _ = lib.update_match(&m);
                 }
             }
             {
@@ -288,10 +323,11 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
                 .unwrap()
                 .as_ref()
                 .map(|s| (s.match_id.clone(), s.started.is_some()));
-            match current {
-                Some((mid, started)) if id.as_deref().is_none_or(|i| i == mid) => {
+            match (current, id) {
+                // Only an error about *this* recording ends it; id-less errors (bad command,
+                // encoder listing) are informational.
+                (Some((mid, started)), Some(eid)) if eid == mid => {
                     if started {
-                        // Mid-recording failure: keep whatever was written.
                         finalize(app, &mid, None);
                         refresh_status(app, Some(message));
                     } else {

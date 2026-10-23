@@ -27,7 +27,11 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 }
 
 fn changed(app: &AppHandle, match_id: Option<&str>) {
-    let _ = app.emit("library-changed", serde_json::json!({ "matchId": match_id }));
+    let payload = match match_id {
+        Some(id) => serde_json::json!({ "matchId": id }),
+        None => serde_json::json!({}),
+    };
+    let _ = app.emit("library-changed", payload);
 }
 
 #[tauri::command]
@@ -284,9 +288,10 @@ pub struct GameInput {
 
 #[tauri::command]
 pub fn save_game(st: State<'_, AppState>, game: GameInput) -> CmdResult<GameInfo> {
-    let existing = st.game(&game.id);
+    let id = game.id.trim().to_lowercase();
+    let existing = st.game(&id);
     let def = GameDef {
-        id: game.id.trim().to_lowercase(),
+        id,
         name: game.name.trim().to_string(),
         processes: game
             .processes
@@ -333,17 +338,20 @@ pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settin
     if !settings.recordings_dir.trim().is_empty() {
         fs::create_dir_all(settings.recordings_dir.trim()).map_err(|e| format!("Cannot use that recordings folder: {e}"))?;
     }
-    let hotkeys_changed = {
-        let mut s = st.settings.write().unwrap();
-        let hk = s.bookmark_hotkey != settings.bookmark_hotkey || s.manual_record_hotkey != settings.manual_record_hotkey;
-        *s = settings.clone();
-        s.save(&st.paths.settings_file).map_err(err)?;
-        hk
-    };
+    let previous = std::mem::replace(&mut *st.settings.write().unwrap(), settings.clone());
+    let hotkeys_changed =
+        previous.bookmark_hotkey != settings.bookmark_hotkey || previous.manual_record_hotkey != settings.manual_record_hotkey;
     if hotkeys_changed {
-        hotkeys::register(&app).map_err(err)?;
+        if let Err(e) = hotkeys::register(&app) {
+            // Roll back so a bad hotkey never gets saved.
+            *st.settings.write().unwrap() = previous;
+            let _ = hotkeys::register(&app);
+            return Err(err(e));
+        }
     }
-    processing::enforce_storage_limit(&app);
+    st.settings.read().unwrap().save(&st.paths.settings_file).map_err(err)?;
+    let app2 = app.clone();
+    std::thread::spawn(move || processing::enforce_storage_limit(&app2));
     Ok(settings)
 }
 

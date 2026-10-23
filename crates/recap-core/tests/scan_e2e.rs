@@ -12,7 +12,11 @@ use recap_core::{
 };
 
 fn have(bin: &str) -> bool {
-    Command::new(bin).arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
+    Command::new(bin)
+        .arg("-version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn banner(w: u32, h: u32) -> GrayImage {
@@ -64,7 +68,12 @@ fn finds_banner_appearances_in_a_real_video() {
         label: "Kill".into(),
         event: "kill".into(),
         // Template box plus a margin, as Detector Studio saves it.
-        region: Region { x: 540.0 / 1280.0, y: 490.0 / 720.0, w: 200.0 / 1280.0, h: 120.0 / 720.0 },
+        region: Region {
+            x: 540.0 / 1280.0,
+            y: 490.0 / 720.0,
+            w: 200.0 / 1280.0,
+            h: 120.0 / 720.0,
+        },
         template_box: None,
         templates: vec!["templates/kill.png".into()],
         template_frame_height: 720,
@@ -77,18 +86,43 @@ fn finds_banner_appearances_in_a_real_video() {
         enabled: true,
         notes: None,
     };
-    let det = LoadedDetector { def, base_dir: dir.path().to_path_buf(), user: true };
-    let ff = Ffmpeg { ffmpeg: "ffmpeg".into(), ffprobe: "ffprobe".into() };
+    let det = LoadedDetector {
+        def,
+        base_dir: dir.path().to_path_buf(),
+        user: true,
+    };
+    let ff = Ffmpeg {
+        ffmpeg: "ffmpeg".into(),
+        ffprobe: "ffprobe".into(),
+    };
     // Scan at 540p to also exercise template rescaling (template was cut at 720p).
-    let res = scan_video(&ff, &video, &[det], ScanOptions { analysis_height: 540, keep_traces: true, ..Default::default() }).unwrap();
+    let res = scan_video(
+        &ff,
+        &video,
+        &[det],
+        ScanOptions {
+            analysis_height: 540,
+            keep_traces: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let times: Vec<u64> = res.events.iter().map(|e| e.t_ms).collect();
     assert_eq!(times.len(), 2, "events: {times:?}");
     assert!((2800..=3400).contains(&times[0]), "first at {}", times[0]);
     assert!((7800..=8400).contains(&times[1]), "second at {}", times[1]);
     let trace = &res.traces[0].samples;
-    let peak_on = trace.iter().filter(|(t, _)| (3200..4300).contains(t)).map(|s| s.1).fold(0.0, f32::max);
-    let peak_off = trace.iter().filter(|(t, _)| (5000..7500).contains(t)).map(|s| s.1).fold(-1.0, f32::max);
+    let peak_on = trace
+        .iter()
+        .filter(|(t, _)| (3200..4300).contains(t))
+        .map(|s| s.1)
+        .fold(0.0, f32::max);
+    let peak_off = trace
+        .iter()
+        .filter(|(t, _)| (5000..7500).contains(t))
+        .map(|s| s.1)
+        .fold(-1.0, f32::max);
     assert!(peak_on > 0.85, "on-screen score {peak_on}");
     assert!(peak_off < 0.5, "off-screen score {peak_off}");
 }

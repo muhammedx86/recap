@@ -41,9 +41,14 @@ pub fn spawn_league_poller(app: AppHandle, match_id: String, stop: Arc<AtomicBoo
                     let st = state(&app);
                     let guard = st.session.lock().unwrap();
                     match guard.as_ref() {
-                        Some(s) if s.match_id == match_id => s.elapsed_ms(),
+                        Some(s) if s.match_id == match_id => s.started.map(|_| s.elapsed_ms()),
                         _ => break,
                     }
+                };
+                // Before the first frame there is nothing to put events on.
+                let Some(elapsed) = elapsed else {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
                 };
                 if let Ok(resp) = client.get(LIVE_CLIENT_ALLGAMEDATA).send() {
                     if let Ok(json) = resp.json::<serde_json::Value>() {
@@ -98,8 +103,12 @@ pub fn start_cs2_gsi(app: AppHandle) {
                     let mut guard = st.session.lock().unwrap();
                     let Some(s) = guard.as_mut() else { continue };
                     let elapsed = s.elapsed_ms();
+                    let started = s.started.is_some();
                     let Some(tracker) = s.cs2.as_mut() else { continue };
-                    (s.match_id.clone(), tracker.ingest(&payload, elapsed))
+                    // Always ingest (keeps the tracker's baseline current) but only keep
+                    // events once the recording has its first frame.
+                    let events = tracker.ingest(&payload, elapsed);
+                    (s.match_id.clone(), if started { events } else { Vec::new() })
                 };
                 add_live_events(&app, &match_id, events);
             }

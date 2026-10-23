@@ -74,12 +74,22 @@ pub fn save_detector(st: &AppState, game_id: &str, mut det: DetectorDef, source:
         if w < 6 || h < 6 {
             bail!("the selected box is too small; drag a larger rectangle");
         }
-        let crop = img.crop_imm(x, y, w, h);
+        let mut crop = img.crop_imm(x, y, w, h);
+        let has_existing = !det.templates.is_empty() && det.template_frame_height > 0;
+        if has_existing && det.template_frame_height != img.height() {
+            // All templates of a detector share one reference height: rescale this crop to it.
+            let f = det.template_frame_height as f32 / img.height() as f32;
+            let nw = ((w as f32 * f).round() as u32).max(4);
+            let nh = ((h as f32 * f).round() as u32).max(4);
+            crop = crop.resize_exact(nw, nh, image::imageops::FilterType::Triangle);
+        }
         let mut png = Vec::new();
         crop.write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)?;
         let name = format!("{}-{}.png", det.id, chrono::Local::now().format("%Y%m%d-%H%M%S"));
         det.templates.push(format!("templates/{name}"));
-        det.template_frame_height = img.height();
+        if !has_existing {
+            det.template_frame_height = img.height();
+        }
         det.template_box = Some(bx);
         new_template = Some((name, png));
     }
