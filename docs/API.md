@@ -122,7 +122,7 @@ Arguments are passed as an object with these camelCase keys.
 | `get_status` | – | `RecorderStatus` |
 | `list_matches` | `{ gameId?: string }` | `MatchRecord[]` (newest first) |
 | `get_match` | `{ id }` | `{ match: MatchRecord; events: GameEvent[]; clips: ClipRecord[] }` |
-| `update_match` | `{ id, title?: string \| null, favorite?: boolean }` | `MatchRecord` |
+| `update_match` | `{ id, title?: string, favorite?: boolean }` (title `""` clears it) | `MatchRecord` |
 | `delete_match` | `{ id, deleteFiles: boolean }` | `null` |
 | `add_event` | `{ matchId, kind, tMs }` | `GameEvent` (manual marker from the player) |
 | `delete_event` | `{ matchId, eventId }` | `null` |

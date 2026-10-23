@@ -1,5 +1,35 @@
 [package]
-name="recap-recorder"
-version.workspace=true
-edition.workspace=true
-license.workspace=true
+name = "recap-recorder"
+description = "Recap's recording sidecar: a small libobs host driven by JSON lines over stdin/stdout."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "recap-recorder"
+path = "src/main.rs"
+
+[features]
+# Type-check the OBS backend on Linux (needs libclang; run with LIBOBS_PATH set to any
+# directory so the libobs build script skips pkg-config). Never used for real builds.
+linux-typecheck = ["dep:libobs-wrapper", "dep:libobs-simple"]
+
+[dependencies]
+recap-core = { path = "../recap-core" }
+anyhow.workspace = true
+serde_json.workspace = true
+
+# The real backend is Windows-only.
+[target.'cfg(windows)'.dependencies]
+libobs-wrapper = { version = "9.0.4", default-features = false, features = ["enable_runtime", "logging_crash_handler"] }
+libobs-simple = { version = "8.0.1", default-features = false, features = ["window-list", "enable_runtime"] }
+
+[target.'cfg(not(windows))'.dependencies]
+libobs-wrapper = { version = "9.0.4", default-features = false, features = ["enable_runtime", "logging_crash_handler"], optional = true }
+libobs-simple = { version = "8.0.1", default-features = false, features = ["enable_runtime"], optional = true }
+
+# Read by `cargo obs-build` (run it from this folder) to download the OBS binaries.
+# Must match the `libobs` crate that libobs-wrapper resolves to in Cargo.lock
+# (libobs 5.0.1+32.0.4 -> OBS 32.0.4). Bump both together.
+[package.metadata]
+libobs-version = "32.0.4"

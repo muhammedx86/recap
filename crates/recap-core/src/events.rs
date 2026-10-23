@@ -124,9 +124,14 @@ mod tests {
 
     #[test]
     fn merge_prefers_exact_source() {
-        let vision = GameEvent::new(kind::KILL, 10_000, EventSource::Vision { detector: "k".into() })
-            .with_confidence(0.9);
-        let api = GameEvent::new(kind::KILL, 10_400, EventSource::Api { name: "league-live-client".into() });
+        let vision = GameEvent::new(kind::KILL, 10_000, EventSource::Vision { detector: "k".into() }).with_confidence(0.9);
+        let api = GameEvent::new(
+            kind::KILL,
+            10_400,
+            EventSource::Api {
+                name: "league-live-client".into(),
+            },
+        );
         let other = GameEvent::new(kind::KILL, 30_000, EventSource::Vision { detector: "k".into() });
         let merged = merge_events(vec![vision, api.clone(), other], 1500);
         assert_eq!(merged.len(), 2);

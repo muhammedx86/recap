@@ -2,7 +2,9 @@
 node_modules/
 ui/dist/
 src-tauri/gen/
-src-tauri/binaries/
-src-tauri/obs/
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/obs/*
+!src-tauri/obs/.gitkeep
 *.log
 .DS_Store

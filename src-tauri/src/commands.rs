@@ -1,0 +1,490 @@
+//! Tauri commands. Signatures follow docs/API.md exactly.
+
+use std::{fs, path::Path};
+
+use recap_core::{
+    clips::concat,
+    events::{EventSource, GameEvent},
+    games::{delete_user_detector, save_user_game, ApiSource, AutoClipDef, CaptureMode, DetectorDef, GameDef, Region},
+    library::{ClipKind, ClipRecord, MatchRecord},
+    settings::Settings,
+};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, State};
+
+use crate::{
+    hotkeys,
+    processing::{self, clips_dir, unique_path},
+    session,
+    state::{now_unix_ms, refresh_status, AppState, GameInfo, RecorderStatus},
+    studio::{self, FrameResult, FrameSource, TestResult},
+};
+
+type CmdResult<T> = Result<T, String>;
+
+fn err<E: std::fmt::Display>(e: E) -> String {
+    format!("{e:#}")
+}
+
+fn changed(app: &AppHandle, match_id: Option<&str>) {
+    let _ = app.emit("library-changed", serde_json::json!({ "matchId": match_id }));
+}
+
+#[tauri::command]
+pub fn get_status(st: State<'_, AppState>) -> RecorderStatus {
+    st.status.read().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn list_matches(st: State<'_, AppState>, game_id: Option<String>) -> CmdResult<Vec<MatchRecord>> {
+    st.library.lock().unwrap().list_matches(game_id.as_deref()).map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct MatchDetail {
+    #[serde(rename = "match")]
+    m: MatchRecord,
+    events: Vec<GameEvent>,
+    clips: Vec<ClipRecord>,
+}
+
+#[tauri::command]
+pub fn get_match(st: State<'_, AppState>, id: String) -> CmdResult<MatchDetail> {
+    let lib = st.library.lock().unwrap();
+    let m = lib.get_match(&id).map_err(err)?.ok_or("Recording not found")?;
+    Ok(MatchDetail {
+        events: lib.list_events(&id).map_err(err)?,
+        clips: lib.list_clips(Some(&id)).map_err(err)?,
+        m,
+    })
+}
+
+#[tauri::command]
+pub fn update_match(
+    app: AppHandle,
+    st: State<'_, AppState>,
+    id: String,
+    title: Option<String>,
+    favorite: Option<bool>,
+) -> CmdResult<MatchRecord> {
+    let lib = st.library.lock().unwrap();
+    let mut m = lib.get_match(&id).map_err(err)?.ok_or("Recording not found")?;
+    // An empty title clears it (JSON null cannot be told apart from "not provided").
+    if let Some(t) = title {
+        let t = t.trim().to_string();
+        m.title = (!t.is_empty()).then_some(t);
+    }
+    if let Some(f) = favorite {
+        m.favorite = f;
+    }
+    lib.update_match(&m).map_err(err)?;
+    let m = lib.get_match(&id).map_err(err)?.ok_or("Recording not found")?;
+    drop(lib);
+    changed(&app, Some(&id));
+    Ok(m)
+}
+
+#[tauri::command]
+pub fn delete_match(app: AppHandle, st: State<'_, AppState>, id: String, delete_files: bool) -> CmdResult<()> {
+    if st.session.lock().unwrap().as_ref().is_some_and(|s| s.match_id == id) {
+        return Err("This match is still recording".into());
+    }
+    if st.processing.lock().unwrap().contains(&id) {
+        return Err("This match is still processing".into());
+    }
+    let removed = st.library.lock().unwrap().delete_match(&id).map_err(err)?;
+    if let Some(m) = removed {
+        if let Some(t) = &m.thumbnail {
+            let _ = fs::remove_file(t);
+        }
+        if delete_files {
+            fs::remove_file(&m.path)
+                .or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+                .map_err(err)?;
+        }
+    }
+    changed(&app, Some(&id));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn add_event(app: AppHandle, st: State<'_, AppState>, match_id: String, kind: String, t_ms: u64) -> CmdResult<GameEvent> {
+    let kind = kind.trim().to_lowercase();
+    if kind.is_empty() {
+        return Err("Event kind is required".into());
+    }
+    let ev = GameEvent::new(kind, t_ms, EventSource::Manual);
+    let mut stored = st.library.lock().unwrap().add_events(&match_id, &[ev]).map_err(err)?;
+    changed(&app, Some(&match_id));
+    stored.pop().ok_or_else(|| "Event not stored".into())
+}
+
+#[tauri::command]
+pub fn delete_event(app: AppHandle, st: State<'_, AppState>, match_id: String, event_id: i64) -> CmdResult<()> {
+    st.library.lock().unwrap().delete_event(&match_id, event_id).map_err(err)?;
+    changed(&app, Some(&match_id));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn rescan_match(app: AppHandle, st: State<'_, AppState>, id: String) -> CmdResult<()> {
+    if st.session.lock().unwrap().as_ref().is_some_and(|s| s.match_id == id) {
+        return Err("This match is still recording".into());
+    }
+    processing::spawn(app, id, true);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_clips(st: State<'_, AppState>, match_id: Option<String>) -> CmdResult<Vec<ClipRecord>> {
+    st.library.lock().unwrap().list_clips(match_id.as_deref()).map_err(err)
+}
+
+#[tauri::command]
+pub async fn create_clip(app: AppHandle, match_id: String, start_ms: u64, end_ms: u64, title: Option<String>) -> CmdResult<ClipRecord> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = crate::state::state(&app);
+        let (m, events) = {
+            let lib = st.library.lock().unwrap();
+            let m = lib.get_match(&match_id).map_err(err)?.ok_or("Recording not found")?;
+            let ev = lib.list_events(&match_id).map_err(err)?;
+            (m, ev)
+        };
+        let end_ms = if m.duration_ms > 0 { end_ms.min(m.duration_ms) } else { end_ms };
+        let title = title
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| format!("{} clip", m.game_name));
+        let clip = processing::make_clip(&st, &m, start_ms, end_ms, &title, ClipKind::Manual, &events).map_err(err)?;
+        changed(&app, Some(&match_id));
+        Ok(clip)
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn create_montage(app: AppHandle, clip_ids: Vec<String>, title: String) -> CmdResult<ClipRecord> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = crate::state::state(&app);
+        if clip_ids.len() < 2 {
+            return Err("Pick at least two clips".to_string());
+        }
+        let clips: Vec<ClipRecord> = {
+            let lib = st.library.lock().unwrap();
+            clip_ids
+                .iter()
+                .map(|id| lib.get_clip(id).map_err(err)?.ok_or_else(|| format!("Clip {id} not found")))
+                .collect::<Result<_, _>>()?
+        };
+        let inputs: Vec<_> = clips.iter().map(|c| std::path::PathBuf::from(&c.path)).collect();
+        let title = if title.trim().is_empty() {
+            "Montage".to_string()
+        } else {
+            title.trim().to_string()
+        };
+        let dir = clips_dir(&st, "Montages");
+        fs::create_dir_all(&dir).map_err(err)?;
+        let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+        let out = unique_path(&dir, &format!("{stamp}_{}", crate::paths::sanitize(&title)), "mp4");
+        concat(&st.ff, &inputs, &out).map_err(err)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let thumb = st.paths.thumbnails.join(format!("clip-{id}.jpg"));
+        let thumbnail = st
+            .ff
+            .thumbnail(&out, 1000, &thumb, 360)
+            .ok()
+            .map(|_| thumb.to_string_lossy().into_owned());
+        let duration_ms = st
+            .ff
+            .probe(&out)
+            .map(|i| i.duration_ms)
+            .unwrap_or_else(|_| clips.iter().map(|c| c.duration_ms).sum());
+        let mut kinds: Vec<String> = clips.iter().flat_map(|c| c.event_kinds.clone()).collect();
+        kinds.sort();
+        kinds.dedup();
+        let clip = ClipRecord {
+            id,
+            match_id: None,
+            path: out.to_string_lossy().into_owned(),
+            start_ms: 0,
+            end_ms: duration_ms,
+            duration_ms,
+            kind: ClipKind::Montage,
+            title,
+            event_kinds: kinds,
+            created_unix_ms: now_unix_ms(),
+            thumbnail,
+            size_bytes: fs::metadata(&out).map(|m| m.len()).unwrap_or(0),
+        };
+        st.library.lock().unwrap().insert_clip(&clip).map_err(err)?;
+        changed(&app, None);
+        Ok(clip)
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub fn update_clip(app: AppHandle, st: State<'_, AppState>, id: String, title: String) -> CmdResult<ClipRecord> {
+    let c = st
+        .library
+        .lock()
+        .unwrap()
+        .update_clip_title(&id, title.trim())
+        .map_err(err)?
+        .ok_or("Clip not found")?;
+    changed(&app, c.match_id.as_deref());
+    Ok(c)
+}
+
+#[tauri::command]
+pub fn delete_clip(app: AppHandle, st: State<'_, AppState>, id: String, delete_file: bool) -> CmdResult<()> {
+    let c = st.library.lock().unwrap().delete_clip(&id).map_err(err)?;
+    if let Some(c) = c {
+        if let Some(t) = &c.thumbnail {
+            let _ = fs::remove_file(t);
+        }
+        if delete_file {
+            let _ = fs::remove_file(&c.path);
+        }
+        changed(&app, c.match_id.as_deref());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_games(st: State<'_, AppState>) -> Vec<GameInfo> {
+    st.games.read().unwrap().iter().map(|g| st.game_info(g)).collect()
+}
+
+#[tauri::command]
+pub fn set_game_enabled(st: State<'_, AppState>, game_id: String, enabled: bool) -> CmdResult<GameInfo> {
+    let game = st.game(&game_id).ok_or("Unknown game")?;
+    {
+        let mut s = st.settings.write().unwrap();
+        s.games_enabled.insert(game_id, enabled);
+        s.save(&st.paths.settings_file).map_err(err)?;
+    }
+    Ok(st.game_info(&game))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameInput {
+    id: String,
+    name: String,
+    processes: Vec<String>,
+    capture: CaptureMode,
+    api: Option<ApiSource>,
+    prefer_api: bool,
+    auto_clip_events: Vec<String>,
+    color: Option<String>,
+}
+
+#[tauri::command]
+pub fn save_game(st: State<'_, AppState>, game: GameInput) -> CmdResult<GameInfo> {
+    let existing = st.game(&game.id);
+    let def = GameDef {
+        id: game.id.trim().to_lowercase(),
+        name: game.name.trim().to_string(),
+        processes: game
+            .processes
+            .into_iter()
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect(),
+        capture: game.capture,
+        api: game.api,
+        prefer_api: game.prefer_api,
+        auto_clip: AutoClipDef {
+            events: if game.auto_clip_events.is_empty() {
+                AutoClipDef::default().events
+            } else {
+                game.auto_clip_events
+            },
+        },
+        post_match: existing.map(|g| g.def.post_match).unwrap_or_default(),
+        color: game.color,
+    };
+    if def.name.is_empty() {
+        return Err("Name is required".into());
+    }
+    save_user_game(&st.paths.user_games, &def).map_err(err)?;
+    st.reload_games();
+    st.game(&def.id)
+        .map(|g| st.game_info(&g))
+        .ok_or_else(|| "Game was saved but could not be loaded".into())
+}
+
+#[tauri::command]
+pub fn get_settings(st: State<'_, AppState>) -> Settings {
+    st.settings.read().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settings) -> CmdResult<Settings> {
+    if settings.fps == 0 || settings.fps > 240 {
+        return Err("FPS must be between 1 and 240".into());
+    }
+    if settings.bitrate_kbps < 500 {
+        return Err("Bitrate must be at least 500 kbps".into());
+    }
+    if !settings.recordings_dir.trim().is_empty() {
+        fs::create_dir_all(settings.recordings_dir.trim()).map_err(|e| format!("Cannot use that recordings folder: {e}"))?;
+    }
+    let hotkeys_changed = {
+        let mut s = st.settings.write().unwrap();
+        let hk = s.bookmark_hotkey != settings.bookmark_hotkey || s.manual_record_hotkey != settings.manual_record_hotkey;
+        *s = settings.clone();
+        s.save(&st.paths.settings_file).map_err(err)?;
+        hk
+    };
+    if hotkeys_changed {
+        hotkeys::register(&app).map_err(err)?;
+    }
+    processing::enforce_storage_limit(&app);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub async fn list_encoders(app: AppHandle) -> CmdResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || crate::state::state(&app).recorder.list_encoders().map_err(err))
+        .await
+        .map_err(err)?
+}
+
+#[derive(Serialize)]
+pub struct AudioInput {
+    id: String,
+    name: String,
+}
+
+#[tauri::command]
+pub fn list_audio_inputs() -> Vec<AudioInput> {
+    // The recorder records the system default microphone ("default"). Device enumeration
+    // can be added later through the recorder protocol.
+    vec![AudioInput {
+        id: "default".into(),
+        name: "System default microphone".into(),
+    }]
+}
+
+#[tauri::command]
+pub fn start_manual_recording(app: AppHandle, st: State<'_, AppState>) -> CmdResult<RecorderStatus> {
+    session::start(&app, None, None).map_err(err)?;
+    Ok(st.status.read().unwrap().clone())
+}
+
+#[tauri::command]
+pub fn stop_recording(app: AppHandle, st: State<'_, AppState>) -> CmdResult<RecorderStatus> {
+    session::stop(&app).map_err(err)?;
+    Ok(st.status.read().unwrap().clone())
+}
+
+#[tauri::command]
+pub fn add_bookmark(app: AppHandle) {
+    session::bookmark(&app);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageInfo {
+    recordings_dir: String,
+    used_bytes: u64,
+    free_bytes: u64,
+    match_count: usize,
+    clip_count: usize,
+}
+
+#[tauri::command]
+pub fn get_storage(st: State<'_, AppState>) -> CmdResult<StorageInfo> {
+    let dir = st.recordings_dir();
+    let lib = st.library.lock().unwrap();
+    let matches = lib.list_matches(None).map_err(err)?;
+    let clips = lib.list_clips(None).map_err(err)?;
+    drop(lib);
+    let used = matches.iter().map(|m| m.size_bytes).sum::<u64>() + clips.iter().map(|c| c.size_bytes).sum::<u64>();
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let probe = if dir.exists() {
+        dir.clone()
+    } else {
+        dir.ancestors().find(|p| p.exists()).map(Path::to_path_buf).unwrap_or_default()
+    };
+    let free = disks
+        .list()
+        .iter()
+        .filter(|d| probe.starts_with(d.mount_point()))
+        .max_by_key(|d| d.mount_point().as_os_str().len())
+        .map(|d| d.available_space())
+        .unwrap_or(0);
+    Ok(StorageInfo {
+        recordings_dir: dir.to_string_lossy().into_owned(),
+        used_bytes: used,
+        free_bytes: free,
+        match_count: matches.len(),
+        clip_count: clips.len(),
+    })
+}
+
+#[tauri::command]
+pub async fn studio_load_frame(app: AppHandle, source: FrameSource) -> CmdResult<FrameResult> {
+    tauri::async_runtime::spawn_blocking(move || studio::load_frame(&crate::state::state(&app), &source).map_err(err))
+        .await
+        .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn studio_save_detector(
+    app: AppHandle,
+    game_id: String,
+    detector: DetectorDef,
+    source: FrameSource,
+    template_box: Option<Region>,
+) -> CmdResult<GameInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = crate::state::state(&app);
+        studio::save_detector(&st, &game_id, detector, &source, template_box).map_err(err)?;
+        st.reload_games();
+        st.game(&game_id)
+            .map(|g| st.game_info(&g))
+            .ok_or_else(|| "Unknown game".to_string())
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn studio_test_detector(app: AppHandle, game_id: String, detector: DetectorDef, match_id: String) -> CmdResult<TestResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = crate::state::state(&app);
+        let m = st
+            .library
+            .lock()
+            .unwrap()
+            .get_match(&match_id)
+            .map_err(err)?
+            .ok_or("Recording not found")?;
+        studio::test_detector(&st, &game_id, detector, Path::new(&m.path)).map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub fn studio_delete_detector(st: State<'_, AppState>, game_id: String, detector_id: String) -> CmdResult<GameInfo> {
+    delete_user_detector(&st.paths.user_games, &game_id, &detector_id).map_err(err)?;
+    st.reload_games();
+    st.game(&game_id).map(|g| st.game_info(&g)).ok_or_else(|| "Unknown game".into())
+}
+
+#[tauri::command]
+pub fn open_path(path: String) -> CmdResult<()> {
+    tauri_plugin_opener::reveal_item_in_dir(&path).map_err(err)
+}
+
+/// Re-broadcast status (used by the UI on mount).
+#[tauri::command]
+pub fn refresh(app: AppHandle) {
+    refresh_status(&app, None);
+}

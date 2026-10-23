@@ -48,7 +48,12 @@ pub struct ScanOptions<'a> {
 
 impl Default for ScanOptions<'_> {
     fn default() -> Self {
-        Self { analysis_height: 720, keep_traces: false, cancel: None, progress: None }
+        Self {
+            analysis_height: 720,
+            keep_traces: false,
+            cancel: None,
+            progress: None,
+        }
     }
 }
 
@@ -73,7 +78,12 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
         match PreparedDetector::load(d, w, h) {
             Ok(det) => {
                 let every = ((fps / d.def.sample_fps).round() as u64).max(1);
-                slots.push(Slot { trig: Trigger::new(&det.def), det, every, trace: Vec::new() });
+                slots.push(Slot {
+                    trig: Trigger::new(&det.def),
+                    det,
+                    every,
+                    trace: Vec::new(),
+                });
             }
             Err(e) => log::warn!("detector {} not loaded: {e:#}", d.def.id),
         }
@@ -88,7 +98,7 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
         }
         result.frames_decoded += 1;
         for s in slots.iter_mut() {
-            if (i as u64) % s.every != 0 {
+            if !(i as u64).is_multiple_of(s.every) {
                 continue;
             }
             let score = s.det.score_frame(&frame);
@@ -97,8 +107,14 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
             }
             if let Some((at, peak)) = s.trig.push(t_ms, score) {
                 result.events.push(
-                    GameEvent::new(s.det.def.event.clone(), at, EventSource::Vision { detector: s.det.def.id.clone() })
-                        .with_confidence(peak),
+                    GameEvent::new(
+                        s.det.def.event.clone(),
+                        at,
+                        EventSource::Vision {
+                            detector: s.det.def.id.clone(),
+                        },
+                    )
+                    .with_confidence(peak),
                 );
             }
         }
@@ -110,7 +126,13 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
         }
     }
     if opts.keep_traces {
-        result.traces = slots.into_iter().map(|s| ScoreTrace { detector: s.det.def.id, samples: s.trace }).collect();
+        result.traces = slots
+            .into_iter()
+            .map(|s| ScoreTrace {
+                detector: s.det.def.id,
+                samples: s.trace,
+            })
+            .collect();
     }
     result.events.sort_by_key(|e| e.t_ms);
     Ok(result)

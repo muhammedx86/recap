@@ -1,0 +1,24 @@
+{
+  "id": "elimination",
+  "label": "Elimination indicator",
+  "event": "kill",
+  "region": {
+    "x": 0.43,
+    "y": 0.56,
+    "w": 0.14,
+    "h": 0.14
+  },
+  "templates": [],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.8,
+  "cooldownMs": 500,
+  "minConsecutive": 2,
+  "sampleFps": 8.0,
+  "scales": [
+    0.9,
+    1.1
+  ],
+  "enabled": true,
+  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this indicator is showing, drag a box around it and save. Adjust the region if your HUD differs."
+}

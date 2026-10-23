@@ -1,0 +1,19 @@
+{
+  "id": "league-of-legends",
+  "name": "League of Legends / TFT",
+  "processes": [
+    "League of Legends.exe"
+  ],
+  "capture": "game",
+  "api": "league-live-client",
+  "preferApi": true,
+  "autoClip": {
+    "events": [
+      "kill",
+      "multikill",
+      "ace"
+    ]
+  },
+  "postMatch": [],
+  "color": "#C8AA6E"
+}

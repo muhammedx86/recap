@@ -1,0 +1,24 @@
+{
+  "id": "defeated",
+  "label": "Defeated screen",
+  "event": "death",
+  "region": {
+    "x": 0.3,
+    "y": 0.1,
+    "w": 0.4,
+    "h": 0.16
+  },
+  "templates": [],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.8,
+  "cooldownMs": 6000,
+  "minConsecutive": 3,
+  "sampleFps": 3.0,
+  "scales": [
+    0.9,
+    1.1
+  ],
+  "enabled": true,
+  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this indicator is showing, drag a box around it and save. Adjust the region if your HUD differs."
+}

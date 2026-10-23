@@ -1,0 +1,16 @@
+{
+  "id": "valorant",
+  "name": "VALORANT",
+  "processes": [
+    "VALORANT-Win64-Shipping.exe"
+  ],
+  "capture": "game",
+  "preferApi": true,
+  "autoClip": {
+    "events": [
+      "kill"
+    ]
+  },
+  "postMatch": [],
+  "color": "#FF4655"
+}

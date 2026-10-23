@@ -71,7 +71,8 @@ fn best_zncc(hay: &GrayImage, t: &PreparedTemplate) -> f32 {
         }
     }
     let rect = |a: &Vec<f64>, x: usize, y: usize| {
-        a[(y + th as usize) * stride + x + tw as usize] - a[y * stride + x + tw as usize] - a[(y + th as usize) * stride + x] + a[y * stride + x]
+        a[(y + th as usize) * stride + x + tw as usize] - a[y * stride + x + tw as usize] - a[(y + th as usize) * stride + x]
+            + a[y * stride + x]
     };
     let mut best = -1f32;
     for y in 0..=(hh - th) as usize {
@@ -151,7 +152,13 @@ impl PreparedDetector {
             }
         }
         anyhow::ensure!(!templates.is_empty(), "detector {} has no usable reference images", def.id);
-        Ok(Self { def, templates, work_scale, frame_w, frame_h })
+        Ok(Self {
+            def,
+            templates,
+            work_scale,
+            frame_w,
+            frame_h,
+        })
     }
 
     pub fn frame_size(&self) -> (u32, u32) {
@@ -179,7 +186,9 @@ impl PreparedDetector {
 }
 
 pub fn load_gray(path: &Path) -> Result<GrayImage> {
-    Ok(image::open(path).with_context(|| format!("opening template {}", path.display()))?.to_luma8())
+    Ok(image::open(path)
+        .with_context(|| format!("opening template {}", path.display()))?
+        .to_luma8())
 }
 
 /// Turns a stream of per-sample scores into events: fires on the rising edge after
@@ -221,7 +230,9 @@ impl Trigger {
             self.run += 1;
             self.run_peak = self.run_peak.max(score);
             if !self.fired_this_run && self.run >= self.min_consecutive {
-                let cooled = self.last_fire_ms.is_none_or(|l| self.run_start_ms.saturating_sub(l) >= self.cooldown_ms);
+                let cooled = self
+                    .last_fire_ms
+                    .is_none_or(|l| self.run_start_ms.saturating_sub(l) >= self.cooldown_ms);
                 self.fired_this_run = true;
                 if cooled {
                     self.last_fire_ms = Some(self.run_start_ms);
@@ -243,7 +254,14 @@ pub fn detect_events<'a>(det: &PreparedDetector, frames: impl IntoIterator<Item 
         let s = det.score_frame(f);
         if let Some((at, peak)) = trig.push(t, s) {
             out.push(
-                GameEvent::new(det.def.event.clone(), at, EventSource::Vision { detector: det.def.id.clone() }).with_confidence(peak),
+                GameEvent::new(
+                    det.def.event.clone(),
+                    at,
+                    EventSource::Vision {
+                        detector: det.def.id.clone(),
+                    },
+                )
+                .with_confidence(peak),
             );
         }
     }
@@ -311,7 +329,12 @@ mod tests {
         let mut frame = noise_frame(640, 360, 7);
         // Template appears at a slightly different spot inside the region and dimmer.
         paste(&mut frame, &tpl, 300, 250, 0.6, 20.0);
-        let region = Region { x: 260.0 / 640.0, y: 230.0 / 360.0, w: 120.0 / 640.0, h: 70.0 / 360.0 };
+        let region = Region {
+            x: 260.0 / 640.0,
+            y: 230.0 / 360.0,
+            w: 120.0 / 640.0,
+            h: 70.0 / 360.0,
+        };
         let d = PreparedDetector::from_images(def(region), vec![tpl.clone()], 640, 360).unwrap();
         let hit = d.score_frame(&frame);
         let miss = d.score_frame(&noise_frame(640, 360, 9));
@@ -326,20 +349,30 @@ mod tests {
         let big_tpl = image::imageops::resize(&tpl, 80, 48, FilterType::Triangle);
         let mut frame = noise_frame(1280, 720, 3);
         paste(&mut frame, &big_tpl, 600, 500, 1.0, 0.0);
-        let region = Region { x: 560.0 / 1280.0, y: 470.0 / 720.0, w: 180.0 / 1280.0, h: 110.0 / 720.0 };
+        let region = Region {
+            x: 560.0 / 1280.0,
+            y: 470.0 / 720.0,
+            w: 180.0 / 1280.0,
+            h: 110.0 / 720.0,
+        };
         let d = PreparedDetector::from_images(def(region), vec![tpl], 1280, 720).unwrap();
         assert!(d.score_frame(&frame) > 0.9);
     }
 
     #[test]
     fn trigger_debounces_and_cools_down() {
-        let d = def(Region { x: 0.0, y: 0.0, w: 1.0, h: 1.0 });
+        let d = def(Region {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        });
         let mut t = Trigger::new(&d);
         let samples = [
             (0, 0.2),
-            (200, 0.9), // run starts
+            (200, 0.9),  // run starts
             (400, 0.95), // fires at 200
-            (600, 0.9), // same run, no refire
+            (600, 0.9),  // same run, no refire
             (800, 0.1),
             (1000, 0.9), // new run within cooldown of 200? 1000-200 = 800 < 1000 -> suppressed
             (1200, 0.9),
@@ -357,6 +390,17 @@ mod tests {
     #[test]
     fn flat_template_is_rejected() {
         let flat = GrayImage::from_pixel(20, 20, Luma([128]));
-        assert!(PreparedDetector::from_images(def(Region { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }), vec![flat], 100, 100).is_err());
+        assert!(PreparedDetector::from_images(
+            def(Region {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0
+            }),
+            vec![flat],
+            100,
+            100
+        )
+        .is_err());
     }
 }

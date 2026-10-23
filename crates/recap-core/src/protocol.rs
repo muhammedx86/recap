@@ -67,14 +67,35 @@ pub enum RecorderCommand {
 #[serde(tag = "event", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RecorderEvent {
     /// OBS initialised and the recorder accepts commands.
-    Ready { obs_version: String },
+    Ready {
+        obs_version: String,
+    },
     /// Recording is writing frames. `startedUnixMs` is the wall-clock time of the first frame (best effort).
-    Started { id: String, path: String, started_unix_ms: u64, encoder: String, capture: CaptureMode },
+    Started {
+        id: String,
+        path: String,
+        started_unix_ms: u64,
+        encoder: String,
+        capture: CaptureMode,
+    },
     /// Capture fell back to another mode (e.g. game hook failed -> monitor).
-    CaptureChanged { id: String, capture: CaptureMode, reason: String },
-    Stopped { id: String, path: String, duration_ms: u64 },
-    Encoders { encoders: Vec<String> },
-    Error { id: Option<String>, message: String },
+    CaptureChanged {
+        id: String,
+        capture: CaptureMode,
+        reason: String,
+    },
+    Stopped {
+        id: String,
+        path: String,
+        duration_ms: u64,
+    },
+    Encoders {
+        encoders: Vec<String>,
+    },
+    Error {
+        id: Option<String>,
+        message: String,
+    },
 }
 
 #[cfg(test)]
@@ -86,13 +107,32 @@ mod tests {
         let c = RecorderCommand::Stop { id: "a".into() };
         assert_eq!(serde_json::to_string(&c).unwrap(), r#"{"cmd":"stop","id":"a"}"#);
         let e: RecorderEvent = serde_json::from_str(r#"{"event":"ready","obsVersion":"32.0.2"}"#).unwrap();
-        assert_eq!(e, RecorderEvent::Ready { obs_version: "32.0.2".into() });
+        assert_eq!(
+            e,
+            RecorderEvent::Ready {
+                obs_version: "32.0.2".into()
+            }
+        );
         let s = RecorderCommand::Start {
             id: "m1".into(),
             path: "C:/v.mp4".into(),
-            capture: CaptureTarget { mode: CaptureMode::Game, process: Some("x.exe".into()), pid: None, monitor: None },
-            video: VideoConfig { fps: 60, bitrate_kbps: 12000, output_height: None, encoder: "auto".into() },
-            audio: AudioConfig { desktop: true, microphone: false, microphone_device: None },
+            capture: CaptureTarget {
+                mode: CaptureMode::Game,
+                process: Some("x.exe".into()),
+                pid: None,
+                monitor: None,
+            },
+            video: VideoConfig {
+                fps: 60,
+                bitrate_kbps: 12000,
+                output_height: None,
+                encoder: "auto".into(),
+            },
+            audio: AudioConfig {
+                desktop: true,
+                microphone: false,
+                microphone_device: None,
+            },
         };
         let back: RecorderCommand = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);

@@ -52,7 +52,14 @@ pub struct AutoClipSettings {
 
 impl Default for AutoClipSettings {
     fn default() -> Self {
-        Self { enabled: true, seconds_before: 5.0, seconds_after: 3.0, merge_gap_seconds: 2.0, events_override: vec![], precise_cuts: false }
+        Self {
+            enabled: true,
+            seconds_before: 5.0,
+            seconds_after: 3.0,
+            merge_gap_seconds: 2.0,
+            events_override: vec![],
+            precise_cuts: false,
+        }
     }
 }
 
@@ -81,7 +88,10 @@ impl Default for Settings {
 
 impl Settings {
     pub fn load(path: &Path) -> Self {
-        fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {

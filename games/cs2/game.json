@@ -1,0 +1,17 @@
+{
+  "id": "cs2",
+  "name": "Counter-Strike 2",
+  "processes": [
+    "cs2.exe"
+  ],
+  "capture": "game",
+  "api": "cs2-gsi",
+  "preferApi": true,
+  "autoClip": {
+    "events": [
+      "kill"
+    ]
+  },
+  "postMatch": [],
+  "color": "#DE9B35"
+}

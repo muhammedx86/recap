@@ -37,9 +37,15 @@ impl Ffmpeg {
     pub fn locate(dirs: &[PathBuf]) -> Self {
         let exe = |name: &str| {
             let file = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
-            dirs.iter().map(|d| d.join(&file)).find(|p| p.exists()).unwrap_or_else(|| PathBuf::from(file))
+            dirs.iter()
+                .map(|d| d.join(&file))
+                .find(|p| p.exists())
+                .unwrap_or_else(|| PathBuf::from(file))
         };
-        Self { ffmpeg: exe("ffmpeg"), ffprobe: exe("ffprobe") }
+        Self {
+            ffmpeg: exe("ffmpeg"),
+            ffprobe: exe("ffprobe"),
+        }
     }
 
     pub fn command(&self) -> Command {
@@ -58,7 +64,16 @@ impl Ffmpeg {
     pub fn probe(&self, video: &Path) -> Result<VideoInfo> {
         let out = self
             .probe_command()
-            .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json"])
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height:format=duration",
+                "-of",
+                "json",
+            ])
             .arg(video)
             .output()
             .with_context(|| format!("running {}", self.ffprobe.display()))?;
@@ -70,7 +85,30 @@ impl Ffmpeg {
         let width = s["width"].as_u64().context("no video width")? as u32;
         let height = s["height"].as_u64().context("no video height")? as u32;
         let duration = v["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()).unwrap_or(0.0);
-        Ok(VideoInfo { width, height, duration_ms: (duration * 1000.0) as u64 })
+        Ok(VideoInfo {
+            width,
+            height,
+            duration_ms: (duration * 1000.0) as u64,
+        })
+    }
+
+    /// True if the file has at least one audio stream.
+    pub fn has_audio(&self, video: &Path) -> bool {
+        self.probe_command()
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(video)
+            .output()
+            .map(|o| o.status.success() && !String::from_utf8_lossy(&o.stdout).trim().is_empty())
+            .unwrap_or(false)
     }
 
     /// Extract one frame as PNG bytes at full resolution.
@@ -129,7 +167,14 @@ impl Ffmpeg {
             .spawn()
             .context("starting ffmpeg")?;
         let stdout = child.stdout.take().context("no ffmpeg stdout")?;
-        Ok(GrayFrames { child, stdout, width, height, fps, index: 0 })
+        Ok(GrayFrames {
+            child,
+            stdout,
+            width,
+            height,
+            fps,
+            index: 0,
+        })
     }
 }
 

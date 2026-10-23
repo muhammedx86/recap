@@ -99,7 +99,9 @@ fn default_clip_events() -> Vec<String> {
 
 impl Default for AutoClipDef {
     fn default() -> Self {
-        Self { events: default_clip_events() }
+        Self {
+            events: default_clip_events(),
+        }
     }
 }
 
@@ -289,11 +291,19 @@ fn load_detectors(game_dir: &Path, user: bool) -> Vec<LoadedDetector> {
     let mut out = Vec::new();
     let dir = game_dir.join("detectors");
     let Ok(entries) = fs::read_dir(&dir) else { return out };
-    let mut paths: Vec<_> = entries.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+    let mut paths: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
     paths.sort();
     for p in paths {
         match read_json::<DetectorDef>(&p).and_then(|d| d.validate().map(|_| d)) {
-            Ok(def) => out.push(LoadedDetector { def, base_dir: game_dir.to_path_buf(), user }),
+            Ok(def) => out.push(LoadedDetector {
+                def,
+                base_dir: game_dir.to_path_buf(),
+                user,
+            }),
             Err(e) => log::warn!("skipping detector {}: {e:#}", p.display()),
         }
     }
@@ -322,7 +332,10 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
                 None
             };
             let detectors = load_detectors(&dir, user);
-            let id = def.as_ref().map(|d| d.id.clone()).unwrap_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().into_owned());
+            let id = def
+                .as_ref()
+                .map(|d| d.id.clone())
+                .unwrap_or_else(|| dir.file_name().unwrap_or_default().to_string_lossy().into_owned());
             match games.get_mut(&id) {
                 Some(existing) => {
                     if let Some(def) = def {
@@ -340,7 +353,15 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
                         log::warn!("{} has detectors but no game.json; ignoring", dir.display());
                         continue;
                     };
-                    games.insert(id, LoadedGame { def, detectors, dir, user_modified: user });
+                    games.insert(
+                        id,
+                        LoadedGame {
+                            def,
+                            detectors,
+                            dir,
+                            user_modified: user,
+                        },
+                    );
                 }
             }
         }
@@ -349,7 +370,7 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
     for g in &mut v {
         g.detectors.sort_by(|a, b| a.def.id.cmp(&b.def.id));
     }
-    v.sort_by(|a, b| a.def.name.to_lowercase().cmp(&b.def.name.to_lowercase()));
+    v.sort_by_key(|g| g.def.name.to_lowercase());
     v
 }
 
@@ -425,7 +446,12 @@ mod tests {
             id: id.into(),
             label: "Kill".into(),
             event: "kill".into(),
-            region: Region { x: 0.4, y: 0.7, w: 0.2, h: 0.1 },
+            region: Region {
+                x: 0.4,
+                y: 0.7,
+                w: 0.2,
+                h: 0.1,
+            },
             template_box: None,
             templates: vec![],
             template_frame_height: 1080,
@@ -456,12 +482,30 @@ mod tests {
 
     #[test]
     fn region_pixels_and_expand() {
-        let r = Region { x: 0.5, y: 0.5, w: 0.25, h: 0.25 };
+        let r = Region {
+            x: 0.5,
+            y: 0.5,
+            w: 0.25,
+            h: 0.25,
+        };
         assert_eq!(r.to_pixels(1920, 1080), (960, 540, 480, 270));
-        let e = Region { x: 0.0, y: 0.0, w: 0.1, h: 0.1 }.expanded(0.5);
+        let e = Region {
+            x: 0.0,
+            y: 0.0,
+            w: 0.1,
+            h: 0.1,
+        }
+        .expanded(0.5);
         assert_eq!(e.x, 0.0);
         assert!((e.w - 0.15).abs() < 1e-6);
-        assert!(Region { x: 0.9, y: 0.0, w: 0.2, h: 0.1 }.validate().is_err());
+        assert!(Region {
+            x: 0.9,
+            y: 0.0,
+            w: 0.2,
+            h: 0.1
+        }
+        .validate()
+        .is_err());
     }
 
     #[test]
@@ -471,7 +515,11 @@ mod tests {
         let user = tmp.path().join("user");
         fs::create_dir_all(bundled.join("val/detectors")).unwrap();
         fs::write(bundled.join("val/game.json"), serde_json::to_string(&game("val")).unwrap()).unwrap();
-        fs::write(bundled.join("val/detectors/kill.json"), serde_json::to_string(&det("kill")).unwrap()).unwrap();
+        fs::write(
+            bundled.join("val/detectors/kill.json"),
+            serde_json::to_string(&det("kill")).unwrap(),
+        )
+        .unwrap();
         fs::write(bundled.join("val/detectors/broken.json"), "{not json").unwrap();
 
         let mut d2 = det("kill");
