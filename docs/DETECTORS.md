@@ -218,3 +218,41 @@ and skipped; it never blocks the recording from being saved.
 
 Tools that already parse a game's replays (for example community R6 Siege `.rec`
 parsers) can be wrapped with a small script that prints this format.
+
+## Event types and icons
+
+Every event has a type: an id (the `event` a detector emits), a name, one of 15 icons and a colour.
+Built-in types: kill, death, assist, multikill, ace, objective, round start, round won, round lost, MVP,
+bomb planted, bomb defused, bookmark, match start and match end.
+
+You can add your own per game in Detector Studio ("+ New event type": any name, pick an icon). They are
+stored in the game's `game.json` under `eventTypes` and travel with the game folder when you share it:
+
+```json
+"eventTypes": [
+  { "id": "ult_used", "label": "Ult used", "icon": "zap", "color": "#f2c46d" }
+]
+```
+
+Icons: `crosshair skull handshake flame crown gem flag trophy circle-x star bomb shield bookmark zap heart`.
+
+## Rounds
+
+`round_start`, `round_win` and `round_lost` (ids `round_start`, `round_win`, `round_loss`) are round markers.
+The timeline draws a divider per round (R1, R2…) and the Library shows the round score. CS2 reports rounds
+through Game State Integration; Valorant, Marvel Rivals and R6 Siege ship round detectors you finish in Studio
+by capturing the round banners.
+
+## Matches: how Recap knows a match started
+
+Recap starts recording when a game's process starts and stops when it exits, so a recording is a whole game
+session (menus included). Match boundaries come from:
+
+- **API games**: League (the in-game process *is* the match) and CS2 (GSI reports match start and game over).
+- **Detectors**: make a `match_start` detector (e.g. the map loading screen) and/or a `match_end` detector
+  (the VICTORY/DEFEAT screen; put both screens on one detector as two reference images).
+
+With *Split sessions into matches* on (Settings → Detection, default on), each detected match becomes its own
+Library entry and video file (lossless cut, 5 s before the start and 8 s after the end kept), menu time is
+dropped, and the session recording is removed. With only `match_end` detectors, each match runs from the
+previous end; with only `match_start`, until the next start. Segments shorter than a minute are ignored.

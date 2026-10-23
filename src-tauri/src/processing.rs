@@ -9,11 +9,13 @@ use std::{
 use anyhow::{Context, Result};
 use recap_core::{
     clips::{cut_clip, kinds_in_window, plan_auto_clips},
-    events::{kind, merge_events, EventSource, GameEvent},
+    events::{builtin_event_types, is_round_kind, kind, merge_events, EventSource, EventTypeDef, GameEvent},
     games::{ApiSource, LoadedDetector, LoadedGame},
     library::{ClipKind, ClipRecord, MatchRecord, MatchStatus},
     postmatch::{run_processor, PostMatchContext},
     scan::{scan_video, ScanOptions},
+    segments::{events_in_segment, plan_match_segments, MatchSegment, SegmentOptions},
+    settings::Settings,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -48,14 +50,25 @@ fn emit_progress(app: &AppHandle, match_id: &str, stage: &str, progress: f32, me
 /// Event kinds an API source reports exactly; vision detectors for these are skipped when `preferApi` is set.
 pub fn api_kinds(api: ApiSource) -> &'static [&'static str] {
     match api {
-        ApiSource::LeagueLiveClient => &[kind::KILL, kind::DEATH, kind::ASSIST, kind::MULTIKILL, kind::ACE, kind::OBJECTIVE],
+        ApiSource::LeagueLiveClient => &[
+            kind::KILL,
+            kind::DEATH,
+            kind::ASSIST,
+            kind::MULTIKILL,
+            kind::ACE,
+            kind::OBJECTIVE,
+            kind::MATCH_END,
+        ],
         ApiSource::Cs2Gsi => &[
             kind::KILL,
             kind::DEATH,
             kind::ASSIST,
             kind::MVP,
+            kind::ROUND_START,
             kind::ROUND_WIN,
             kind::ROUND_LOSS,
+            kind::MATCH_START,
+            kind::MATCH_END,
             kind::BOMB_PLANT,
             kind::BOMB_DEFUSE,
         ],
@@ -135,13 +148,7 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
     }
     m.size_bytes = fs::metadata(&video).map(|x| x.len()).unwrap_or(m.size_bytes);
 
-    // Thumbnail.
-    fs::create_dir_all(&st.paths.thumbnails)?;
-    let thumb = st.paths.thumbnails.join(format!("{match_id}.jpg"));
-    let at = (m.duration_ms / 3).min(20_000);
-    if st.ff.thumbnail(&video, at, &thumb, 480).is_ok() {
-        m.thumbnail = Some(thumb.to_string_lossy().into_owned());
-    }
+    make_thumbnail(&st, &mut m);
     st.library.lock().unwrap().update_match(&m)?;
 
     if rescan {
@@ -213,54 +220,147 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
     }
     log::info!("{match_id}: {} live events, {} derived events added", existing_len, new.len());
 
-    // Auto-clips.
-    if settings.auto_clip.enabled {
+    // One session, several matches? Split it and finish each match separately.
+    if settings.split_matches && game.is_some() {
         let events = st.library.lock().unwrap().list_events(match_id)?;
-        let kinds: Vec<String> = if !settings.auto_clip.events_override.is_empty() {
-            settings.auto_clip.events_override.clone()
-        } else if let Some(g) = &game {
-            g.def.auto_clip.events.clone()
-        } else {
-            vec![kind::BOOKMARK.to_string()]
-        };
-        let mut kinds = kinds;
-        if !kinds.iter().any(|k| k == kind::BOOKMARK) {
-            // Bookmarks are an explicit "clip this", always honoured.
-            kinds.push(kind::BOOKMARK.into());
+        let segments = plan_match_segments(&events, m.duration_ms, &SegmentOptions::default());
+        if !segments.is_empty() {
+            return split_session(app, &st, &m, game.as_ref(), &settings, &events, &segments);
         }
-        let windows = plan_auto_clips(
-            &events,
-            &kinds,
-            (settings.auto_clip.seconds_before * 1000.0) as u64,
-            (settings.auto_clip.seconds_after * 1000.0) as u64,
-            (settings.auto_clip.merge_gap_seconds * 1000.0) as u64,
-            m.duration_ms,
-        );
-        let total = windows.len().max(1) as f32;
-        for (i, w) in windows.iter().enumerate() {
-            emit_progress(app, match_id, "clipping", i as f32 / total, None);
-            let title = clip_title(&w.event_kinds, w.anchor_ms);
-            match make_clip(&st, &m, w.start_ms, w.end_ms, &title, ClipKind::Auto, &events) {
-                Ok(_) => {}
-                Err(e) => log::warn!("auto-clip failed: {e:#}"),
-            }
+    }
+
+    auto_clips(app, &st, &m, game.as_ref(), &settings)
+}
+
+/// Cut a session into one recording per match, finish each, then remove the session.
+fn split_session(
+    app: &AppHandle,
+    st: &AppState,
+    session: &MatchRecord,
+    game: Option<&LoadedGame>,
+    settings: &Settings,
+    events: &[GameEvent],
+    segments: &[MatchSegment],
+) -> Result<()> {
+    log::info!("{}: splitting session into {} matches", session.id, segments.len());
+    let src = PathBuf::from(&session.path);
+    let dir = src.parent().map(Path::to_path_buf).unwrap_or_default();
+    let stem = src
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "session".into());
+    let total = segments.len() as f32;
+    let mut made = Vec::new();
+    for (i, seg) in segments.iter().enumerate() {
+        emit_progress(app, &session.id, "splitting", i as f32 / total, None);
+        let out = unique_path(&dir, &format!("{stem} - Match {}", i + 1), "mp4");
+        if let Err(e) = cut_clip(&st.ff, &src, seg.start_ms, seg.end_ms, &out, false) {
+            log::warn!("could not cut match {}: {e:#}", i + 1);
+            continue;
+        }
+        let mut m = MatchRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            game_id: session.game_id.clone(),
+            game_name: session.game_name.clone(),
+            path: out.to_string_lossy().into_owned(),
+            started_unix_ms: session.started_unix_ms + seg.start_ms,
+            duration_ms: st.ff.probe(&out).map(|v| v.duration_ms).unwrap_or(seg.end_ms - seg.start_ms),
+            size_bytes: fs::metadata(&out).map(|x| x.len()).unwrap_or(0),
+            status: MatchStatus::Processing,
+            title: None,
+            favorite: session.favorite,
+            thumbnail: None,
+            event_counts: Default::default(),
+            error: None,
+        };
+        make_thumbnail(st, &mut m);
+        {
+            let lib = st.library.lock().unwrap();
+            lib.insert_match(&m)?;
+            lib.add_events(&m.id, &events_in_segment(events, seg))?;
+        }
+        let _ = app.emit("library-changed", serde_json::json!({ "matchId": m.id }));
+        if let Err(e) = auto_clips(app, st, &m, game, settings) {
+            log::warn!("auto-clips for split match failed: {e:#}");
+        }
+        m.status = MatchStatus::Ready;
+        st.library.lock().unwrap().update_match(&m)?;
+        made.push(m.id);
+    }
+    anyhow::ensure!(!made.is_empty(), "could not split the session into matches");
+    // The matches now hold everything worth keeping; drop the session recording.
+    let removed = st.library.lock().unwrap().delete_match(&session.id)?;
+    if let Some(r) = removed {
+        let _ = fs::remove_file(&r.path);
+        if let Some(t) = &r.thumbnail {
+            let _ = fs::remove_file(t);
         }
     }
     Ok(())
 }
 
-fn clip_title(kinds: &[String], anchor_ms: u64) -> String {
+fn make_thumbnail(st: &AppState, m: &mut MatchRecord) {
+    if fs::create_dir_all(&st.paths.thumbnails).is_err() {
+        return;
+    }
+    let thumb = st.paths.thumbnails.join(format!("{}.jpg", m.id));
+    let at = (m.duration_ms / 3).min(20_000);
+    if st.ff.thumbnail(Path::new(&m.path), at, &thumb, 480).is_ok() {
+        m.thumbnail = Some(thumb.to_string_lossy().into_owned());
+    }
+}
+
+/// Cut auto-clips around the configured event kinds.
+fn auto_clips(app: &AppHandle, st: &AppState, m: &MatchRecord, game: Option<&LoadedGame>, settings: &Settings) -> Result<()> {
+    if !settings.auto_clip.enabled {
+        return Ok(());
+    }
+    let events = st.library.lock().unwrap().list_events(&m.id)?;
+    let mut kinds: Vec<String> = if !settings.auto_clip.events_override.is_empty() {
+        settings.auto_clip.events_override.clone()
+    } else if let Some(g) = game {
+        g.def.auto_clip.events.clone()
+    } else {
+        Vec::new()
+    };
+    if !kinds.iter().any(|k| k == kind::BOOKMARK) {
+        // Bookmarks are an explicit "clip this", always honoured.
+        kinds.push(kind::BOOKMARK.into());
+    }
+    let types = game.map(|g| g.event_types()).unwrap_or_else(builtin_event_types);
+    let windows = plan_auto_clips(
+        &events,
+        &kinds,
+        (settings.auto_clip.seconds_before * 1000.0) as u64,
+        (settings.auto_clip.seconds_after * 1000.0) as u64,
+        (settings.auto_clip.merge_gap_seconds * 1000.0) as u64,
+        m.duration_ms,
+    );
+    let total = windows.len().max(1) as f32;
+    for (i, w) in windows.iter().enumerate() {
+        emit_progress(app, &m.id, "clipping", i as f32 / total, None);
+        let title = clip_title(&w.event_kinds, w.anchor_ms, &types);
+        if let Err(e) = make_clip(st, m, w.start_ms, w.end_ms, &title, ClipKind::Auto, &events) {
+            log::warn!("auto-clip failed: {e:#}");
+        }
+    }
+    Ok(())
+}
+
+fn clip_title(kinds: &[String], anchor_ms: u64, types: &[EventTypeDef]) -> String {
     let main = kinds
         .iter()
-        .find(|k| k.as_str() != kind::MATCH_END)
+        .find(|k| k.as_str() != kind::MATCH_END && k.as_str() != kind::MATCH_START && !is_round_kind(k))
+        .or_else(|| kinds.first())
         .cloned()
         .unwrap_or_else(|| "clip".into());
-    let label = main.replace('_', " ");
-    let mut c = label.chars();
-    let label = c
-        .next()
-        .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
-        .unwrap_or_default();
+    let label = types.iter().find(|t| t.id == main).map(|t| t.label.clone()).unwrap_or_else(|| {
+        let l = main.replace('_', " ");
+        let mut c = l.chars();
+        c.next()
+            .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+            .unwrap_or_default()
+    });
     format!("{label} @ {}:{:02}", anchor_ms / 60_000, (anchor_ms / 1000) % 60)
 }
 
@@ -370,7 +470,10 @@ mod tests {
 
     #[test]
     fn titles() {
-        assert_eq!(clip_title(&["round_win".into()], 125_000), "Round win @ 2:05");
-        assert_eq!(clip_title(&[], 0), "Clip @ 0:00");
+        let types = recap_core::events::builtin_event_types();
+        assert_eq!(clip_title(&["round_win".into(), "kill".into()], 125_000, &types), "Kill @ 2:05");
+        assert_eq!(clip_title(&["round_win".into()], 125_000, &types), "Round won @ 2:05");
+        assert_eq!(clip_title(&["ult_used".into()], 61_000, &types), "Ult used @ 1:01");
+        assert_eq!(clip_title(&[], 0, &types), "Clip @ 0:00");
     }
 }

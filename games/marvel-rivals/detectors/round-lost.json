@@ -1,0 +1,21 @@
+{
+  "id": "round-lost",
+  "label": "Round lost banner",
+  "event": "round_loss",
+  "region": {
+    "x": 0.3,
+    "y": 0.2,
+    "w": 0.4,
+    "h": 0.16
+  },
+  "templates": [],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.8,
+  "cooldownMs": 20000,
+  "minConsecutive": 2,
+  "sampleFps": 3.0,
+  "scales": [],
+  "enabled": true,
+  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this shows, drag a box around it and save. Only some modes have rounds."
+}

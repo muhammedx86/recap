@@ -237,10 +237,6 @@ fn finalize(app: &AppHandle, match_id: &str, duration_ms: Option<u64>) {
             let _ = lib.update_match(&m);
         }
     }
-    // Close the timeline with a match_end marker for API-less games too.
-    if let Some(end) = duration_ms.or(elapsed) {
-        add_live_events(app, match_id, vec![GameEvent::new(kind::MATCH_END, end, EventSource::Manual)]);
-    }
     refresh_status(app, None);
     let _ = app.emit("library-changed", serde_json::json!({ "matchId": match_id }));
     if session.path.exists() {

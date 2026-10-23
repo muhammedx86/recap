@@ -145,6 +145,9 @@ pub struct GameDef {
     /// Accent colour for the UI (hex).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Custom event types this game's detectors can emit (built-ins are always available).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub event_types: Vec<crate::events::EventTypeDef>,
 }
 
 fn yes() -> bool {
@@ -273,6 +276,22 @@ impl LoadedDetector {
 }
 
 impl LoadedGame {
+    /// Built-in event types followed by this game's custom ones.
+    pub fn event_types(&self) -> Vec<crate::events::EventTypeDef> {
+        let mut v = crate::events::builtin_event_types();
+        for t in &self.def.event_types {
+            if !v.iter().any(|b| b.id == t.id) {
+                v.push(t.clone());
+            }
+        }
+        v
+    }
+
+    /// True when the game produces round markers (round detectors or CS2 GSI).
+    pub fn has_rounds(&self) -> bool {
+        self.def.api == Some(ApiSource::Cs2Gsi) || self.detectors.iter().any(|d| crate::events::is_round_kind(&d.def.event))
+    }
+
     pub fn ready_detectors(&self) -> impl Iterator<Item = &LoadedDetector> {
         self.detectors.iter().filter(|d| d.def.is_ready())
     }
@@ -422,6 +441,50 @@ pub fn delete_user_detector(user_root: &Path, game_id: &str, detector_id: &str) 
     Ok(())
 }
 
+/// Create or edit a custom event type on a game (written to the user game folder).
+/// Returns the updated game definition.
+pub fn upsert_event_type(user_root: &Path, game: &GameDef, mut t: crate::events::EventTypeDef) -> Result<GameDef> {
+    use crate::events::{builtin_event_types, slugify, AUTO_COLORS};
+    t.label = t.label.trim().to_string();
+    if t.id.trim().is_empty() {
+        t.id = slugify(&t.label);
+    }
+    if t.color.trim().is_empty() {
+        let n = game.event_types.len();
+        t.color = AUTO_COLORS[n % AUTO_COLORS.len()].to_string();
+    }
+    t.builtin = false;
+    t.validate()?;
+    if builtin_event_types().iter().any(|b| b.id == t.id) {
+        bail!("\"{}\" is a built-in event type; pick another name", t.label);
+    }
+    let mut g = game.clone();
+    match g.event_types.iter_mut().find(|x| x.id == t.id) {
+        Some(existing) => *existing = t,
+        None => g.event_types.push(t),
+    }
+    save_user_game(user_root, &g)?;
+    Ok(g)
+}
+
+/// Remove a custom event type unless a detector still emits it.
+pub fn remove_event_type(user_root: &Path, game: &LoadedGame, type_id: &str) -> Result<GameDef> {
+    if let Some(d) = game.detectors.iter().find(|d| d.def.event == type_id) {
+        bail!(
+            "detector \"{}\" still marks this event type; change or delete it first",
+            if d.def.label.is_empty() { &d.def.id } else { &d.def.label }
+        );
+    }
+    let mut g = game.def.clone();
+    let before = g.event_types.len();
+    g.event_types.retain(|t| t.id != type_id);
+    if g.event_types.len() == before {
+        bail!("no custom event type {type_id:?} on {}", g.name);
+    }
+    save_user_game(user_root, &g)?;
+    Ok(g)
+}
+
 /// Save (or overwrite) a user game definition.
 pub fn save_user_game(user_root: &Path, game: &GameDef) -> Result<PathBuf> {
     if game.id.trim().is_empty() || !game.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
@@ -477,6 +540,7 @@ mod tests {
             auto_clip: AutoClipDef::default(),
             post_match: vec![],
             color: None,
+            event_types: vec![],
         }
     }
 
@@ -535,6 +599,44 @@ mod tests {
         assert!(g.user_modified);
         assert!(user.join("val/templates/k.png").exists());
         assert!(g.matches_process("VAL.EXE"));
+    }
+
+    #[test]
+    fn custom_event_types() {
+        use crate::events::EventTypeDef;
+        let tmp = tempfile::tempdir().unwrap();
+        let t = |label: &str, icon: &str| EventTypeDef {
+            id: String::new(),
+            label: label.into(),
+            icon: icon.into(),
+            color: String::new(),
+            builtin: false,
+        };
+        let g = upsert_event_type(tmp.path(), &game("val"), t("Ult used", "zap")).unwrap();
+        assert_eq!(g.event_types[0].id, "ult_used");
+        assert!(g.event_types[0].color.starts_with('#'));
+        assert!(upsert_event_type(tmp.path(), &g, t("Kill", "skull")).is_err(), "built-in id");
+        assert!(upsert_event_type(tmp.path(), &g, t("Bad", "sword")).is_err(), "unknown icon");
+        // Edit keeps one entry.
+        let mut e = g.event_types[0].clone();
+        e.icon = "flame".into();
+        let g = upsert_event_type(tmp.path(), &g, e).unwrap();
+        assert_eq!(g.event_types.len(), 1);
+        assert_eq!(g.event_types[0].icon, "flame");
+
+        let mut d = det("ult");
+        d.event = "ult_used".into();
+        save_user_detector(tmp.path(), &g, &d, None).unwrap();
+        let loaded = load_games(&[tmp.path().to_path_buf()]);
+        assert_eq!(loaded[0].event_types().len(), 16);
+        assert!(remove_event_type(tmp.path(), &loaded[0], "ult_used").is_err(), "still used");
+        delete_user_detector(tmp.path(), "val", "ult").unwrap();
+        let loaded = load_games(&[tmp.path().to_path_buf()]);
+        assert!(remove_event_type(tmp.path(), &loaded[0], "ult_used")
+            .unwrap()
+            .event_types
+            .is_empty());
+        assert!(!loaded[0].has_rounds());
     }
 
     #[test]

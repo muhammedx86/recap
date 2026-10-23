@@ -1,0 +1,24 @@
+{
+  "id": "kill",
+  "label": "Kill confirmation",
+  "event": "kill",
+  "region": {
+    "x": 0.42,
+    "y": 0.58,
+    "w": 0.16,
+    "h": 0.1
+  },
+  "templates": [],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.8,
+  "cooldownMs": 600,
+  "minConsecutive": 2,
+  "sampleFps": 8.0,
+  "scales": [
+    0.9,
+    1.1
+  ],
+  "enabled": true,
+  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this shows, drag a box around it and save."
+}

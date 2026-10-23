@@ -34,6 +34,8 @@ pub struct Settings {
     pub storage_limit_gb: Option<f32>,
     /// Show a small overlay toast when a bookmark is saved.
     pub notify_on_bookmark: bool,
+    /// Split a game session into one recording per match using match_start/match_end markers.
+    pub split_matches: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -82,6 +84,7 @@ impl Default for Settings {
             games_enabled: BTreeMap::new(),
             storage_limit_gb: None,
             notify_on_bookmark: true,
+            split_matches: true,
         }
     }
 }

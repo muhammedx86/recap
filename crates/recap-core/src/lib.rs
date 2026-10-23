@@ -15,5 +15,6 @@ pub mod library;
 pub mod postmatch;
 pub mod protocol;
 pub mod scan;
+pub mod segments;
 pub mod settings;
 pub mod vision;

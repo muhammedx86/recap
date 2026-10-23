@@ -4,8 +4,11 @@ use std::{fs, path::Path};
 
 use recap_core::{
     clips::concat,
-    events::{EventSource, GameEvent},
-    games::{delete_user_detector, save_user_game, ApiSource, AutoClipDef, CaptureMode, DetectorDef, GameDef, Region},
+    events::{builtin_event_types, EventSource, EventTypeDef, GameEvent},
+    games::{
+        delete_user_detector, remove_event_type, save_user_game, upsert_event_type, ApiSource, AutoClipDef, CaptureMode, DetectorDef,
+        GameDef, Region,
+    },
     library::{ClipKind, ClipRecord, MatchRecord},
     settings::Settings,
 };
@@ -309,7 +312,8 @@ pub fn save_game(st: State<'_, AppState>, game: GameInput) -> CmdResult<GameInfo
                 game.auto_clip_events
             },
         },
-        post_match: existing.map(|g| g.def.post_match).unwrap_or_default(),
+        post_match: existing.as_ref().map(|g| g.def.post_match.clone()).unwrap_or_default(),
+        event_types: existing.map(|g| g.def.event_types).unwrap_or_default(),
         color: game.color,
     };
     if def.name.is_empty() {
@@ -320,6 +324,53 @@ pub fn save_game(st: State<'_, AppState>, game: GameInput) -> CmdResult<GameInfo
     st.game(&def.id)
         .map(|g| st.game_info(&g))
         .ok_or_else(|| "Game was saved but could not be loaded".into())
+}
+
+#[tauri::command]
+pub fn list_event_types(st: State<'_, AppState>) -> Vec<EventTypeDef> {
+    let mut all = builtin_event_types();
+    for g in st.games.read().unwrap().iter() {
+        for t in &g.def.event_types {
+            if !all.iter().any(|x| x.id == t.id) {
+                all.push(t.clone());
+            }
+        }
+    }
+    all
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventTypeInput {
+    #[serde(default)]
+    id: Option<String>,
+    label: String,
+    icon: String,
+    #[serde(default)]
+    color: Option<String>,
+}
+
+#[tauri::command]
+pub fn save_event_type(st: State<'_, AppState>, game_id: String, event_type: EventTypeInput) -> CmdResult<GameInfo> {
+    let game = st.game(&game_id).ok_or("Unknown game")?;
+    let t = EventTypeDef {
+        id: event_type.id.unwrap_or_default().trim().to_string(),
+        label: event_type.label,
+        icon: event_type.icon,
+        color: event_type.color.unwrap_or_default(),
+        builtin: false,
+    };
+    upsert_event_type(&st.paths.user_games, &game.def, t).map_err(err)?;
+    st.reload_games();
+    st.game(&game_id).map(|g| st.game_info(&g)).ok_or_else(|| "Unknown game".into())
+}
+
+#[tauri::command]
+pub fn delete_event_type(st: State<'_, AppState>, game_id: String, event_type_id: String) -> CmdResult<GameInfo> {
+    let game = st.game(&game_id).ok_or("Unknown game")?;
+    remove_event_type(&st.paths.user_games, &game, &event_type_id).map_err(err)?;
+    st.reload_games();
+    st.game(&game_id).map(|g| st.game_info(&g)).ok_or_else(|| "Unknown game".into())
 }
 
 #[tauri::command]

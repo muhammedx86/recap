@@ -160,6 +160,8 @@ impl Cs2Tracker {
         let mut out = Vec::new();
         let mk = |k: &str, meta: Value| GameEvent::new(k, rec_elapsed_ms, EventSource::Api { name: SOURCE_NAME.into() }).with_meta(meta);
         let map_round = int(&payload["map"]["round"]);
+        // GSI counts rounds from 0; markers use 1-based round numbers.
+        let round_no = map_round.map(|r| r + 1);
 
         // Player block: only when it is me (not a spectated teammate).
         let me = payload["provider"]["steamid"].as_str();
@@ -178,16 +180,16 @@ impl Cs2Tracker {
                 let by_round = rk.map(|r| r - prev_rk).unwrap_or(0).max(0);
                 let by_match = k.map(|k| k - self.kills).unwrap_or(0).max(0);
                 for _ in 0..by_round.max(by_match) {
-                    out.push(mk(kind::KILL, json!({ "round": map_round })));
+                    out.push(mk(kind::KILL, json!({ "round": round_no })));
                 }
                 for _ in 0..d.map(|d| d - self.deaths).unwrap_or(0).max(0) {
-                    out.push(mk(kind::DEATH, json!({ "round": map_round })));
+                    out.push(mk(kind::DEATH, json!({ "round": round_no })));
                 }
                 for _ in 0..a.map(|a| a - self.assists).unwrap_or(0).max(0) {
-                    out.push(mk(kind::ASSIST, json!({ "round": map_round })));
+                    out.push(mk(kind::ASSIST, json!({ "round": round_no })));
                 }
                 if m.map(|m| m > self.mvps).unwrap_or(false) {
-                    out.push(mk(kind::MVP, json!({ "round": map_round })));
+                    out.push(mk(kind::MVP, json!({ "round": round_no })));
                 }
             }
             self.round_kills = rk.unwrap_or(0);
@@ -204,6 +206,12 @@ impl Cs2Tracker {
         // Round and map state are the same whoever we are watching.
         let round = &payload["round"];
         if let Some(phase) = round["phase"].as_str() {
+            let prev = self.round_phase.as_deref();
+            // A round begins with freeze time; if we missed it, with the switch to live.
+            let starts = (phase == "freezetime" && prev != Some("freezetime")) || (phase == "live" && matches!(prev, None | Some("over")));
+            if starts && self.map_phase.as_deref() != Some("warmup") && payload["map"]["phase"].as_str() != Some("warmup") {
+                out.push(mk(kind::ROUND_START, json!({ "round": round_no })));
+            }
             if phase == "over" && self.round_phase.as_deref() != Some("over") {
                 if let (Some(win), Some(team)) = (round["win_team"].as_str(), self.my_team.as_deref()) {
                     let k = if win.eq_ignore_ascii_case(team) {
@@ -211,7 +219,7 @@ impl Cs2Tracker {
                     } else {
                         kind::ROUND_LOSS
                     };
-                    out.push(mk(k, json!({ "round": map_round, "winTeam": win })));
+                    out.push(mk(k, json!({ "round": round_no, "winTeam": win })));
                 }
             }
             self.round_phase = Some(phase.to_string());
@@ -219,13 +227,16 @@ impl Cs2Tracker {
         let bomb = round["bomb"].as_str().map(str::to_string);
         if bomb != self.bomb {
             match bomb.as_deref() {
-                Some("planted") => out.push(mk(kind::BOMB_PLANT, json!({ "round": map_round }))),
-                Some("defused") => out.push(mk(kind::BOMB_DEFUSE, json!({ "round": map_round }))),
+                Some("planted") => out.push(mk(kind::BOMB_PLANT, json!({ "round": round_no }))),
+                Some("defused") => out.push(mk(kind::BOMB_DEFUSE, json!({ "round": round_no }))),
                 _ => {}
             }
             self.bomb = bomb;
         }
         if let Some(phase) = payload["map"]["phase"].as_str() {
+            if phase == "live" && self.map_phase.as_deref() != Some("live") {
+                out.push(mk(kind::MATCH_START, json!({ "map": payload["map"]["name"] })));
+            }
             if phase == "gameover" && self.map_phase.as_deref() != Some("gameover") && self.map_phase.is_some() {
                 out.push(mk(kind::MATCH_END, json!({ "map": payload["map"]["name"] })));
             }
@@ -279,8 +290,10 @@ mod tests {
     #[test]
     fn tracks_my_events() {
         let mut t = Cs2Tracker::new("secret");
-        // First payload only initialises (mid-match join).
-        assert!(t.ingest(&payload(ME, "CT", 3, 1, 5, 2, 1, 0, "live", None, "live"), 0).is_empty());
+        // First payload (joining a live match): no stat deltas, but the round and match begin.
+        let first = t.ingest(&payload(ME, "CT", 3, 1, 5, 2, 1, 0, "live", None, "live"), 0);
+        assert_eq!(kinds(&first), vec!["round_start", "match_start"]);
+        assert_eq!(first[0].meta["round"], 4, "GSI round 3 is the 4th round");
         // Two kills in a single update.
         assert_eq!(
             kinds(&t.ingest(&payload(ME, "CT", 3, 3, 7, 2, 1, 0, "live", None, "live"), 1000)),
@@ -303,14 +316,14 @@ mod tests {
             kinds(&t.ingest(&payload(MATE, "CT", 3, 4, 21, 0, 0, 0, "over", Some("defused"), "live"), 5000)),
             vec!["round_win", "bomb_defuse"]
         );
-        // New round: round_kills resets; one kill, an assist and an MVP.
-        assert!(t
-            .ingest(&payload(ME, "CT", 4, 0, 7, 3, 1, 0, "freezetime", None, "live"), 6000)
-            .is_empty());
+        // New round: freeze time starts it; round_kills resets; one kill, an assist and an MVP.
+        let fresh = t.ingest(&payload(ME, "CT", 4, 0, 7, 3, 1, 0, "freezetime", None, "live"), 6000);
+        assert_eq!(kinds(&fresh), vec!["round_start"]);
+        assert_eq!(fresh[0].meta["round"], 5);
         let ev = t.ingest(&payload(ME, "CT", 4, 1, 8, 3, 2, 1, "live", None, "live"), 7000);
         assert_eq!(kinds(&ev), vec!["kill", "assist", "mvp"]);
         assert_eq!(ev[0].t_ms, 7000);
-        assert_eq!(ev[0].meta["round"], 4);
+        assert_eq!(ev[0].meta["round"], 5);
         // Game over.
         assert_eq!(
             kinds(&t.ingest(&payload(ME, "CT", 4, 1, 8, 3, 2, 1, "over", None, "gameover"), 8000)),

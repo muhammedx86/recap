@@ -1,0 +1,21 @@
+{
+  "id": "death",
+  "label": "Death screen",
+  "event": "death",
+  "region": {
+    "x": 0.35,
+    "y": 0.4,
+    "w": 0.3,
+    "h": 0.15
+  },
+  "templates": [],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.8,
+  "cooldownMs": 5000,
+  "minConsecutive": 2,
+  "sampleFps": 4.0,
+  "scales": [],
+  "enabled": true,
+  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this shows, drag a box around it and save."
+}

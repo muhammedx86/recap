@@ -71,6 +71,27 @@ interface DetectorDef {
   scales: number[]; enabled: boolean; notes?: string;
 }
 
+// Event types: every event kind has a label, one of 15 icons and a colour.
+// Built-in types always exist; games can add custom ones (created in Detector Studio).
+type EventIcon =
+  | "crosshair" | "skull" | "handshake" | "flame" | "crown"
+  | "gem" | "flag" | "trophy" | "circle-x" | "star"
+  | "bomb" | "shield" | "bookmark" | "zap" | "heart";
+interface EventTypeDef {
+  id: string;          // the event `kind`, e.g. "kill", "ult_used"
+  label: string;       // "Kill", "Ult used"
+  icon: EventIcon;
+  color: string;       // hex, e.g. "#6fd6a8"
+  builtin: boolean;
+}
+// Built-ins: kill(crosshair) death(skull) assist(handshake) multikill(flame) ace(crown) objective(gem)
+// round_start(flag) round_win(trophy) round_loss(circle-x) mvp(star) bomb_plant(bomb) bomb_defuse(shield)
+// bookmark(bookmark) match_start(flag) match_end(flag).
+//
+// Rounds: `round_start`, `round_win` and `round_loss` are round markers. `meta.round` (1-based) is set
+// when the source knows the round number (CS2 GSI); otherwise number rounds in timeline order.
+// The round score of a match is eventCounts.round_win – eventCounts.round_loss.
+
 interface GameInfo {
   id: string; name: string; processes: string[];
   capture: CaptureMode; api: ApiSource | null; preferApi: boolean;
@@ -79,6 +100,9 @@ interface GameInfo {
   userModified: boolean;
   detectors: Array<DetectorDef & { ready: boolean; user: boolean; templateUrls: string[] }>; // templateUrls = absolute file paths of templates
   hasPostMatch: boolean;
+  hasRounds: boolean;
+  matchDetection: "api" | "detectors" | "process"; // how match boundaries are found ("process" = recording is the whole game session)             // the game has round markers (round detectors or an API that reports rounds)
+  eventTypes: EventTypeDef[];     // built-ins first, then this game's custom types
 }
 
 // Settings: see crates/recap-core/src/settings.rs (serde camelCase). Key fields:
@@ -91,6 +115,7 @@ interface Settings {
   scanAfterMatch: boolean; analysisHeight: number;
   gamesEnabled: Record<string, boolean>;
   storageLimitGb: number | null; notifyOnBookmark: boolean;
+  splitMatches: boolean;   // split a game session into one Library entry per match using match_start/match_end markers
 }
 
 interface RecorderStatus {
@@ -135,6 +160,9 @@ Arguments are passed as an object with these camelCase keys.
 | `list_games` | – | `GameInfo[]` |
 | `set_game_enabled` | `{ gameId, enabled }` | `GameInfo` |
 | `save_game` | `{ game: { id, name, processes, capture, api, preferApi, autoClipEvents, color } }` | `GameInfo` (adds a custom game in the user folder) |
+| `list_event_types` | – | `EventTypeDef[]` (built-ins plus every game's custom types, deduplicated by id) |
+| `save_event_type` | `{ gameId, eventType: { id?: string; label: string; icon: EventIcon; color?: string \| null } }` | `GameInfo` — creates a custom type for that game (id derived from the label when omitted: lowercase, `_` separated) or edits an existing custom one; built-in ids cannot be changed; colour auto-assigned when omitted |
+| `delete_event_type` | `{ gameId, eventTypeId }` | `GameInfo` — fails if a detector of that game still uses it |
 | `get_settings` | – | `Settings` |
 | `update_settings` | `{ settings: Settings }` | `Settings` |
 | `list_encoders` | – | `string[]` |

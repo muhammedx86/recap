@@ -230,6 +230,10 @@ pub struct GameInfo {
     pub user_modified: bool,
     pub detectors: Vec<DetectorInfo>,
     pub has_post_match: bool,
+    pub has_rounds: bool,
+    /// "api" | "detectors" | "process"
+    pub match_detection: &'static str,
+    pub event_types: Vec<recap_core::events::EventTypeDef>,
 }
 
 impl GameInfo {
@@ -256,6 +260,19 @@ impl GameInfo {
                 })
                 .collect(),
             has_post_match: !g.def.post_match.is_empty(),
+            has_rounds: g.has_rounds(),
+            match_detection: if g.def.api.is_some() {
+                "api"
+            } else if g
+                .detectors
+                .iter()
+                .any(|d| d.def.event == recap_core::events::kind::MATCH_START || d.def.event == recap_core::events::kind::MATCH_END)
+            {
+                "detectors"
+            } else {
+                "process"
+            },
+            event_types: g.event_types(),
         }
     }
 }

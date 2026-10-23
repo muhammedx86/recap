@@ -11,6 +11,7 @@ pub mod kind {
     pub const MULTIKILL: &str = "multikill";
     pub const ACE: &str = "ace";
     pub const OBJECTIVE: &str = "objective";
+    pub const ROUND_START: &str = "round_start";
     pub const ROUND_WIN: &str = "round_win";
     pub const ROUND_LOSS: &str = "round_loss";
     pub const MVP: &str = "mvp";
@@ -20,6 +21,113 @@ pub mod kind {
     pub const MATCH_START: &str = "match_start";
     pub const MATCH_END: &str = "match_end";
 }
+
+/// The 15 icons an event type can use (the UI draws them).
+pub const ICONS: [&str; 15] = [
+    "crosshair",
+    "skull",
+    "handshake",
+    "flame",
+    "crown",
+    "gem",
+    "flag",
+    "trophy",
+    "circle-x",
+    "star",
+    "bomb",
+    "shield",
+    "bookmark",
+    "zap",
+    "heart",
+];
+
+/// Kinds that mark round boundaries/results.
+pub fn is_round_kind(k: &str) -> bool {
+    matches!(k, kind::ROUND_START | kind::ROUND_WIN | kind::ROUND_LOSS)
+}
+
+/// A named event type: what the timeline calls an event kind, and how it looks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventTypeDef {
+    /// The event `kind`, e.g. `kill` or `ult_used`.
+    pub id: String,
+    pub label: String,
+    /// One of [`ICONS`].
+    pub icon: String,
+    /// Hex colour.
+    pub color: String,
+    /// Built-in types are not stored in game files.
+    #[serde(default, skip_deserializing)]
+    pub builtin: bool,
+}
+
+impl EventTypeDef {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.id.is_empty() || !self.id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+            anyhow::bail!("event type id {:?} must use lowercase letters, digits and _", self.id);
+        }
+        if self.label.trim().is_empty() {
+            anyhow::bail!("event type needs a name");
+        }
+        if !ICONS.contains(&self.icon.as_str()) {
+            anyhow::bail!("unknown icon {:?}", self.icon);
+        }
+        let hex = self.color.strip_prefix('#').unwrap_or("");
+        if !(hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit())) {
+            anyhow::bail!("colour must be a hex value like #6fd6a8");
+        }
+        Ok(())
+    }
+}
+
+/// Built-in event types, in display order.
+pub fn builtin_event_types() -> Vec<EventTypeDef> {
+    [
+        (kind::KILL, "Kill", "crosshair", "#6fd6a8"),
+        (kind::DEATH, "Death", "skull", "#f07a6a"),
+        (kind::ASSIST, "Assist", "handshake", "#7fa7ff"),
+        (kind::MULTIKILL, "Multikill", "flame", "#c99bff"),
+        (kind::ACE, "Ace", "crown", "#ff9bd2"),
+        (kind::OBJECTIVE, "Objective", "gem", "#5cc8d6"),
+        (kind::ROUND_START, "Round start", "flag", "#8d9099"),
+        (kind::ROUND_WIN, "Round won", "trophy", "#a6d86b"),
+        (kind::ROUND_LOSS, "Round lost", "circle-x", "#9a7f86"),
+        (kind::MVP, "MVP", "star", "#e9d38a"),
+        (kind::BOMB_PLANT, "Bomb planted", "bomb", "#ff9a62"),
+        (kind::BOMB_DEFUSE, "Bomb defused", "shield", "#59c3ff"),
+        (kind::BOOKMARK, "Bookmark", "bookmark", "#f5a524"),
+        (kind::MATCH_START, "Match start", "flag", "#8d9099"),
+        (kind::MATCH_END, "Match end", "flag", "#8d9099"),
+    ]
+    .into_iter()
+    .map(|(id, label, icon, color)| EventTypeDef {
+        id: id.into(),
+        label: label.into(),
+        icon: icon.into(),
+        color: color.into(),
+        builtin: true,
+    })
+    .collect()
+}
+
+/// Turn a free-text name into an event type id: "Ult used!" -> "ult_used".
+pub fn slugify(label: &str) -> String {
+    let mut out = String::new();
+    for c in label.trim().to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('_') && !out.is_empty() {
+            out.push('_');
+        }
+    }
+    out.trim_end_matches('_').chars().take(40).collect()
+}
+
+/// Colours given to custom types when the user does not pick one.
+pub const AUTO_COLORS: [&str; 8] = [
+    "#7dd3c0", "#e58fd0", "#9fb4ff", "#f2c46d", "#c3e07a", "#ff8f8f", "#b49cff", "#6cc4f2",
+];
 
 /// Where an event came from. Purely informational: nothing downstream branches on it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -143,6 +251,25 @@ mod tests {
         let a = GameEvent::new(kind::KILL, 1000, EventSource::Api { name: "x".into() });
         let b = GameEvent::new(kind::KILL, 1200, EventSource::Api { name: "x".into() });
         assert_eq!(merge_events(vec![a, b], 1500).len(), 2);
+    }
+
+    #[test]
+    fn event_types() {
+        let b = builtin_event_types();
+        assert_eq!(b.len(), 15);
+        assert!(b.iter().all(|t| t.validate().is_ok() && t.builtin));
+        assert!(b.iter().all(|t| ICONS.contains(&t.icon.as_str())));
+        assert_eq!(slugify("  Ult used!! "), "ult_used");
+        assert_eq!(slugify("Clutch 1v3"), "clutch_1v3");
+        let bad = EventTypeDef {
+            id: "x".into(),
+            label: "X".into(),
+            icon: "sword".into(),
+            color: "#fff".into(),
+            builtin: false,
+        };
+        assert!(bad.validate().is_err());
+        assert!(is_round_kind("round_start") && !is_round_kind("kill"));
     }
 
     #[test]
