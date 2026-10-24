@@ -180,12 +180,13 @@ function MatchRow({ m, progress, onFav, onRename, onDelete }: { m: MatchRecord; 
                 {result === "win" ? "W" : result === "loss" ? "L" : "D"}
               </span>
             )}
-            {done && eventScore && (
+            {/* The match's real score (API, screen or typed) beats counting round markers, which can miss rounds. */}
+            {done && d.score && <span className="num">{displayValue("score", d.score.value)}</span>}
+            {done && !d.score && eventScore && (
               <span>
                 <RoundScore counts={m.eventCounts} />
               </span>
             )}
-            {done && !eventScore && d.score && <span className="num">{displayValue("score", d.score.value)}</span>}
             {done && d.character && <span>{d.character.value}</span>}
             {done && d.map && <span>{d.map.value}</span>}
             {kda && <span className="num" title="Kills / deaths / assists">{kda}</span>}
