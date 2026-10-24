@@ -273,6 +273,11 @@ let settings: Settings = {
   storageLimitGb: 200,
   closeToTray: true,
   notifyOnBookmark: true,
+  separateMicTrack: true,
+  launchAtStartup: false,
+  startMinimized: true,
+  notifications: true,
+  notificationCorner: "top-right",
   splitMatches: true,
 };
 

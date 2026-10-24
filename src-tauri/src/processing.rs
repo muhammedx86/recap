@@ -432,12 +432,26 @@ fn auto_clips(app: &AppHandle, st: &AppState, m: &MatchRecord, game: Option<&Loa
         m.duration_ms,
     );
     let total = windows.len().max(1) as f32;
+    let mut made = 0;
     for (i, w) in windows.iter().enumerate() {
         emit_progress(app, &m.id, "clipping", i as f32 / total, None);
         let title = clip_title(&w.event_kinds, w.anchor_ms, &types);
-        if let Err(e) = make_clip(st, m, w.start_ms, w.end_ms, &title, ClipKind::Auto, &events) {
-            log::warn!("auto-clip failed: {e:#}");
+        match make_clip(st, m, w.start_ms, w.end_ms, &title, ClipKind::Auto, &events) {
+            Ok(_) => made += 1,
+            Err(e) => log::warn!("auto-clip failed: {e:#}"),
         }
+    }
+    if made > 0 {
+        crate::overlay::notify(
+            app,
+            crate::overlay::ToastKind::Clips,
+            if made == 1 {
+                "1 clip saved".to_string()
+            } else {
+                format!("{made} clips saved")
+            },
+            Some(m.game_name.clone()),
+        );
     }
     Ok(())
 }

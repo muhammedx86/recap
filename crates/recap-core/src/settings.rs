@@ -19,6 +19,17 @@ pub struct Settings {
     pub record_desktop_audio: bool,
     pub record_microphone: bool,
     pub microphone_device: Option<String>,
+    /// Also keep the microphone alone on audio track 2 (track 1 always has everything mixed, so
+    /// players and clips sound right; editors can use track 2 to adjust or mute your voice).
+    pub separate_mic_track: bool,
+    /// Start Recap when Windows starts.
+    pub launch_at_startup: bool,
+    /// When started with Windows, stay in the tray instead of opening the window.
+    pub start_minimized: bool,
+    /// Small toasts over the game (recording started/saved, bookmark, clip saved, skipped match).
+    pub notifications: bool,
+    /// "top-right" | "top-left" | "bottom-right" | "bottom-left"
+    pub notification_corner: String,
     /// Global hotkey that drops a bookmark on the current recording.
     pub bookmark_hotkey: String,
     /// Global hotkey that starts/stops a manual recording.
@@ -34,7 +45,7 @@ pub struct Settings {
     pub storage_limit_gb: Option<f32>,
     /// Closing the window keeps Recap running in the tray (true) or quits it (false).
     pub close_to_tray: bool,
-    /// Show a small overlay toast when a bookmark is saved.
+    /// Include bookmarks in the in-game toasts.
     pub notify_on_bookmark: bool,
     /// Split a game session into one recording per match using match_start/match_end markers.
     pub split_matches: bool,
@@ -78,6 +89,11 @@ impl Default for Settings {
             record_desktop_audio: true,
             record_microphone: false,
             microphone_device: None,
+            separate_mic_track: true,
+            launch_at_startup: false,
+            start_minimized: true,
+            notifications: true,
+            notification_corner: "top-right".into(),
             bookmark_hotkey: "F8".into(),
             manual_record_hotkey: "F9".into(),
             auto_clip: AutoClipSettings::default(),

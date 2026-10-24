@@ -378,4 +378,61 @@ mod tests {
         assert!(cut_clip(&ff, &src, 3_000, 3_000, &a, false).is_err());
         assert!(concat(&ff, &[], &m).is_err());
     }
+
+    /// Audio streams in a file (ffprobe).
+    fn audio_streams(ff: &Ffmpeg, p: &Path) -> usize {
+        let out = std::process::Command::new(&ff.ffprobe)
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(p)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count()
+    }
+
+    #[test]
+    fn clips_keep_the_separate_mic_track() {
+        let Some(ff) = ffmpeg_available() else {
+            eprintln!("ffmpeg not found; skipping");
+            return;
+        };
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("two-tracks.mp4");
+        // Track 1 = mix, track 2 = mic, as the recorder writes them.
+        let st = ff
+            .command()
+            .args(["-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000"])
+            .args([
+                "-map", "0:v", "-map", "1:a", "-map", "2:a", "-t", "8", "-c:v", "libx264", "-g", "30",
+            ])
+            .args(["-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"])
+            .arg(&src)
+            .status()
+            .unwrap();
+        assert!(st.success());
+        assert_eq!(audio_streams(&ff, &src), 2);
+
+        let a = d.path().join("a.mp4");
+        let b = d.path().join("b.mp4");
+        cut_clip(&ff, &src, 1_000, 3_000, &a, false).unwrap();
+        cut_clip(&ff, &src, 4_000, 6_000, &b, true).unwrap();
+        assert_eq!(audio_streams(&ff, &a), 2, "stream-copy clip keeps both tracks");
+        assert_eq!(audio_streams(&ff, &b), 2, "precise clip keeps both tracks");
+        let m = d.path().join("m.mp4");
+        concat(&ff, &[a, b], &m).unwrap();
+        assert_eq!(audio_streams(&ff, &m), 2, "lossless montage keeps both tracks");
+    }
 }

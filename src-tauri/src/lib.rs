@@ -5,12 +5,14 @@ mod hotkeys;
 mod matchwatch;
 mod monitor;
 mod ocr;
+mod overlay;
 mod paths;
 mod processing;
 mod recorder;
 mod selftest;
 mod session;
 mod sources;
+mod startup;
 mod state;
 mod studio;
 mod tray;
@@ -114,6 +116,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // The main window starts hidden: show it unless Windows launched us at sign-in and the
+    // player wants Recap to stay in the tray then.
+    let stay_in_tray = startup::launched_minimized() && state::state(&handle).settings.read().unwrap().start_minimized;
+    if !stay_in_tray {
+        show_main(&handle);
+    }
+    let autostart = state::state(&handle).settings.read().unwrap().launch_at_startup;
+    startup::apply(&handle, autostart);
+
     if let Err(e) = hotkeys::register(&handle) {
         log::warn!("hotkeys: {e:#}");
     }
@@ -130,7 +141,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn run() {
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        // Launching Recap again brings it to the front (but not the sign-in autostart entry).
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|a| a == startup::MINIMIZED_ARG) {
+                show_main(app);
+            }
+        }))
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -147,6 +163,10 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![startup::MINIMIZED_ARG]),
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // Remember the window's size and position (not its visibility: hidden-to-tray must not
@@ -158,10 +178,13 @@ pub fn run() {
                         | tauri_plugin_window_state::StateFlags::POSITION
                         | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                 )
+                .with_denylist(&["overlay"])
                 .build(),
         )
         .setup(setup)
         .on_window_event(|window, event| match event {
+            // Only the main window: the notification overlay is never closed or minimized by hand.
+            _ if window.label() != "main" => {}
             // Closing the window hides it to the tray (recording continues), unless the player
             // chose "Quit when the window is closed".
             WindowEvent::CloseRequested { api, .. } => {

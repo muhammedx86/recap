@@ -160,13 +160,25 @@ pub fn on_manual_stop(app: &AppHandle) {
         None => return,
     };
     let (Some(g), Some(pid)) = (game, pid) else { return };
-    if let Some(e) = st.gates.lock().unwrap().get_mut(&g.def.id).filter(|e| e.fresh()) {
-        e.gate.skip_current();
+    let gated = match st.gates.lock().unwrap().get_mut(&g.def.id).filter(|e| e.fresh()) {
+        Some(e) => {
+            e.gate.skip_current();
+            true
+        }
+        None => false,
+    };
+    if gated {
         log::info!("{}: skipping the rest of this match", g.def.name);
-        return;
-    }
-    if splits_matches(&g) {
+    } else if splits_matches(&g) {
         st.resume_pids.lock().unwrap().insert(pid);
         log::info!("{}: skipping this match; recording resumes for the next one", g.def.name);
+    } else {
+        return;
     }
+    crate::overlay::notify(
+        app,
+        crate::overlay::ToastKind::Skipped,
+        "Skipping this match",
+        Some("Recording resumes with the next one".into()),
+    );
 }

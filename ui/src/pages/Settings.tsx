@@ -113,6 +113,15 @@ export function SettingsPage() {
         </Row>
       </Section>
 
+      <Section title="Startup">
+        <Row label="Launch with Windows">
+          <Toggle checked={s.launchAtStartup} onChange={(v) => set("launchAtStartup", v)} label="Launch with Windows" />
+        </Row>
+        <Row label="Start in the tray" hint="When Windows starts Recap, keep the window closed.">
+          <Toggle checked={s.startMinimized} onChange={(v) => set("startMinimized", v)} label="Start in the tray" disabled={!s.launchAtStartup} />
+        </Row>
+      </Section>
+
       <Section title="Video">
         <Row label="Frame rate" htmlFor="set-fps">
           <select id="set-fps" className="input set-select" value={s.fps} onChange={(e) => set("fps", Number(e.target.value))}>
@@ -153,7 +162,7 @@ export function SettingsPage() {
         <Row label="Game and desktop sound">
           <Toggle checked={s.recordDesktopAudio} onChange={(v) => set("recordDesktopAudio", v)} label="Record desktop audio" />
         </Row>
-        <Row label="Microphone" hint="Saved on its own track.">
+        <Row label="Microphone" hint="Mixed in with the game sound.">
           <Toggle checked={s.recordMicrophone} onChange={(v) => set("recordMicrophone", v)} label="Record microphone" />
         </Row>
         {s.recordMicrophone && (
@@ -170,6 +179,11 @@ export function SettingsPage() {
             </select>
           </Row>
         )}
+        {s.recordMicrophone && (
+          <Row label="Also keep your voice on its own track" hint="Track 2, for video editors. Recap and clips play the full mix.">
+            <Toggle checked={s.separateMicTrack} onChange={(v) => set("separateMicTrack", v)} label="Separate microphone track" />
+          </Row>
+        )}
       </Section>
 
       <Section title="Hotkeys">
@@ -179,9 +193,32 @@ export function SettingsPage() {
         <Row label="Start or stop recording" htmlFor="set-hk-r">
           <HotkeyInput id="set-hk-r" value={s.manualRecordHotkey} onChange={(v) => set("manualRecordHotkey", v)} />
         </Row>
-        <Row label="Notice in game when bookmarking">
-          <Toggle checked={s.notifyOnBookmark} onChange={(v) => set("notifyOnBookmark", v)} label="Bookmark notice" />
+      </Section>
+
+      <Section title="Notifications">
+        <Row label="Show notifications over the game" hint="Recording started and saved, clips ready, skipped matches. Visible in borderless and windowed games, not in exclusive fullscreen.">
+          <Toggle checked={s.notifications} onChange={(v) => set("notifications", v)} label="In-game notifications" />
         </Row>
+        {s.notifications && (
+          <>
+            <Row label="Corner" htmlFor="set-corner">
+              <select
+                id="set-corner"
+                className="input set-select"
+                value={s.notificationCorner}
+                onChange={(e) => set("notificationCorner", e.target.value as Settings["notificationCorner"])}
+              >
+                <option value="top-right">Top right</option>
+                <option value="top-left">Top left</option>
+                <option value="bottom-right">Bottom right</option>
+                <option value="bottom-left">Bottom left</option>
+              </select>
+            </Row>
+            <Row label="Include bookmarks">
+              <Toggle checked={s.notifyOnBookmark} onChange={(v) => set("notifyOnBookmark", v)} label="Bookmark notifications" />
+            </Row>
+          </>
+        )}
       </Section>
 
       <Section title="Auto-clips">
