@@ -41,6 +41,7 @@ fn main() -> anyhow::Result<()> {
         Some(r) => recap_core::events::apply_round_rules(res.events.clone(), r),
         None => res.events.clone(),
     };
+    let kept = recap_core::events::apply_exclusions(kept, &game.def.exclusions);
     for e in &res.events {
         let dropped = !kept.iter().any(|k| k.t_ms == e.t_ms && k.kind == e.kind && k.source == e.source);
         print!("{}", if dropped { "x" } else { " " });

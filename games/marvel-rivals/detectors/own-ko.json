@@ -1,0 +1,33 @@
+{
+  "id": "own-ko",
+  "label": "KO (your kill-feed entry)",
+  "event": "kill",
+  "region": {
+    "x": 0.8984375,
+    "y": 0.020833333333333332,
+    "w": 0.09375,
+    "h": 0.18055555555555555
+  },
+  "templateBox": {
+    "x": 0.9296875,
+    "y": 0.029166666666666667,
+    "w": 0.05625,
+    "h": 0.030555555555555555
+  },
+  "templates": [
+    "templates/own-feed-a.png",
+    "templates/own-feed-b.png",
+    "templates/own-feed-c.png",
+    "templates/own-feed-d.png",
+    "templates/own-feed-e.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.93,
+  "cooldownMs": 3000,
+  "minConsecutive": 2,
+  "sampleFps": 8,
+  "holdMargin": 0.15,
+  "enabled": true,
+  "notes": "Your own kill-feed entry: the white box at the top right. Its outline is the same whoever you play."
+}

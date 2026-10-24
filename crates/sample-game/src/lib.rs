@@ -380,6 +380,7 @@ pub fn game_def() -> GameDef {
         color: Some("#7cc3a3".into()),
         event_types: vec![],
         rounds: None,
+        exclusions: vec![],
     }
 }
 

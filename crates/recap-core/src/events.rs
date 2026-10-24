@@ -241,6 +241,26 @@ pub fn apply_round_rules(events: Vec<GameEvent>, rules: &crate::games::RoundRule
     out
 }
 
+/// Drop vision events matched by an exclusion rule (see [`crate::games::Exclusion`]).
+pub fn apply_exclusions(events: Vec<GameEvent>, rules: &[crate::games::Exclusion]) -> Vec<GameEvent> {
+    if rules.is_empty() {
+        return events;
+    }
+    let keep: Vec<bool> = events
+        .iter()
+        .map(|e| {
+            !matches!(e.source, EventSource::Vision { .. })
+                || !rules.iter().any(|r| {
+                    r.drop == e.kind
+                        && events
+                            .iter()
+                            .any(|o| o.kind == r.near && e.t_ms + r.before_ms >= o.t_ms && e.t_ms <= o.t_ms + r.after_ms)
+                })
+        })
+        .collect();
+    events.into_iter().zip(keep).filter_map(|(e, k)| k.then_some(e)).collect()
+}
+
 /// Merge events from several sources, dropping near-duplicates of the same kind
 /// (e.g. a vision kill and an API kill for the same moment). When two events of
 /// the same kind fall within `window_ms`, the one with an exact source (no
@@ -273,6 +293,26 @@ fn is_manual(e: &GameEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exclusions_drop_events_near_another_kind() {
+        let v = |k: &str, t: u64| GameEvent::new(k, t, EventSource::Vision { detector: "d".into() });
+        let rules = [crate::games::Exclusion {
+            drop: kind::KILL.into(),
+            near: kind::DEATH.into(),
+            before_ms: 1000,
+            after_ms: 8000,
+        }];
+        let evs = vec![
+            v(kind::KILL, 1000),
+            v(kind::KILL, 9_500), // the feed entry of your own death
+            v(kind::DEATH, 10_000),
+            v(kind::KILL, 17_500), // the death replay shows it again
+            v(kind::KILL, 19_000),
+        ];
+        let kept: Vec<u64> = apply_exclusions(evs, &rules).into_iter().map(|e| e.t_ms).collect();
+        assert_eq!(kept, vec![1000, 10_000, 19_000]);
+    }
 
     #[test]
     fn round_rules_drop_impossible_detections() {

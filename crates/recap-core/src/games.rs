@@ -163,6 +163,24 @@ pub struct GameDef {
     /// Round rules used to drop impossible screen detections (see [`crate::events::apply_round_rules`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rounds: Option<RoundRules>,
+    /// Screen detections to drop when another event is close by (see [`crate::events::apply_exclusions`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclusions: Vec<Exclusion>,
+}
+
+/// Drop vision events of kind `drop` from `beforeMs` before to `afterMs` after any event of kind
+/// `near`. For a HUD
+/// element that means one thing unless something else is on screen too (e.g. your own kill-feed
+/// entry is a kill, unless the death screen is up: then it is your death).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Exclusion {
+    pub drop: String,
+    pub near: String,
+    #[serde(default)]
+    pub before_ms: u64,
+    #[serde(default)]
+    pub after_ms: u64,
 }
 
 /// How rounds work in a round-based game.
@@ -841,6 +859,7 @@ mod tests {
             color: None,
             event_types: vec![],
             rounds: None,
+            exclusions: vec![],
         }
     }
 

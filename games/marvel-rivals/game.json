@@ -13,5 +13,13 @@
     ]
   },
   "postMatch": [],
-  "color": "#F2C230"
+  "color": "#F2C230",
+  "exclusions": [
+    {
+      "drop": "kill",
+      "near": "death",
+      "beforeMs": 1500,
+      "afterMs": 15000
+    }
+  ]
 }

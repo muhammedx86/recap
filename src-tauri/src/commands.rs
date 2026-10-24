@@ -283,7 +283,8 @@ pub fn save_game(st: State<'_, AppState>, game: GameInput) -> CmdResult<GameInfo
         },
         post_match: existing.as_ref().map(|g| g.def.post_match.clone()).unwrap_or_default(),
         event_types: existing.as_ref().map(|g| g.def.event_types.clone()).unwrap_or_default(),
-        rounds: existing.and_then(|g| g.def.rounds),
+        rounds: existing.as_ref().and_then(|g| g.def.rounds.clone()),
+        exclusions: existing.map(|g| g.def.exclusions).unwrap_or_default(),
         color: game.color,
     };
     if def.name.is_empty() {
