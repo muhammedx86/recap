@@ -53,6 +53,10 @@ jobs:
   windows:
     name: Windows app + installer
     runs-on: windows-latest
+    env:
+      # Full link-time optimisation only for tagged releases; test builds compile much faster.
+      CARGO_PROFILE_RELEASE_LTO: ${{ github.ref_type == 'tag' && 'thin' || 'false' }}
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ github.ref_type == 'tag' && '1' || '16' }}
     permissions:
       contents: write # publishes E2E results to the e2e-results branch
     steps:
