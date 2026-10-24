@@ -680,3 +680,114 @@
     border-top: 1px solid var(--line-soft);
   }
 }
+
+/* ---- Match details strip ---- */
+.details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 26px;
+  margin: 14px 0 0;
+}
+.details-empty {
+  margin-top: 10px;
+}
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.detail dt {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.detail dd {
+  margin: 0;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+}
+.detail-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 550;
+  cursor: text;
+  border-bottom: 1px dashed transparent;
+}
+.detail-value:hover {
+  border-bottom-color: var(--line);
+}
+.detail-value.result-win {
+  color: var(--ok);
+}
+.detail-value.result-loss {
+  color: var(--danger);
+}
+.detail-input {
+  font-size: 15px;
+  font-weight: 550;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  margin-left: -7px;
+  color: var(--ink);
+  min-width: 0;
+}
+.detail-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* Source marker: filled = game API, ring = read from screen, dashed = counted, amber = edited. */
+.src-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  opacity: 0.8;
+}
+.src-api {
+  background: var(--ink-2);
+  opacity: 0.45;
+}
+.src-screen {
+  border: 1.5px solid var(--ink-2);
+  opacity: 0.55;
+}
+.src-events {
+  border: 1.5px dashed var(--muted);
+}
+.src-manual {
+  background: var(--accent);
+  opacity: 0.7;
+}
+.details-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.details-add:hover {
+  color: var(--ink-2);
+  border-color: var(--ink-2);
+}
+.details-picker {
+  height: 26px;
+  width: auto;
+}

@@ -1,7 +1,7 @@
 // Mirrors docs/API.md exactly. All JSON is camelCase.
 
 export type CaptureMode = "game" | "window" | "monitor";
-export type ApiSource = "league-live-client" | "cs2-gsi";
+export type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client";
 
 export type EventSource =
   | { type: "vision"; detector: string }
@@ -34,6 +34,63 @@ export interface MatchRecord {
   thumbnail: string | null;
   eventCounts: Record<string, number>;
   error: string | null;
+  /** field -> value: character, map, mode, kills, deaths, assists, result, score, or custom fields. */
+  details: Record<string, DetailValue>;
+}
+
+/** Where a detail came from, best first. "manual" values are never replaced by processing. */
+export type DetailSource = "manual" | "api" | "screen" | "events";
+
+export interface DetailValue {
+  value: string;
+  source: DetailSource;
+  confidence?: number;
+}
+
+export interface ReaderDef {
+  id: string;
+  label: string;
+  /** Detail field; named groups in `pattern` fill those fields instead. */
+  field: string;
+  kind: "text" | "choice";
+  /** Box to read (the first slot when `slots` is set), fractions of the game picture. */
+  region: Region;
+  slots?: { count: number; stepX: number; stepY: number };
+  /** Pick the slot showing this colour; `box` is relative to the slot. */
+  highlight?: { box: Region; color: string; tolerance: number };
+  when: "end" | "start" | "any";
+  sampleFps: number;
+  pattern?: string;
+  values?: string[];
+  options?: Array<{ value: string; templates: string[] }>;
+  threshold: number;
+  method: "ncc" | "edges";
+  templateFrameHeight: number;
+  enabled: boolean;
+  notes?: string;
+}
+
+/** optionUrls: choice value -> absolute reference image paths. */
+export type ReaderInfo = ReaderDef & { ready: boolean; user: boolean; optionUrls: Record<string, string[]> };
+
+export interface Reading {
+  field: string;
+  value: string;
+  confidence: number;
+}
+
+export interface FrameReadResult {
+  slot: number | null;
+  readings: Reading[];
+  ocrAvailable: boolean;
+}
+
+export interface ReaderTestResult {
+  details: Record<string, DetailValue>;
+  /** [tMs, field, value] for every frame that produced something. */
+  readings: Array<[number, string, string]>;
+  frames: number;
+  window: [number, number];
 }
 
 export type ClipKind = "auto" | "manual" | "montage";
@@ -130,6 +187,7 @@ export interface GameInfo {
   hasPostMatch: boolean;
   hasRounds: boolean;
   eventTypes: EventTypeDef[];
+  readers: ReaderInfo[];
   /** How Recap finds where a match starts and ends inside a game session. */
   matchDetection: MatchDetection;
 }
@@ -215,7 +273,7 @@ export interface TestResult {
 
 export interface ProcessingProgress {
   matchId: string;
-  stage: "scanning" | "postMatch" | "clipping" | "done" | "error";
+  stage: "scanning" | "postMatch" | "details" | "splitting" | "clipping" | "done" | "error";
   progress: number;
   message?: string;
 }

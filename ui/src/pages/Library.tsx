@@ -9,6 +9,7 @@ import { Confirm, Empty, Icon, Modal, ProgressBar, RoundScore, Thumb } from "../
 import { kindStyle, sortKinds } from "../lib/kinds";
 import { ROUND_KINDS } from "../lib/eventTypes";
 import { roundScore } from "../lib/rounds";
+import { displayValue, kdaText, resultLabel } from "../lib/details";
 
 /** Full name for pickers and dialogs: the custom title, or game and start time. */
 export function matchTitle(m: MatchRecord): string {
@@ -141,8 +142,10 @@ export function Library() {
 }
 
 /** Plain-text play summary for a row, e.g. "24 kills · 15 deaths · 7 assists". Round markers show as the score instead. */
-function playSummary(counts: Record<string, number>, max = 4): string[] {
-  const kinds = sortKinds(Object.keys(counts).filter((k) => counts[k] > 0 && k !== "match_start" && k !== "match_end" && !ROUND_KINDS.includes(k)));
+function playSummary(counts: Record<string, number>, max = 4, skip: string[] = []): string[] {
+  const kinds = sortKinds(
+    Object.keys(counts).filter((k) => counts[k] > 0 && k !== "match_start" && k !== "match_end" && !ROUND_KINDS.includes(k) && !skip.includes(k)),
+  );
   const parts = kinds.slice(0, max).map((k) => `${counts[k]} ${(counts[k] === 1 ? kindStyle(k).label : kindStyle(k).plural).toLowerCase()}`);
   if (kinds.length > max) parts.push(`+${kinds.length - max} more`);
   return parts;
@@ -153,7 +156,12 @@ function MatchRow({ m, progress, onFav, onRename, onDelete }: { m: MatchRecord; 
   const processing = m.status === "processing";
   const done = !live && !processing && m.status !== "error";
   const titled = !!m.title?.trim();
-  const plays = done ? playSummary(m.eventCounts) : [];
+  const d = m.details ?? {};
+  const kda = done ? kdaText(d, "/") : null;
+  // K/D/A from the details replaces the separate kill/death/assist counts.
+  const plays = done ? playSummary(m.eventCounts, kda ? 2 : 4, kda ? ["kill", "death", "assist"] : []) : [];
+  const result = d.result?.value.toLowerCase();
+  const eventScore = roundScore(m.eventCounts);
   return (
     <li className={`match ${live ? "is-live" : ""}`}>
       <Link to={`/match/${m.id}`} className="match-link" aria-label={`Open ${matchTitle(m)}`}>
@@ -167,17 +175,26 @@ function MatchRow({ m, progress, onFav, onRename, onDelete }: { m: MatchRecord; 
             {titled && <span>{m.gameName}</span>}
             <span className="num">{clockTime(m.startedUnixMs)}</span>
             {!live && <span className="num">{duration(m.durationMs)}</span>}
-            {done && roundScore(m.eventCounts) && (
+            {done && (result === "win" || result === "loss" || result === "draw") && (
+              <span className={`wl wl-${result}`} title={resultLabel(result)}>
+                {result === "win" ? "W" : result === "loss" ? "L" : "D"}
+              </span>
+            )}
+            {done && eventScore && (
               <span>
                 <RoundScore counts={m.eventCounts} />
               </span>
             )}
+            {done && !eventScore && d.score && <span className="num">{displayValue("score", d.score.value)}</span>}
+            {done && d.character && <span>{d.character.value}</span>}
+            {done && d.map && <span>{d.map.value}</span>}
+            {kda && <span className="num" title="Kills / deaths / assists">{kda}</span>}
             {plays.map((p) => (
               <span key={p} className="num">
                 {p}
               </span>
             ))}
-            {done && !plays.length && !roundScore(m.eventCounts) && <span>No plays found</span>}
+            {done && !plays.length && !eventScore && !kda && <span>No plays found</span>}
           </p>
           {live && (
             <p className="match-status live">

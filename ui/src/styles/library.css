@@ -149,3 +149,21 @@
 .match:focus-within .row-actions {
   opacity: 1;
 }
+/* Win/loss marker sits right before the score, without a separator. */
+.row-meta .wl {
+  font-weight: 650;
+  font-size: 12px;
+  margin-right: 5px;
+}
+.row-meta .wl + span::before {
+  content: none;
+}
+.wl-win {
+  color: var(--ok);
+}
+.wl-loss {
+  color: var(--danger);
+}
+.wl-draw {
+  color: var(--ink-2);
+}

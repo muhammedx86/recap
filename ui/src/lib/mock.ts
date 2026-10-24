@@ -9,7 +9,12 @@ import type {
   EventMap,
   EventTypeDef,
   EventTypeInput,
+  DetailValue,
+  FrameReadResult,
   FrameResult,
+  ReaderDef,
+  ReaderInfo,
+  ReaderTestResult,
   FrameSource,
   GameEvent,
   GameInfo,
@@ -88,7 +93,53 @@ function detector(partial: Partial<DetectorDef> & Pick<DetectorDef, "id" | "labe
 }
 
 /** Stored game shape; event types, rounds and match detection are derived in gameInfo(). */
-type BaseGame = Omit<GameInfo, "eventTypes" | "hasRounds" | "matchDetection">;
+type BaseGame = Omit<GameInfo, "eventTypes" | "hasRounds" | "matchDetection" | "readers">;
+
+// ---------- screen readers (match details) ----------
+const px = (x: number, y: number, w: number, h: number): Region => ({ x: x / 1920, y: y / 1080, w: w / 1920, h: h / 1080 });
+const VAL_MAPS = ["Abyss", "Ascent", "Bind", "Breeze", "Corrode", "Fracture", "Haven", "Icebox", "Lotus", "Pearl", "Split", "Sunset"];
+const CARD_STEP = 311 / 1920;
+
+function reader(partial: Partial<ReaderDef> & Pick<ReaderDef, "id" | "label" | "field" | "region">, gameId: string): ReaderInfo {
+  const def: ReaderDef = { kind: "text", when: "end", sampleFps: 1, threshold: 0.75, method: "ncc", templateFrameHeight: 1080, enabled: true, ...partial };
+  const optionUrls: Record<string, string[]> = {};
+  for (const o of def.options ?? []) optionUrls[o.value] = o.templates.map((t) => `${ROOT}\\..\\games\\${gameId}\\${t.replace(/\//g, "\\")}`);
+  const ready = def.enabled && (def.kind === "text" || (def.options ?? []).some((o) => o.templates.length > 0));
+  return { ...def, ready, user: false, optionUrls };
+}
+
+const readersByGame: Record<string, ReaderInfo[]> = {
+  valorant: [
+    reader({ id: "end-map", label: "Map (end screen)", field: "map", region: px(92, 12, 170, 17), values: VAL_MAPS }, "valorant"),
+    reader(
+      {
+        id: "end-kda",
+        label: "Your K/D/A",
+        field: "kda",
+        region: px(200, 608, 278, 58),
+        slots: { count: 5, stepX: CARD_STEP, stepY: 0 },
+        highlight: { box: { x: 0.1, y: -1.17, w: 0.8, h: 0.95 }, color: "#e2e88f", tolerance: 40 },
+        pattern: String.raw`(?P<kills>\d+)\D{1,4}(?P<deaths>\d+)\D{1,4}(?P<assists>\d+)`,
+      },
+      "valorant",
+    ),
+    reader(
+      {
+        id: "agent-portrait",
+        label: "Your agent",
+        field: "character",
+        kind: "choice",
+        when: "any",
+        region: px(1180, 960, 96, 96),
+        options: [
+          { value: "Jett", templates: ["templates/agent-jett-1.png", "templates/agent-jett-2.png"] },
+          { value: "Sage", templates: ["templates/agent-sage-1.png"] },
+        ],
+      },
+      "valorant",
+    ),
+  ],
+};
 
 /** Custom event types per game (built-ins are added in gameInfo()). */
 const customTypes: Record<string, EventTypeDef[]> = {
@@ -103,7 +154,7 @@ let games: BaseGame[] = [
     name: "VALORANT",
     processes: ["VALORANT-Win64-Shipping.exe"],
     capture: "game",
-    api: null,
+    api: "riot-client",
     preferApi: true,
     autoClipEvents: ["kill"],
     color: GAME_COLORS.valorant,
@@ -339,6 +390,40 @@ const pathFor = (gameId: string, start: number, ext = "mp4") => {
   return `${ROOT}\\${gameId}\\${stamp}.${ext}`;
 };
 
+const dv = (value: string, source: DetailValue["source"], confidence?: number): DetailValue => ({ value, source, ...(confidence !== undefined ? { confidence } : {}) });
+const seedDetails: Record<string, Record<string, DetailValue>> = {
+  "m-val-1": {
+    character: dv("Jett", "screen", 0.94),
+    map: dv("Ascent", "api"),
+    mode: dv("Competitive", "api"),
+    kills: dv("24", "screen", 0.9),
+    deaths: dv("15", "screen", 0.9),
+    assists: dv("7", "screen", 0.9),
+    result: dv("win", "api"),
+    score: dv("13-9", "api"),
+  },
+  "m-lol-2": {
+    character: dv("Kai'Sa", "api"),
+    map: dv("Summoner's Rift", "api"),
+    mode: dv("Ranked Solo", "manual"),
+    kills: dv("17", "api"),
+    deaths: dv("3", "api"),
+    assists: dv("9", "api"),
+    result: dv("win", "api"),
+  },
+  "m-cs-1": {
+    map: dv("Mirage", "api"),
+    mode: dv("Premier", "api"),
+    kills: dv("27", "api"),
+    deaths: dv("18", "api"),
+    assists: dv("4", "api"),
+    result: dv("win", "api"),
+    score: dv("13-11", "api"),
+  },
+  "m-mr-1": { character: dv("Magik", "manual"), kills: dv("21", "events"), deaths: dv("9", "events"), result: dv("win", "events"), score: dv("2-1", "events") },
+  "m-r6-1": { map: dv("Clubhouse", "screen", 0.82), kills: dv("11", "events"), deaths: dv("6", "events"), assists: dv("3", "events"), result: dv("loss", "screen", 0.77), score: dv("4-5", "screen", 0.8) },
+};
+
 let matches: MatchRecord[] = seeds.map((s) => {
   const evs = s.status === "recording" ? [] : makeEvents(s);
   eventsByMatch.set(s.id, evs);
@@ -356,6 +441,7 @@ let matches: MatchRecord[] = seeds.map((s) => {
     thumbnail: s.status === "recording" ? null : pathFor(s.gameId, s.start, "jpg"),
     eventCounts: countEvents(evs),
     error: s.error ?? null,
+    details: structuredClone(seedDetails[s.id] ?? {}),
   };
 });
 
@@ -468,8 +554,43 @@ export function mediaUrl(path: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+/** A 1920x1080 end-of-match scoreboard: map, score and five player cards (yours has a yellow name). */
+function endScreenFrame(): string {
+  const cards = [
+    ["BRIMSTONE", "DOMA", "12 / 14 / 6"],
+    ["SAGE", "TSACK", "8 / 13 / 11"],
+    ["JETT", "WILLIAM", "24 / 15 / 7"],
+    ["OMEN", "MISTIC", "15 / 12 / 9"],
+    ["PHOENIX", "PLAYER", "10 / 16 / 4"],
+  ]
+    .map(([agent, name, kda], i) => {
+      const x = 188 + i * 311;
+      const me = i === 2;
+      return `<g><rect x="${x}" y="495" width="300" height="260" fill="#11161c" opacity=".82"/>
+<text x="${x + 150}" y="538" text-anchor="middle" font-family="sans-serif" font-size="22" letter-spacing="3" fill="#c9ccd1">${agent}</text>
+<text x="${x + 150}" y="582" text-anchor="middle" font-family="sans-serif" font-weight="800" font-size="38" fill="${me ? "#e2e88f" : "#f1efe9"}">${name}</text>
+<rect x="${x + 50}" y="598" width="200" height="2" fill="#f1efe9" opacity=".3"/>
+<text x="${x + 150}" y="650" text-anchor="middle" font-family="sans-serif" font-size="36" fill="#f1efe9">${kda}</text>
+<text x="${x + 150}" y="676" text-anchor="middle" font-family="sans-serif" font-size="18" letter-spacing="2" fill="#9aa0a8">KDA</text></g>`;
+    })
+    .join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+<defs><linearGradient id="v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b8a78"/><stop offset="1" stop-color="#0d2a2a"/></linearGradient></defs>
+<rect width="1920" height="1080" fill="url(#v)"/>
+<text x="960" y="430" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="420" fill="#7fe0c4" opacity=".55">VICTORY</text>
+<text x="96" y="27" font-family="sans-serif" font-size="15" letter-spacing="1.5" fill="#e8ece9">ASCENT</text>
+<text x="96" y="43" font-family="sans-serif" font-size="13" letter-spacing="1.5" fill="#c4ccc8">COMPETITIVE</text>
+<text x="228" y="132" font-family="sans-serif" font-weight="900" font-size="96" fill="#7fe0c4">13</text>
+<text x="1622" y="132" font-family="sans-serif" font-weight="900" font-size="96" fill="#ff5a5f">9</text>
+${cards}
+<rect x="830" y="855" width="260" height="56" fill="#e9e7e1"/><text x="960" y="892" text-anchor="middle" font-family="sans-serif" font-size="22" letter-spacing="3" fill="#111">CONTINUE</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 /** A 1920x1080 HUD-like frame with a kill banner, for Detector Studio. */
 function studioFrame(t: number, path: string): string {
+  const m = matches.find((x) => x.path === path);
+  if (m && m.gameId === "valorant" && t >= m.durationMs - 60_000) return endScreenFrame();
   const g = gameFromPath(path);
   const c = GAME_COLORS[g] ?? "#8d9099";
   const showBanner = Math.floor(t / 7000) % 3 !== 2;
@@ -506,7 +627,8 @@ function gameInfo(id: string): GameInfo {
     enabled: settings.gamesEnabled[id] ?? true,
     eventTypes: [...BUILTIN_EVENT_TYPES, ...(customTypes[id] ?? [])],
     hasRounds: g.api === "cs2-gsi" || events.some((e) => ROUND_KINDS.includes(e)),
-    matchDetection: g.api ? "api" : events.some((e) => e === "match_start" || e === "match_end") ? "detectors" : "process",
+    readers: structuredClone(readersByGame[id] ?? []),
+    matchDetection: g.api && g.api !== "riot-client" ? "api" : events.some((e) => e === "match_start" || e === "match_end") ? "detectors" : "process",
   };
 }
 
@@ -580,6 +702,17 @@ const handlers: Record<string, (a: any) => unknown> = {
     if (!m) throw "Recording not found";
     if (title !== undefined) m.title = title === "" ? null : title;
     if (favorite !== undefined) m.favorite = favorite;
+    emit("library-changed", { matchId: id });
+    return { ...m };
+  },
+  update_match_detail: ({ id, field, value }: { id: string; field: string; value: string }) => {
+    const m = matches.find((x) => x.id === id);
+    if (!m) throw "Recording not found";
+    const v = value.trim();
+    const details = { ...m.details };
+    if (v) details[field] = { value: v, source: "manual" };
+    else delete details[field];
+    m.details = details;
     emit("library-changed", { matchId: id });
     return { ...m };
   },
@@ -778,6 +911,66 @@ const handlers: Record<string, (a: any) => unknown> = {
     const g = games.find((x) => x.id === gameId);
     if (!g) throw "Unknown game";
     g.detectors = g.detectors.filter((d) => d.id !== detectorId);
+    return gameInfo(gameId);
+  },
+  studio_save_reader: ({ gameId, reader: def, crops }: { gameId: string; reader: ReaderDef; crops: Array<{ value: string; region: Region }> }) => {
+    if (!games.some((g) => g.id === gameId)) throw "Unknown game";
+    if (!/^[a-z0-9_-]+$/i.test(def.id)) throw "Reader id can only use letters, digits, - and _.";
+    if (!def.field.trim()) throw "Pick what this reader fills in.";
+    const options = structuredClone(def.options ?? []);
+    for (const c of crops) {
+      const value = c.value.trim();
+      if (!value) throw "Give the reference a value (e.g. the agent's name).";
+      let o = options.find((x) => x.value.toLowerCase() === value.toLowerCase());
+      if (!o) options.push((o = { value, templates: [] }));
+      o.templates.push(`templates/${def.id}-${value.toLowerCase().replace(/\W+/g, "-")}-${o.templates.length + 1}.png`);
+    }
+    const saved = { ...reader({ ...def, options }, gameId), user: true };
+    const list = readersByGame[gameId] ?? [];
+    readersByGame[gameId] = [...list.filter((x) => x.id !== def.id), saved].sort((a, b) => a.id.localeCompare(b.id));
+    return gameInfo(gameId);
+  },
+  studio_read_frame: ({ reader: def, source }: { reader: ReaderDef; source: FrameSource }): FrameReadResult => {
+    const m = source.kind === "video" ? matches.find((x) => x.path === source.path) : undefined;
+    const onEnd = !m || source.kind !== "video" || source.tMs >= m.durationMs - 60_000;
+    if (def.kind === "choice") {
+      const opt = def.options?.find((o) => o.templates.length);
+      return { slot: def.slots ? 0 : 0, readings: opt ? [{ field: def.field, value: opt.value, confidence: 0.91 }] : [], ocrAvailable: true };
+    }
+    if (!onEnd) return { slot: def.highlight ? null : 0, readings: [], ocrAvailable: true };
+    const slot = def.highlight ? 2 : 0;
+    if (def.field === "kda" || /\?P<kills>/.test(def.pattern ?? ""))
+      return {
+        slot,
+        readings: [
+          { field: "kills", value: "24", confidence: 1 },
+          { field: "deaths", value: "15", confidence: 1 },
+          { field: "assists", value: "7", confidence: 1 },
+        ],
+        ocrAvailable: true,
+      };
+    const sample: Record<string, string> = { map: "Ascent", mode: "Competitive", character: "Jett", result: "win", team_score: "13", enemy_score: "9" };
+    return { slot, readings: [{ field: def.field, value: sample[def.field] ?? "Ascent", confidence: 1 }], ocrAvailable: true };
+  },
+  studio_test_reader: ({ reader: def, matchId }: { reader: ReaderDef; matchId: string }): ReaderTestResult => {
+    const m = matches.find((x) => x.id === matchId);
+    if (!m) throw "Recording not found";
+    const window: [number, number] = def.when === "start" ? [0, 60_000] : def.when === "any" ? [0, m.durationMs] : [Math.max(0, m.durationMs - 65_000), m.durationMs];
+    const fps = def.sampleFps || 1;
+    const frames = Math.round(((window[1] - window[0]) / 1000) * fps);
+    const readings: Array<[number, string, string]> = [];
+    const fields = def.field === "kda" ? [["kills", "24"], ["deaths", "15"], ["assists", "7"]] : [[def.field, def.kind === "choice" ? def.options?.[0]?.value ?? "Jett" : def.field === "map" ? "Ascent" : "13"]];
+    const start = def.when === "end" ? m.durationMs - 58_000 : window[0];
+    for (let i = 0; i < Math.min(frames, 18); i++) {
+      const t = Math.round(start + i * (1000 / fps));
+      for (const [f, v] of fields) readings.push([t, f, i === 3 && f === fields[0][0] ? (f === "map" ? "Breeze" : "21") : v]);
+    }
+    const details: Record<string, DetailValue> = {};
+    for (const [f, v] of fields) details[f] = { value: v, source: "screen", confidence: 0.94 };
+    return { details, readings, frames, window };
+  },
+  studio_delete_reader: ({ gameId, readerId }) => {
+    readersByGame[gameId] = (readersByGame[gameId] ?? []).filter((r) => r.id !== readerId);
     return gameInfo(gameId);
   },
   open_path: () => null,

@@ -27,6 +27,7 @@ const MATCH_HINT: Record<MatchDetection, string> = {
 const API_LABEL: Record<ApiSource, string> = {
   "league-live-client": "League Live Client API",
   "cs2-gsi": "CS2 Game State Integration",
+  "riot-client": "Riot Client (local)",
 };
 
 export function Games() {
@@ -110,8 +111,9 @@ export function Games() {
                     <div>
                       <dt>Events from</dt>
                       <dd>
-                        {g.api ? API_LABEL[g.api] : ready.length ? "Vision detectors" : "Bookmarks only"}
-                        {g.api && ready.length ? " and vision" : ""}
+                        {g.api && g.api !== "riot-client" ? API_LABEL[g.api] : ready.length ? "Vision detectors" : "Bookmarks only"}
+                        {g.api && g.api !== "riot-client" && ready.length ? " and vision" : ""}
+                        {g.api === "riot-client" ? `; match details from the ${API_LABEL[g.api]}` : ""}
                         {g.hasPostMatch ? ", plus replay files" : ""}
                       </dd>
                     </div>

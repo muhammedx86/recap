@@ -18,6 +18,9 @@ import type {
   GameInput,
   MatchDetail,
   MatchRecord,
+  FrameReadResult,
+  ReaderDef,
+  ReaderTestResult,
   RecorderStatus,
   Region,
   Settings,
@@ -72,12 +75,26 @@ export function errorMessage(e: unknown): string {
   }
 }
 
+/** Kinds starting with "_" (e.g. "_details" API snapshots) are internal and never shown. */
+export const isHiddenKind = (kind: string) => kind.startsWith("_");
+
+function visibleCounts(counts: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(counts).filter(([k]) => !isHiddenKind(k)));
+}
+
+function cleanMatch(m: MatchRecord): MatchRecord {
+  return { ...m, details: m.details ?? {}, eventCounts: visibleCounts(m.eventCounts ?? {}) };
+}
+
 export const api = {
   getStatus: () => call<RecorderStatus>("get_status"),
-  listMatches: (gameId?: string) => call<MatchRecord[]>("list_matches", gameId ? { gameId } : {}),
-  getMatch: (id: string) => call<MatchDetail>("get_match", { id }),
+  listMatches: (gameId?: string) => call<MatchRecord[]>("list_matches", gameId ? { gameId } : {}).then((l) => l.map(cleanMatch)),
+  getMatch: (id: string) =>
+    call<MatchDetail>("get_match", { id }).then((d) => ({ ...d, match: cleanMatch(d.match), events: d.events.filter((e) => !isHiddenKind(e.kind)) })),
   /** `title: ""` clears the custom title. */
-  updateMatch: (id: string, patch: { title?: string; favorite?: boolean }) => call<MatchRecord>("update_match", { id, ...patch }),
+  updateMatch: (id: string, patch: { title?: string; favorite?: boolean }) => call<MatchRecord>("update_match", { id, ...patch }).then(cleanMatch),
+  /** Set one detail by hand; `""` clears it. Saved as source "manual". */
+  updateMatchDetail: (id: string, field: string, value: string) => call<MatchRecord>("update_match_detail", { id, field, value }).then(cleanMatch),
   deleteMatch: (id: string, deleteFiles: boolean) => call<null>("delete_match", { id, deleteFiles }),
   addEvent: (matchId: string, kind: string, tMs: number) => call<GameEvent>("add_event", { matchId, kind, tMs }),
   deleteEvent: (matchId: string, eventId: number) => call<null>("delete_event", { matchId, eventId }),
@@ -114,6 +131,12 @@ export const api = {
   studioTestDetector: (gameId: string, detector: DetectorDef, matchId: string) =>
     call<TestResult>("studio_test_detector", { gameId, detector, matchId }),
   studioDeleteDetector: (gameId: string, detectorId: string) => call<GameInfo>("studio_delete_detector", { gameId, detectorId }),
+  /** Each crop becomes a reference image for that choice value. */
+  studioSaveReader: (gameId: string, reader: ReaderDef, source: FrameSource | null, crops: Array<{ value: string; region: Region }>) =>
+    call<GameInfo>("studio_save_reader", { gameId, reader, source, crops }),
+  studioReadFrame: (gameId: string, reader: ReaderDef, source: FrameSource) => call<FrameReadResult>("studio_read_frame", { gameId, reader, source }),
+  studioTestReader: (gameId: string, reader: ReaderDef, matchId: string) => call<ReaderTestResult>("studio_test_reader", { gameId, reader, matchId }),
+  studioDeleteReader: (gameId: string, readerId: string) => call<GameInfo>("studio_delete_reader", { gameId, readerId }),
 
   openPath: (path: string) => call<null>("open_path", { path }),
 };

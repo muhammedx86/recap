@@ -9,6 +9,7 @@ import { computeRounds, type Round } from "../lib/rounds";
 import type { ClipRecord, GameEvent } from "../lib/types";
 import { Player, type PlayerHandle } from "../components/Player";
 import { Timeline } from "../components/Timeline";
+import { MatchDetailsStrip } from "../components/MatchDetails";
 import { Empty, Icon, KindDot, ProgressBar, RoundScore, Thumb } from "../components/ui";
 import { matchHeading } from "./Library";
 
@@ -171,9 +172,11 @@ export function MatchPage() {
                 {dayLabel(m.startedUnixMs)}, {clockTime(m.startedUnixMs)}
               </span>
               {m.durationMs > 0 && <span className="num">{duration(m.durationMs)}</span>}
-              <RoundScore counts={m.eventCounts} />
+              {/* The details strip shows the score when one is known. */}
+              {!m.details?.score && <RoundScore counts={m.eventCounts} />}
               {m.sizeBytes > 0 && <span className="num">{bytes(m.sizeBytes)}</span>}
             </p>
+            {!live && <MatchDetailsStrip key={m.id} m={m} onSaved={(rec) => setData((d) => (d ? { ...d, match: rec } : d))} />}
           </div>
           <div className="head-actions">
             <button className="btn btn-ghost" onClick={() => api.openPath(m.path).catch((e) => toast.error(e))}>

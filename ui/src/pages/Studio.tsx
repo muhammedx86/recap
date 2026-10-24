@@ -10,6 +10,7 @@ import { ScoreChart, computeHits } from "../components/ScoreChart";
 import { Confirm, Empty, Field, Icon, KindDot, Toggle } from "../components/ui";
 import { EventTypePicker } from "../components/EventTypePicker";
 import { matchTitle } from "./Library";
+import { NEW_READER, useReaderWorkspace } from "./StudioReaders";
 
 const NEW = "__new__";
 
@@ -68,6 +69,8 @@ export function Studio() {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [mode, setMode] = useState<"detectors" | "details">(params.get("mode") === "details" ? "details" : "detectors");
+  const [readerId, setReaderId] = useState<string>(params.get("reader") ?? NEW_READER);
 
   const game: GameInfo | undefined = games?.find((g) => g.id === gameId);
   const existing = game?.detectors.find((d) => d.id === detId);
@@ -96,10 +99,15 @@ export function Studio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, detId, existing?.id]);
 
+  const frameReq = useRef(0);
   const loadFrame = async (src: FrameSource) => {
+    const req = ++frameReq.current;
     setLoadingFrame(true);
     try {
-      setFrame(await api.studioLoadFrame(src));
+      const f = await api.studioLoadFrame(src);
+      // A newer request (e.g. a jump) won: drop this older frame.
+      if (req !== frameReq.current) return;
+      setFrame(f);
       setFrameSource(src);
     } catch (e) {
       toast.error(e, "Could not load the frame");
@@ -108,11 +116,26 @@ export function Studio() {
     }
   };
 
+  const showFrameAt = (t: number) => {
+    if (!match) return;
+    setSourceKind("video");
+    setTMs(t);
+    loadFrame({ kind: "video", path: match.path, tMs: t });
+  };
+
+  const rw = useReaderWorkspace({ game, setGames, frame, frameSource, match, readerId, setReaderId, toast, showFrameAt });
+
   // Reload the frame when the recording changes.
   useEffect(() => {
     if (sourceKind === "video" && match) loadFrame({ kind: "video", path: match.path, tMs: Math.min(tMs, Math.max(0, match.durationMs - 1000)) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKind, match?.id]);
+
+  // Details are usually read from the end screen: entering Details mode jumps there.
+  useEffect(() => {
+    if (mode === "details" && rw.when === "end" && sourceKind === "video" && match) showFrameAt(Math.max(0, match.durationMs - 40_000));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, match?.id]);
 
   const set = <K extends keyof DetectorDef>(k: K, v: DetectorDef[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -199,7 +222,7 @@ export function Studio() {
 
       <div className="studio">
         <nav className="studio-rail" aria-label="Detectors">
-          <select id="st-game" className="input" value={gameId} onChange={(e) => (setGameId(e.target.value), setDetId(NEW))} aria-label="Game">
+          <select id="st-game" className="input" value={gameId} onChange={(e) => (setGameId(e.target.value), setDetId(NEW), setReaderId(NEW_READER))} aria-label="Game">
             {(games ?? []).map((g) => (
               <option key={g.id} value={g.id}>
                 {g.name}
@@ -211,6 +234,18 @@ export function Studio() {
               Also uses the game's API
             </p>
           )}
+          <div className="seg rail-mode" role="tablist" aria-label="What to edit">
+            <button role="tab" aria-selected={mode === "detectors"} className={mode === "detectors" ? "on" : ""} onClick={() => setMode("detectors")}>
+              Detectors
+            </button>
+            <button role="tab" aria-selected={mode === "details"} className={mode === "details" ? "on" : ""} onClick={() => setMode("details")} title="Readers that fill in match details such as the map or your K/D/A">
+              Details
+            </button>
+          </div>
+          {mode === "details" ? (
+            rw.rail
+          ) : (
+          <>
           <ul className="det-list" role="tablist" aria-label={`Detectors for ${game?.name ?? "this game"}`}>
             {(game?.detectors ?? []).map((d) => (
               <li key={d.id}>
@@ -230,6 +265,8 @@ export function Studio() {
             <Icon name="plus" size={14} />
             New detector
           </button>
+          </>
+          )}
         </nav>
 
         <section className="studio-stage" aria-label="Frame">
@@ -273,7 +310,20 @@ export function Studio() {
             )}
           </div>
 
-          <FrameCanvas frame={frame} loading={loadingFrame} box={shownBox} region={shownRegion} drafting={!!box} onBox={setBox} />
+          {mode === "details" ? (
+            <FrameCanvas
+              frame={frame}
+              loading={loadingFrame}
+              box={rw.canvas.box}
+              region={rw.canvas.region}
+              overlays={rw.canvas.overlays}
+              drafting={rw.canvas.drafting}
+              onBox={rw.canvas.onBox}
+              onPoint={rw.canvas.onPoint}
+            />
+          ) : (
+            <FrameCanvas frame={frame} loading={loadingFrame} box={shownBox} region={shownRegion} drafting={!!box} onBox={setBox} />
+          )}
 
           <div className="stage-foot">
             {sourceKind === "video" && match ? (
@@ -298,11 +348,16 @@ export function Studio() {
                 </button>
               </div>
             ) : null}
-            <p className="stage-help" title="The dashed outline is where Recap searches for it.">
-              Drag a tight box around what only appears for this play.
-            </p>
+            {mode === "details" ? (
+              <p className="stage-help">{rw.canvas.hint}</p>
+            ) : (
+              <p className="stage-help" title="The dashed outline is where Recap searches for it.">
+                Drag a tight box around what only appears for this play.
+              </p>
+            )}
           </div>
 
+          {mode === "details" ? rw.testPanel : (
           <section className="test" aria-label="Test">
             <div className="test-head">
               <h2>Test</h2>
@@ -341,8 +396,14 @@ export function Studio() {
               </>
             )}
           </section>
+          )}
         </section>
 
+        {mode === "details" ? (
+          <aside className="studio-form" aria-label="Reader settings">
+            {rw.form}
+          </aside>
+        ) : (
         <aside className="studio-form" aria-label="Detector settings">
           <Field label="Name" htmlFor="st-label">
             <input id="st-label" className="input" value={draft.label} placeholder="Kill banner" onChange={(e) => set("label", e.target.value)} title={isNew ? `Saved as ${draft.id || slug(draft.label) || "…"}` : `Id ${draft.id}`} />
@@ -474,8 +535,10 @@ export function Studio() {
             )}
           </div>
         </aside>
+        )}
       </div>
 
+      {rw.dialogs}
       {confirmDelete && existing && (
         <Confirm
           title="Delete detector"
@@ -501,13 +564,20 @@ function FrameCanvas({
   region,
   drafting,
   onBox,
+  overlays = [],
+  onPoint,
 }: {
   frame: FrameResult | null;
   loading: boolean;
   box: Region | null;
-  region: Region;
+  /** Dashed search area; none for readers. */
+  region: Region | null;
   drafting: boolean;
   onBox: (r: Region | null) => void;
+  /** Extra outlines (repeated reader boxes, the picked slot, new reference crops). */
+  overlays?: Array<{ region: Region; className: string }>;
+  /** When set, a click without dragging reports the point (colour picking). */
+  onPoint?: (p: { x: number; y: number }) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
@@ -536,7 +606,7 @@ function FrameCanvas({
   return (
     <div
       ref={ref}
-      className={`frame ${loading ? "is-loading" : ""}`}
+      className={`frame ${loading ? "is-loading" : ""} ${onPoint ? "is-picking" : ""}`}
       style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -547,16 +617,19 @@ function FrameCanvas({
       onPointerMove={(e) => start.current && setLive(rect(start.current, frac(e)))}
       onPointerUp={(e) => {
         if (!start.current) return;
-        const r = rect(start.current, frac(e));
+        const p0 = start.current;
+        const r = rect(p0, frac(e));
         start.current = null;
         setLive(null);
-        if (r.w > 0.006 && r.h > 0.006) onBox(r);
+        if (onPoint && r.w < 0.004 && r.h < 0.004) onPoint(p0);
+        else if (r.w > 0.006 && r.h > 0.006) onBox(r);
       }}
       role="img"
       aria-label="Frame. Drag to draw a box around the element to detect."
     >
       <img src={frame.dataUrl} alt="" draggable={false} />
-      {!live && <div className="frame-region" style={pos(region)} aria-hidden />}
+      {!live && region && <div className="frame-region" style={pos(region)} aria-hidden />}
+      {!live && overlays.map((o, i) => <div key={i} className={o.className} style={pos(o.region)} aria-hidden />)}
       {shown && <div className={`frame-box ${drafting || live ? "is-new" : ""}`} style={pos(shown)} aria-hidden />}
       <span className="frame-res num">
         {frame.width}×{frame.height}
