@@ -17,9 +17,11 @@ use std::collections::BTreeMap;
 use base64::Engine;
 use serde_json::Value;
 
+use serde_json::json;
+
 use crate::{
     details::{field, pretty_name, result_from_score, SnapshotEmitter},
-    events::GameEvent,
+    events::{kind, EventSource, GameEvent},
 };
 
 pub const SOURCE_NAME: &str = "riot-client";
@@ -147,13 +149,17 @@ impl RiotTracker {
     }
 
     /// Feed one decoded private presence at `rec_elapsed_ms`.
-    pub fn ingest(&mut self, private: &Value, rec_elapsed_ms: u64) -> Option<GameEvent> {
+    /// Feed one decoded private presence at `rec_elapsed_ms`. Returns round won/lost events when
+    /// the score changes, and a details snapshot when the details changed.
+    pub fn ingest(&mut self, private: &Value, rec_elapsed_ms: u64) -> Vec<GameEvent> {
+        let mut out = Vec::new();
         let state = find(private, "sessionLoopState").and_then(Value::as_str).unwrap_or("");
         let now_in_game = state.eq_ignore_ascii_case("INGAME");
         if now_in_game {
             if !self.in_game {
-                // A new match: forget the previous result.
+                // A new match: forget the previous result and score.
                 self.result = None;
+                self.score = None;
             }
             if let Some(m) = find(private, "matchMap").and_then(Value::as_str).filter(|m| !m.is_empty()) {
                 self.map = Some(map_display_name(m));
@@ -166,6 +172,21 @@ impl RiotTracker {
             }
             let num = |k: &str| find(private, k).and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok()));
             if let (Some(a), Some(e)) = (num("partyOwnerMatchScoreAllyTeam"), num("partyOwnerMatchScoreEnemyTeam")) {
+                // A score change is a round result (the first score seen is only a baseline).
+                if let Some((pa, pe)) = self.score {
+                    let round = |n: i64| {
+                        GameEvent::new(kind::ROUND_WIN, rec_elapsed_ms, EventSource::Api { name: SOURCE_NAME.into() })
+                            .with_meta(json!({ "round": n }))
+                    };
+                    if a > pa {
+                        out.push(round(a + e));
+                    }
+                    if e > pe {
+                        let mut ev = round(a + e);
+                        ev.kind = kind::ROUND_LOSS.into();
+                        out.push(ev);
+                    }
+                }
                 self.score = Some((a, e));
             }
         } else if self.in_game {
@@ -189,7 +210,8 @@ impl RiotTracker {
         if let Some(r) = &self.result {
             d.insert(field::RESULT.to_string(), r.clone());
         }
-        self.details.update(d, rec_elapsed_ms, SOURCE_NAME)
+        out.extend(self.details.update(d, rec_elapsed_ms, SOURCE_NAME));
+        out
     }
 }
 
@@ -197,7 +219,6 @@ impl RiotTracker {
 mod tests {
     use super::*;
     use crate::details::latest_snapshot;
-    use serde_json::json;
 
     fn presence(puuid: &str, private: Value) -> Value {
         let b64 = base64::engine::general_purpose::STANDARD.encode(private.to_string());
@@ -228,13 +249,16 @@ mod tests {
                            "partyOwnerMatchScoreAllyTeam": 5, "partyOwnerMatchScoreEnemyTeam": 3 });
         let p = decode_private(&presence(me, flat), me).unwrap();
         let mut t = RiotTracker::new();
-        let mut evs: Vec<GameEvent> = t.ingest(&p, 1000).into_iter().collect();
+        let mut evs: Vec<GameEvent> = t.ingest(&p, 1000);
         // Newer nested layout, later in the match.
         let nested = json!({ "matchPresenceData": { "sessionLoopState": "INGAME", "matchMap": "/Game/Maps/Port/Port", "queueId": "competitive" },
                              "partyPresenceData": { "partyOwnerMatchScoreAllyTeam": 13, "partyOwnerMatchScoreEnemyTeam": 11 } });
         evs.extend(t.ingest(&nested, 2000));
         // Back to the menus: result decided by the final score.
         evs.extend(t.ingest(&json!({ "matchPresenceData": { "sessionLoopState": "MENUS" } }), 3000));
+        // 5-3 -> 13-11 between two polls: rounds won and lost were reported.
+        let kinds: Vec<&str> = evs.iter().map(|e| e.kind.as_str()).filter(|k| !k.starts_with('_')).collect();
+        assert_eq!(kinds, vec!["round_win", "round_loss"]);
         let d = latest_snapshot(&evs);
         let v = |k: &str| d.get(k).map(|v| v.value.clone()).unwrap_or_default();
         assert_eq!(

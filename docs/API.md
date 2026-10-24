@@ -8,7 +8,7 @@ Times are integers: `*Ms` = milliseconds, `*UnixMs` = Unix epoch milliseconds.
 
 ```ts
 type CaptureMode = "game" | "window" | "monitor";
-type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client";
+type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client" | "marvel-state-file";
 
 type EventSource =
   | { type: "vision"; detector: string }

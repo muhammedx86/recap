@@ -28,7 +28,11 @@ const API_LABEL: Record<ApiSource, string> = {
   "league-live-client": "League Live Client API",
   "cs2-gsi": "CS2 Game State Integration",
   "riot-client": "Riot Client (local)",
+  "marvel-state-file": "game's match state file",
 };
+
+/** APIs that only say when a match is on (and details), not plays: events still come from vision. */
+const MATCH_ONLY: ApiSource[] = ["riot-client", "marvel-state-file"];
 
 export function Games() {
   const { data: games, setData, error, loading } = useLoad(() => api.listGames(), []);
@@ -111,9 +115,10 @@ export function Games() {
                     <div>
                       <dt>Events from</dt>
                       <dd>
-                        {g.api && g.api !== "riot-client" ? API_LABEL[g.api] : ready.length ? "Vision detectors" : "Bookmarks only"}
-                        {g.api && g.api !== "riot-client" && ready.length ? " and vision" : ""}
+                        {g.api && !MATCH_ONLY.includes(g.api) ? API_LABEL[g.api] : ready.length ? "Vision detectors" : "Bookmarks only"}
+                        {g.api && !MATCH_ONLY.includes(g.api) && ready.length ? " and vision" : ""}
                         {g.api === "riot-client" ? `; match details from the ${API_LABEL[g.api]}` : ""}
+                        {g.api === "marvel-state-file" ? `; matches from the ${API_LABEL[g.api]}` : ""}
                         {g.hasPostMatch ? ", plus replay files" : ""}
                       </dd>
                     </div>

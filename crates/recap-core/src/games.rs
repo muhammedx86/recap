@@ -70,14 +70,16 @@ pub enum ApiSource {
     LeagueLiveClient,
     /// Counter-Strike 2 Game State Integration.
     Cs2Gsi,
-    /// VALORANT: the Riot Client's local API on 127.0.0.1 (map, mode, score; no events).
+    /// VALORANT: the Riot Client's local API on 127.0.0.1 (map, mode, score, round results).
     RiotClient,
+    /// Marvel Rivals: the game's own state file (`current_connect_info`) says when a match is on.
+    MarvelStateFile,
 }
 
 impl ApiSource {
     /// Whether this source reports match start/end (so matches can be split on it).
     pub fn detects_matches(self) -> bool {
-        matches!(self, ApiSource::LeagueLiveClient | ApiSource::Cs2Gsi)
+        matches!(self, ApiSource::LeagueLiveClient | ApiSource::Cs2Gsi | ApiSource::MarvelStateFile)
     }
 }
 
@@ -493,7 +495,8 @@ impl LoadedGame {
 
     /// True when the game produces round markers (round detectors or CS2 GSI).
     pub fn has_rounds(&self) -> bool {
-        self.def.api == Some(ApiSource::Cs2Gsi) || self.detectors.iter().any(|d| crate::events::is_round_kind(&d.def.event))
+        matches!(self.def.api, Some(ApiSource::Cs2Gsi | ApiSource::RiotClient))
+            || self.detectors.iter().any(|d| crate::events::is_round_kind(&d.def.event))
     }
 
     pub fn ready_detectors(&self) -> impl Iterator<Item = &LoadedDetector> {

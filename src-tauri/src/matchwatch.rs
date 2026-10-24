@@ -4,6 +4,7 @@
 //! * VALORANT: the Riot Client's local presence (`sessionLoopState` INGAME), polled every 2 s.
 //!   The same loop records map/mode/score/result snapshots into the running recording.
 //! * CS2: Game State Integration (`map.phase` live/intermission), fed from `sources`.
+//! * Marvel Rivals: the game's `current_connect_info` state file (battle id while in a match).
 //! * League of Legends / TFT need nothing: the game process only exists during a game.
 //!
 //! Games without such a signal record the whole session and are split afterwards.
@@ -154,9 +155,7 @@ pub fn spawn_riot_watcher(app: AppHandle) {
                         tracker = Some((match_id.clone(), RiotTracker::new()));
                     }
                     if let Some((_, t)) = tracker.as_mut() {
-                        if let Some(ev) = t.ingest(&private, elapsed) {
-                            add_live_events(&app, &match_id, vec![ev]);
-                        }
+                        add_live_events(&app, &match_id, t.ingest(&private, elapsed));
                     }
                 }
             }
@@ -173,6 +172,45 @@ fn find_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
         serde_json::Value::Array(a) => a.iter().find_map(|c| find_str(c, key)),
         _ => None,
     }
+}
+
+/// Watch Marvel Rivals' state file for matches (like Ascent): it holds a battle id while a match is
+/// on and is cleared afterwards.
+pub fn spawn_marvel_watcher(app: AppHandle) {
+    std::thread::Builder::new()
+        .name("marvel-watcher".into())
+        .spawn(move || {
+            let mut last_battle: Option<String> = None;
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let ids = games_with(&app, ApiSource::MarvelStateFile);
+                if ids.is_empty() {
+                    continue;
+                }
+                let Some(dir) =
+                    std::env::var_os("LOCALAPPDATA").map(|d| std::path::PathBuf::from(d).join(r"Marvel\Saved\HotTemp\stateinfo"))
+                else {
+                    continue;
+                };
+                if !dir.is_dir() {
+                    // The game never ran here (or moved the file): no signal, record whole sessions.
+                    ids.iter().for_each(|id| clear(&app, id));
+                    continue;
+                }
+                let battle = std::fs::read_to_string(dir.join("current_connect_info"))
+                    .ok()
+                    .and_then(|c| recap_core::matchgate::marvel_battle_id(&c));
+                if battle.is_some() && last_battle.is_some() && battle != last_battle {
+                    // Straight into another match: end the previous one first.
+                    ids.iter().for_each(|id| observe(&app, id, "marvel-state-file", false));
+                }
+                for id in &ids {
+                    observe(&app, id, "marvel-state-file", battle.is_some());
+                }
+                last_battle = battle;
+            }
+        })
+        .ok();
 }
 
 /// CS2: a GSI payload arrived. Live rounds and intermissions count as "in a match".

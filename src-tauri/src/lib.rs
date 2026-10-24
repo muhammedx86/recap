@@ -133,6 +133,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     monitor::spawn(handle.clone());
     matchwatch::spawn_riot_watcher(handle.clone());
+    matchwatch::spawn_marvel_watcher(handle.clone());
     let gsi_app = handle.clone();
     std::thread::spawn(move || sources::start_cs2_gsi(gsi_app));
     refresh_status(&handle, None);

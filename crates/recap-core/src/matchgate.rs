@@ -117,3 +117,64 @@ mod tests {
         assert_eq!(g.decide(true, 9000), None);
     }
 }
+
+/// Marvel Rivals writes `%LOCALAPPDATA%\Marvel\Saved\HotTemp\stateinfo\current_connect_info`
+/// while connected to a match (it holds a `battle_id`) and clears it afterwards. Returns the
+/// battle id when the contents describe a match.
+pub fn marvel_battle_id(contents: &str) -> Option<String> {
+    let text = contents.trim();
+    if text.is_empty() {
+        return None;
+    }
+    // JSON (any nesting) first, then a loose `battle_id = value` scan.
+    fn find(v: &serde_json::Value) -> Option<String> {
+        match v {
+            serde_json::Value::Object(m) => m.iter().find_map(|(k, v)| {
+                if k.to_ascii_lowercase().contains("battle") {
+                    let s = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        _ => String::new(),
+                    };
+                    (!s.is_empty() && s != "0").then_some(s)
+                } else {
+                    find(v)
+                }
+            }),
+            serde_json::Value::Array(a) => a.iter().find_map(find),
+            _ => None,
+        }
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+        return find(&v);
+    }
+    let lower = text.to_ascii_lowercase();
+    let i = lower.find("battle_id").or_else(|| lower.find("battleid"))?;
+    let rest = &text[i..];
+    let value: String = rest
+        .split_once([':', '='])?
+        .1
+        .trim_start_matches(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    (!value.is_empty() && value != "0").then_some(value)
+}
+
+#[cfg(test)]
+mod marvel_tests {
+    use super::marvel_battle_id;
+
+    #[test]
+    fn battle_id_formats() {
+        assert_eq!(
+            marvel_battle_id(r#"{"battle_id":"1234567","map":"Tokyo"}"#).as_deref(),
+            Some("1234567")
+        );
+        assert_eq!(marvel_battle_id(r#"{"info":{"BattleId":99}}"#).as_deref(), Some("99"));
+        assert_eq!(marvel_battle_id("battle_id=abc-12\nserver=x").as_deref(), Some("abc-12"));
+        assert_eq!(marvel_battle_id(r#"{"battle_id":""}"#), None);
+        assert_eq!(marvel_battle_id("   "), None);
+        assert_eq!(marvel_battle_id(r#"{"player_uid":"5"}"#), None);
+    }
+}

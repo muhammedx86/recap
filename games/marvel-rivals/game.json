@@ -5,6 +5,7 @@
     "Marvel-Win64-Shipping.exe"
   ],
   "capture": "game",
+  "api": "marvel-state-file",
   "preferApi": true,
   "autoClip": {
     "events": [

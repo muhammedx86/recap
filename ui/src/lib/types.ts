@@ -1,7 +1,7 @@
 // Mirrors docs/API.md exactly. All JSON is camelCase.
 
 export type CaptureMode = "game" | "window" | "monitor";
-export type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client";
+export type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client" | "marvel-state-file";
 
 export type EventSource =
   | { type: "vision"; detector: string }

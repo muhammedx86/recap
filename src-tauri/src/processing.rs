@@ -74,8 +74,10 @@ pub fn api_kinds(api: ApiSource) -> &'static [&'static str] {
             kind::BOMB_PLANT,
             kind::BOMB_DEFUSE,
         ],
-        // Details only (map, mode, score), no events.
-        ApiSource::RiotClient => &[],
+        // Round results from the live score (map, mode and score are details).
+        ApiSource::RiotClient => &[kind::ROUND_WIN, kind::ROUND_LOSS],
+        // Only says when a match is on (recording starts/stops with it).
+        ApiSource::MarvelStateFile => &[],
     }
 }
 
