@@ -1,21 +1,31 @@
 {
   "id": "round-won",
-  "label": "Round won banner",
+  "label": "Round won (+100 Round Win)",
   "event": "round_win",
   "region": {
-    "x": 0.3,
-    "y": 0.2,
-    "w": 0.4,
-    "h": 0.16
+    "x": 0.8671875,
+    "y": 0.5,
+    "w": 0.1015625,
+    "h": 0.125
   },
-  "templates": [],
-  "templateFrameHeight": 1080,
-  "method": "ncc",
-  "threshold": 0.8,
+  "templateBox": {
+    "x": 0.89453125,
+    "y": 0.525,
+    "w": 0.0625,
+    "h": 0.05
+  },
+  "templates": [
+    "templates/round-win-a.png",
+    "templates/round-win-b.png",
+    "templates/round-win-c.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.85,
   "cooldownMs": 20000,
   "minConsecutive": 2,
-  "sampleFps": 3.0,
-  "scales": [],
+  "sampleFps": 4,
+  "holdMargin": 0.12,
   "enabled": true,
-  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this shows, drag a box around it and save."
+  "notes": "The \"+100 Round Win\" entry in the points feed (English game text)."
 }
