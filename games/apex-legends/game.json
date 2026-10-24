@@ -1,0 +1,26 @@
+{
+  "id": "apex-legends",
+  "name": "Apex Legends",
+  "processes": [
+    "r5apex.exe",
+    "r5apex_dx12.exe"
+  ],
+  "capture": "game",
+  "preferApi": true,
+  "autoClip": {
+    "events": [
+      "kill",
+      "knock"
+    ]
+  },
+  "postMatch": [],
+  "color": "#DA292A",
+  "eventTypes": [
+    {
+      "id": "knock",
+      "label": "Knock",
+      "icon": "crosshair",
+      "color": "#F2A541"
+    }
+  ]
+}

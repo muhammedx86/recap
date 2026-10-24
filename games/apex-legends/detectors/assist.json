@@ -1,0 +1,31 @@
+{
+  "id": "assist",
+  "label": "Assist",
+  "event": "assist",
+  "region": {
+    "x": 0.234375,
+    "y": 0.6319444444444444,
+    "w": 0.53125,
+    "h": 0.06388888888888888
+  },
+  "templateBox": {
+    "x": 0.45078125,
+    "y": 0.6513888888888889,
+    "w": 0.09921875,
+    "h": 0.02638888888888889
+  },
+  "templates": [
+    "templates/assist-a.png",
+    "templates/assist-b.png",
+    "templates/assist-c.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.7,
+  "cooldownMs": 1500,
+  "minConsecutive": 2,
+  "sampleFps": 8,
+  "holdMargin": 0.15,
+  "enabled": true,
+  "notes": "The \"ASSIST, KNOCKED DOWN\" notice under the crosshair."
+}

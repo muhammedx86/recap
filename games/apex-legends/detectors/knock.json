@@ -1,0 +1,30 @@
+{
+  "id": "knock",
+  "label": "Knocked down",
+  "event": "knock",
+  "region": {
+    "x": 0.234375,
+    "y": 0.6319444444444444,
+    "w": 0.53125,
+    "h": 0.06388888888888888
+  },
+  "templateBox": {
+    "x": 0.44375,
+    "y": 0.6513888888888889,
+    "w": 0.1125,
+    "h": 0.02638888888888889
+  },
+  "templates": [
+    "templates/knocked-a.png",
+    "templates/knocked-b.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.88,
+  "cooldownMs": 3000,
+  "minConsecutive": 2,
+  "sampleFps": 8,
+  "holdMargin": 0.15,
+  "enabled": true,
+  "notes": "The \"KNOCKED DOWN <name>\" notice under the crosshair (English game text)."
+}
