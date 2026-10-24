@@ -212,6 +212,18 @@ fn run_checks(st: &AppState) -> Value {
     });
     out.insert(k, v);
 
+    let (k, v) = check("studioVideoInfo", || {
+        let m = first.clone().ok_or_else(|| anyhow::anyhow!("no processed sample match"))?;
+        let (info, _) = studio::video_info(st, Path::new(&m.path))?;
+        anyhow::ensure!(info.width > 0 && info.height > 0 && info.duration_ms > 0, "bad video info");
+        // A second call must come from the cache (no ffmpeg run).
+        let t = std::time::Instant::now();
+        studio::video_info(st, Path::new(&m.path))?;
+        anyhow::ensure!(t.elapsed() < std::time::Duration::from_millis(200), "video info not cached");
+        Ok(serde_json::to_value(&info)?)
+    });
+    out.insert(k, v);
+
     let (k, v) = check("studioTest", || {
         let m = first.clone().ok_or_else(|| anyhow::anyhow!("no processed sample match"))?;
         let game = st.game(SAMPLE_GAME).ok_or_else(|| anyhow::anyhow!("sample game not loaded"))?;
@@ -226,7 +238,8 @@ fn run_checks(st: &AppState) -> Value {
             "kill detector found nothing ({} samples)",
             res.samples.len()
         );
-        Ok(json!({ "hits": res.events.iter().map(|e| e.t_ms).collect::<Vec<_>>(), "samples": res.samples.len() }))
+        anyhow::ensure!(!res.hits.is_empty(), "no match locations for {} detections", res.events.len());
+        Ok(json!({ "hits": res.events.iter().map(|e| e.t_ms).collect::<Vec<_>>(), "samples": res.samples.len(), "locations": res.hits }))
     });
     out.insert(k, v);
 

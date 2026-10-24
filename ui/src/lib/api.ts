@@ -24,6 +24,7 @@ import type {
   RecorderStatus,
   Region,
   Settings,
+  VideoInfo,
   StorageInfo,
   TestResult,
 } from "./types";
@@ -126,6 +127,10 @@ export const api = {
   getStorage: () => call<StorageInfo>("get_storage"),
 
   studioLoadFrame: (source: FrameSource) => call<FrameResult>("studio_load_frame", { source }),
+  /** Size, length and game picture of a recording (cached by the backend per file). */
+  studioVideoInfo: (path: string) => call<VideoInfo>("studio_video_info", { path }),
+  /** Stop a running Studio test; it returns what it has so far. */
+  studioCancel: () => call<null>("studio_cancel"),
   studioSaveDetector: (gameId: string, detector: DetectorDef, source: FrameSource, templateBox: Region | null) =>
     call<GameInfo>("studio_save_detector", { gameId, detector, source, templateBox }),
   studioTestDetector: (gameId: string, detector: DetectorDef, matchId: string) =>

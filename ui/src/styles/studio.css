@@ -114,13 +114,18 @@
   cursor: crosshair;
   touch-action: none;
 }
-.frame img {
+.frame-media {
+  position: absolute;
+}
+.frame-media video,
+.frame-media img {
   display: block;
   width: 100%;
   height: 100%;
+  object-fit: fill;
   pointer-events: none;
 }
-.frame.is-loading img {
+.frame.is-loading .frame-media {
   opacity: 0.5;
 }
 .frame-empty {
@@ -160,25 +165,14 @@
   font-size: 11px;
   color: var(--muted);
 }
-.stage-foot {
-  margin-top: 8px;
-}
-.scrub {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  align-items: center;
-  gap: 6px;
-}
-.scrub .num {
-  min-width: 60px;
-  text-align: right;
-  font-size: 13px;
-  color: var(--ink-2);
-}
 .stage-help {
-  margin-top: 4px;
+  margin: 0;
   font-size: 12px;
   color: var(--muted);
+  min-width: 0;
+}
+.warn-text {
+  color: var(--accent);
 }
 
 /* test */
@@ -197,7 +191,7 @@
   font-size: 15px;
   font-weight: 600;
 }
-.test-head .btn {
+.test-head > .btn {
   margin-left: auto;
   align-self: center;
 }
@@ -212,52 +206,6 @@
   color: var(--ink);
   font-weight: 600;
 }
-.chart svg {
-  width: 100%;
-  height: 140px;
-  display: block;
-  cursor: pointer;
-}
-.chart-zone {
-  fill: var(--accent);
-  opacity: 0.05;
-}
-.chart-line {
-  fill: none;
-  stroke: var(--ink-2);
-  stroke-width: 1;
-}
-.chart-threshold {
-  stroke: var(--accent);
-  stroke-width: 1;
-  stroke-dasharray: 3 4;
-  opacity: 0.7;
-}
-.chart-hit {
-  stroke: var(--accent);
-  stroke-width: 1;
-  opacity: 0.5;
-}
-.chart-hover {
-  stroke: var(--ink);
-  stroke-width: 1;
-  opacity: 0.35;
-}
-.chart-axis {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0 0;
-  font-size: 11px;
-  border-top: 1px solid var(--line-soft);
-}
-.hits {
-  list-style: none;
-  padding: 0;
-  margin: 12px 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 4px;
-}
 .hit {
   padding: 3px 8px;
   border: 0;
@@ -269,6 +217,10 @@
 }
 .hit:hover {
   background: var(--raised);
+  color: var(--ink);
+}
+.hit.on {
+  background: var(--accent-soft);
   color: var(--ink);
 }
 
@@ -342,12 +294,51 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.template-list li {
+  position: relative;
+  border-radius: 5px;
+  outline: 1.5px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 0.15s;
+}
+.template-list li.is-matched {
+  outline-color: var(--ok);
+}
 .template-list img {
   display: block;
   height: 44px;
   max-width: 120px;
   object-fit: cover;
   border-radius: 4px;
+  background: #000;
+}
+.ref-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--raised-2);
+  color: var(--ink-2);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.template-list li:hover .ref-remove,
+.ref-remove:focus-visible {
+  opacity: 1;
+}
+.ref-remove:hover {
+  color: var(--danger);
+}
+.ref-help {
+  margin-top: 10px;
+  line-height: 1.45;
 }
 .form-actions {
   display: flex;
@@ -725,4 +716,324 @@
 }
 .highlight-row {
   display: flex;
+}
+
+/* ---------- viewer ---------- */
+.viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.frame-chip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(9, 10, 13, 0.75);
+  color: var(--ink-2);
+  font-size: 12px;
+  pointer-events: none;
+}
+.frame-match {
+  position: absolute;
+  border: 1.5px solid var(--ok);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.frame-tag {
+  position: absolute;
+  left: -1.5px;
+  bottom: calc(100% + 3px);
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--ok);
+  color: #06140e;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.loupe {
+  position: absolute;
+  z-index: 2;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.transport-time {
+  margin-left: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.transport-jumps {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  color: var(--ink-2);
+}
+.transport-jumps .num {
+  min-width: 64px;
+  text-align: center;
+}
+.keys {
+  margin-left: 12px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: help;
+  white-space: pre;
+}
+.transport-jumps + .keys {
+  margin-left: 12px;
+}
+.transport > .keys:not(.transport-jumps + .keys) {
+  margin-left: auto;
+}
+
+/* timeline: score curve (after a test), track with playhead, event marks */
+.timeline {
+  position: relative;
+  height: 30px;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.timeline.has-curve {
+  height: 70px;
+}
+.tl-curve {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  width: 100%;
+  height: 40px;
+}
+.tl-zone {
+  fill: var(--accent);
+  opacity: 0.06;
+}
+.tl-line {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 1;
+}
+.tl-threshold {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.7;
+}
+.tl-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--raised-2);
+  overflow: hidden;
+}
+.tl-progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(242, 169, 59, 0.35);
+  transition: width 0.2s;
+}
+.tl-played {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(231, 229, 224, 0.28);
+}
+.tl-hit {
+  position: absolute;
+  top: 0;
+  bottom: 12px;
+  width: 1.5px;
+  margin-left: -0.75px;
+  background: var(--accent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+.timeline:not(.has-curve) .tl-hit {
+  top: 4px;
+}
+.tl-markers {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+}
+.tl-marker {
+  position: absolute;
+  top: 1px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  opacity: 0.9;
+}
+.tl-head {
+  position: absolute;
+  top: 0;
+  bottom: 9px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--ink);
+  pointer-events: none;
+}
+.tl-hover {
+  position: absolute;
+  top: -20px;
+  transform: translateX(-50%);
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--raised-2);
+  color: var(--ink-2);
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* steps */
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: flex;
+  gap: 4px 20px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-n {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+}
+.steps li.done .step-n {
+  border-color: transparent;
+  background: var(--raised-2);
+  color: var(--ok);
+}
+.steps li.on {
+  color: var(--ink);
+}
+.steps li.on .step-n {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* under the frame */
+.stage-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  margin-top: 8px;
+}
+.stage-bar .stage-help {
+  flex: 1;
+}
+.stage-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.box-bar {
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--r-sm);
+  background: var(--raised);
+}
+.jumps {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-top: 6px;
+}
+.jumps > .small {
+  flex: none;
+  width: 116px;
+}
+.jumps ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  align-items: center;
+}
+.test-progress {
+  position: relative;
+  height: 24px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+.test-progress > div {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+.test-progress::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--raised-2);
+}
+.test-progress span {
+  margin-top: 10px;
+}
+.test-progress.is-indeterminate > div {
+  width: 30%;
+  animation: studio-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes studio-indeterminate {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+.test-progress.is-indeterminate {
+  overflow: hidden;
+}
+.match-note {
+  margin-bottom: 4px;
+  color: var(--ink-2);
 }

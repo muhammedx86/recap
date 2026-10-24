@@ -289,10 +289,39 @@ export interface FrameResult {
   height: number;
 }
 
+/** Where a detector matched: box as fractions of the game picture, template size and reference image. */
+export interface MatchLocation {
+  score: number;
+  region: Region;
+  /** Template size relative to the reference (1 = as cut). */
+  scale: number;
+  /** Index into the detector's reference images. */
+  reference: number;
+}
+
+export interface TestHit extends MatchLocation {
+  tMs: number;
+}
+
 export interface TestResult {
   events: GameEvent[];
   samples: Array<[number, number]>;
   durationMs: number;
+  /** Where each detection matched. */
+  hits: TestHit[];
+  /** Stopped early with `studio_cancel`; samples cover only part of the recording. */
+  cancelled: boolean;
+}
+
+/** A recording as Studio shows it: size, length, frame rate and the game picture inside any black bars. */
+export interface VideoInfo {
+  width: number;
+  height: number;
+  durationMs: number;
+  /** Frames per second; 0 when unknown. */
+  fps: number;
+  /** The game picture in video pixels, or null when it fills the frame. */
+  content: { x: number; y: number; w: number; h: number } | null;
 }
 
 export interface ProcessingProgress {
@@ -320,4 +349,6 @@ export interface EventMap {
   "bookmark-added": { matchId: string; tMs: number };
   /** The window was closed to the tray or minimized: stop playing media. */
   "window-hidden": { reason: "closed" | "minimized" };
+  /** A Studio test is running: progress 0..1. */
+  "studio-progress": { task: "test"; progress: number };
 }

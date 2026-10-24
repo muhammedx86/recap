@@ -80,6 +80,8 @@ pub struct VideoInfoResult {
     pub width: u32,
     pub height: u32,
     pub duration_ms: u64,
+    /// Frames per second (0 when unknown), for frame stepping.
+    pub fps: f32,
     /// The game picture when the recording has black bars around it; null when it fills the frame.
     pub content: Option<PictureRect>,
 }
@@ -111,6 +113,7 @@ pub fn video_info(st: &AppState, path: &Path) -> Result<(VideoInfoResult, Option
         width: info.width,
         height: info.height,
         duration_ms: info.duration_ms,
+        fps: info.fps,
         content: crop.map(|c| PictureRect {
             x: c.x,
             y: c.y,
