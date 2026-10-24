@@ -325,6 +325,21 @@ pub enum ReaderKind {
     Choice,
 }
 
+/// How a reader settles on one value from many frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReadPick {
+    /// The value read most often.
+    #[default]
+    Vote,
+    /// The last value read.
+    Latest,
+}
+
+fn is_default_pick(p: &ReadPick) -> bool {
+    *p == ReadPick::Vote
+}
+
 /// When in a match a reader looks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -397,6 +412,10 @@ pub struct ReaderDef {
     pub highlight: Option<Highlight>,
     #[serde(default)]
     pub when: ReadWhen,
+    /// Which reading wins when frames disagree: the most common one, or the last one seen (for
+    /// values that change during a match, like a live K/D/A on the scoreboard).
+    #[serde(default, skip_serializing_if = "is_default_pick")]
+    pub pick: ReadPick,
     /// Frames per second to read while looking.
     #[serde(default = "default_reader_fps")]
     pub sample_fps: f32,

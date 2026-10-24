@@ -862,8 +862,8 @@
   background: rgba(255, 255, 255, 0.04);
 }
 .ev.current {
-  background: rgba(168, 85, 247, 0.1);
-  border-color: rgba(168, 85, 247, 0.25);
+  background: rgba(242, 163, 58, 0.1);
+  border-color: rgba(242, 163, 58, 0.25);
 }
 .ev-main {
   flex: 1;
@@ -1036,4 +1036,100 @@
 .details-picker {
   height: 26px;
   width: auto;
+}
+
+/* Moments: plays close together, grouped (a triple kill, a trade...). */
+.events-head .seg button {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.events-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.check-inline {
+  white-space: nowrap;
+}
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.check-inline input {
+  accent-color: var(--accent);
+}
+.moment {
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+}
+.moment:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+.moment.current {
+  background: var(--accent-soft);
+  border-color: rgba(242, 163, 58, 0.25);
+}
+.moment-row {
+  display: flex;
+  align-items: center;
+}
+.moment-row > .ev-main {
+  grid-template-columns: 46px 1fr;
+}
+.moment.single .moment-body {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+.moment-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.moment-title {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.moment.big .moment-title {
+  color: var(--ink);
+  font-weight: 650;
+}
+.moment.big {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.moment-kinds {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.moment-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.moment-len {
+  color: var(--faint);
+}
+.moment-toggle {
+  margin-right: 4px;
+}
+.moment-children {
+  list-style: none;
+  margin: 0 6px 6px 46px;
+  padding: 0 0 0 8px;
+  border-left: 1px solid var(--line);
+}
+.moment-children .ev-main {
+  padding-top: 4px;
+  padding-bottom: 4px;
 }

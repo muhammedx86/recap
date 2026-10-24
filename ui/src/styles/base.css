@@ -1,40 +1,40 @@
 /* Recap — dark editorial. One accent (sodium amber) for the playhead, selection and your own bookmarks. */
 
 :root {
-  /* Surfaces, darkest to lightest (cool slate-violet, like a capture app should feel). */
-  --bg: #181620;
-  --sunken: #121018;
-  --raised: #201e28;
-  --raised-2: #2c2e3a;
-  --overlay: #383c4a;
+  /* Surfaces, darkest to lightest (neutral graphite). */
+  --bg: #111317;
+  --sunken: #0b0d10;
+  --raised: #171a1f;
+  --raised-2: #20242b;
+  --overlay: #2c313a;
   --line: rgba(255, 255, 255, 0.08);
   --line-soft: rgba(255, 255, 255, 0.05);
   --hair: rgba(255, 255, 255, 0.06);
 
   /* Text */
-  --ink: #f1f5f9;
-  --ink-2: #cbd5e1;
-  --muted: #94a3b8;
-  --faint: #64748b;
+  --ink: #eceff3;
+  --ink-2: #c3c9d2;
+  --muted: #8d96a3;
+  --faint: #5f6875;
 
   /* One accent, plus result colours. */
-  --accent: #a855f7;
-  --accent-hover: #b874f9;
-  --accent-soft: rgba(168, 85, 247, 0.14);
-  --accent-line: rgba(168, 85, 247, 0.45);
-  --accent-ink: #ffffff;
+  --accent: #f2a33a;
+  --accent-hover: #ffb757;
+  --accent-soft: rgba(242, 163, 58, 0.14);
+  --accent-line: rgba(242, 163, 58, 0.45);
+  --accent-ink: #1b1206;
   --rec: #ef4444;
   --danger: #ef4444;
-  --ok: #22c55e;
-  --win: #22c55e;
-  --loss: #ef4444;
-  --win-tint: rgba(34, 197, 94, 0.07);
-  --loss-tint: rgba(239, 68, 68, 0.07);
+  --ok: #3ecf8e;
+  --win: #3ecf8e;
+  --loss: #f26d6d;
+  --win-tint: rgba(62, 207, 142, 0.07);
+  --loss-tint: rgba(242, 109, 109, 0.07);
 
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, "Helvetica Neue", Arial, sans-serif;
-  --r-sm: 6px;
-  --r: 8px;
-  --r-lg: 10px;
+  --r-sm: 7px;
+  --r: 10px;
+  --r-lg: 12px;
   --sidebar: 212px;
   --gutter: 24px;
 
@@ -175,20 +175,17 @@ kbd {
 /* The mark: a play triangle cut from a rounded tile. */
 .brand-mark {
   position: relative;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #c084fc, #7c3aed);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
 }
 .brand-mark::after {
   content: "";
   position: absolute;
-  left: 8.5px;
-  top: 6px;
-  border-left: 7px solid #fff;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .brand-name {
@@ -231,7 +228,7 @@ kbd {
 }
 .nav-link.active {
   color: var(--ink);
-  background: rgba(168, 85, 247, 0.16);
+  background: rgba(242, 163, 58, 0.16);
 }
 .nav-link .icon {
   color: var(--faint);
@@ -540,7 +537,7 @@ kbd {
 .input:focus {
   outline: none;
   border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.12);
+  box-shadow: 0 0 0 3px rgba(242, 163, 58, 0.12);
 }
 select.input {
   appearance: none;
@@ -737,8 +734,8 @@ input[type="checkbox"] {
   background: rgba(255, 255, 255, 0.04);
 }
 .chip.on {
-  background: rgba(168, 85, 247, 0.16);
-  border-color: rgba(168, 85, 247, 0.32);
+  background: rgba(242, 163, 58, 0.16);
+  border-color: rgba(242, 163, 58, 0.32);
   color: var(--ink);
 }
 .chip .icon {
@@ -816,8 +813,8 @@ input[type="checkbox"] {
 }
 .dd-btn.set {
   color: var(--ink);
-  border-color: rgba(168, 85, 247, 0.4);
-  background: rgba(168, 85, 247, 0.08);
+  border-color: rgba(242, 163, 58, 0.4);
+  background: rgba(242, 163, 58, 0.08);
 }
 .dd-btn .icon {
   color: var(--faint);
@@ -857,7 +854,7 @@ input[type="checkbox"] {
 }
 .dd-item.on {
   color: #d8b4fe;
-  background: rgba(168, 85, 247, 0.12);
+  background: rgba(242, 163, 58, 0.12);
 }
 .dd-item img {
   width: 18px;

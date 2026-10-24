@@ -20,7 +20,7 @@
   width: 34px;
   height: 34px;
   border-radius: 8px;
-  background: rgba(168, 85, 247, 0.14);
+  background: rgba(242, 163, 58, 0.14);
   color: #d8b4fe;
 }
 .set-head {
@@ -57,8 +57,8 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .set-row.on {
-  border-color: rgba(168, 85, 247, 0.45);
-  background: rgba(168, 85, 247, 0.05);
+  border-color: rgba(242, 163, 58, 0.45);
+  background: rgba(242, 163, 58, 0.05);
 }
 .set-row.wide,
 .set-block.wide {

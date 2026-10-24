@@ -241,6 +241,69 @@ pub fn apply_round_rules(events: Vec<GameEvent>, rules: &crate::games::RoundRule
     out
 }
 
+/// Kills this close together (and in the same round) count as one multikill.
+pub const MULTIKILL_GAP_MS: u64 = 10_000;
+
+/// Multikills (and aces) from the kills on a timeline, for games whose API does not report them:
+/// a chain of 2+ kills, each within `gap_ms` of the previous one and with no round boundary in
+/// between, becomes one `multikill` at its first kill (`meta.count`, `meta.endMs`). In round-based
+/// games, 5 kills in one round add an `ace`. Nothing is derived when the timeline already has
+/// multikill/ace events from an exact source.
+pub fn derive_multikills(events: &[GameEvent], gap_ms: u64) -> Vec<GameEvent> {
+    let has = |k: &str| {
+        events
+            .iter()
+            .any(|e| e.kind == k && !matches!(e.source, EventSource::PostMatch { .. }))
+    };
+    let mut sorted: Vec<&GameEvent> = events.iter().collect();
+    sorted.sort_by_key(|e| e.t_ms);
+    let src = || EventSource::PostMatch {
+        processor: "multikill".into(),
+    };
+    let mut out = Vec::new();
+    let mut chain: Vec<u64> = Vec::new();
+    let mut round_kills: Vec<u64> = Vec::new();
+    let mut has_rounds = false;
+    let flush_chain = |chain: &mut Vec<u64>, out: &mut Vec<GameEvent>| {
+        if chain.len() >= 2 && !has(kind::MULTIKILL) {
+            out.push(
+                GameEvent::new(kind::MULTIKILL, chain[0], src())
+                    .with_meta(serde_json::json!({ "count": chain.len(), "endMs": chain[chain.len() - 1] })),
+            );
+        }
+        chain.clear();
+    };
+    let flush_round = |kills: &mut Vec<u64>, out: &mut Vec<GameEvent>, has_rounds: bool| {
+        if has_rounds && kills.len() >= 5 && !has(kind::ACE) {
+            out.push(
+                GameEvent::new(kind::ACE, kills[0], src())
+                    .with_meta(serde_json::json!({ "count": kills.len(), "endMs": kills[kills.len() - 1] })),
+            );
+        }
+        kills.clear();
+    };
+    for e in sorted {
+        match e.kind.as_str() {
+            kind::ROUND_START | kind::ROUND_WIN | kind::ROUND_LOSS => {
+                has_rounds = true;
+                flush_chain(&mut chain, &mut out);
+                flush_round(&mut round_kills, &mut out, has_rounds);
+            }
+            kind::KILL => {
+                if chain.last().is_some_and(|&l| e.t_ms.saturating_sub(l) > gap_ms) {
+                    flush_chain(&mut chain, &mut out);
+                }
+                chain.push(e.t_ms);
+                round_kills.push(e.t_ms);
+            }
+            _ => {}
+        }
+    }
+    flush_chain(&mut chain, &mut out);
+    flush_round(&mut round_kills, &mut out, has_rounds);
+    out
+}
+
 /// Drop vision events matched by an exclusion rule (see [`crate::games::Exclusion`]).
 pub fn apply_exclusions(events: Vec<GameEvent>, rules: &[crate::games::Exclusion]) -> Vec<GameEvent> {
     if rules.is_empty() {
@@ -293,6 +356,38 @@ fn is_manual(e: &GameEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multikills_from_kill_chains() {
+        let v = |k: &str, t: u64| GameEvent::new(k, t, EventSource::Vision { detector: "d".into() });
+        let evs = vec![
+            v(kind::ROUND_START, 0),
+            v(kind::KILL, 10_000),
+            v(kind::KILL, 14_000),
+            v(kind::KILL, 20_000), // triple
+            v(kind::KILL, 45_000), // alone
+            v(kind::KILL, 50_000),
+            v(kind::ROUND_WIN, 52_000),
+            v(kind::KILL, 53_000), // next round: not chained with 50 s
+        ];
+        let d = derive_multikills(&evs, MULTIKILL_GAP_MS);
+        let got: Vec<(String, u64, u64)> = d
+            .iter()
+            .map(|e| (e.kind.clone(), e.t_ms, e.meta["count"].as_u64().unwrap()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (kind::MULTIKILL.into(), 10_000, 3),
+                (kind::MULTIKILL.into(), 45_000, 2),
+                (kind::ACE.into(), 10_000, 5)
+            ]
+        );
+        // An API that reports multikills itself: nothing derived.
+        let mut api = evs.clone();
+        api.push(GameEvent::new(kind::MULTIKILL, 15_000, EventSource::Api { name: "x".into() }));
+        assert!(derive_multikills(&api, MULTIKILL_GAP_MS).iter().all(|e| e.kind != kind::MULTIKILL));
+    }
 
     #[test]
     fn exclusions_drop_events_near_another_kind() {

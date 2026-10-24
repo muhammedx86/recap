@@ -21,8 +21,8 @@ use serde::Serialize;
 use crate::{
     details::{field, normalize_result, DetailSource, DetailValue, MatchDetails},
     ffmpeg::{ContentRect, Ffmpeg, VideoInfo},
-    games::{parse_hex, DetectorDef, LoadedReader, ReadWhen, ReaderDef, ReaderKind, Region},
-    vision::{load_gray, PreparedDetector},
+    games::{parse_hex, DetectorDef, LoadedReader, ReadPick, ReadWhen, ReaderDef, ReaderKind, Region},
+    vision::{load_gray, mask_path, PreparedDetector},
 };
 
 /// Text recognition engine (Windows OCR in the app; anything in tests).
@@ -52,20 +52,23 @@ impl PreparedReader {
         let mut options = Vec::new();
         if def.kind == ReaderKind::Choice {
             for o in &def.options {
-                let imgs: Vec<GrayImage> = o
-                    .templates
-                    .iter()
-                    .filter_map(|t| {
-                        load_gray(&r.base_dir.join(t))
-                            .map_err(|e| log::warn!("reader {}: {e:#}", def.id))
-                            .ok()
-                    })
-                    .collect();
+                let mut imgs: Vec<GrayImage> = Vec::new();
+                let mut masks = Vec::new();
+                for t in &o.templates {
+                    let p = r.base_dir.join(t);
+                    match load_gray(&p) {
+                        Ok(img) => {
+                            imgs.push(img);
+                            masks.push(mask_path(&p).filter(|m| m.exists()).and_then(|m| load_gray(&m).ok()));
+                        }
+                        Err(e) => log::warn!("reader {}: {e:#}", def.id),
+                    }
+                }
                 if imgs.is_empty() {
                     continue;
                 }
                 let det = choice_detector(&def, &o.value);
-                match PreparedDetector::from_images(det, imgs, frame_w, frame_h) {
+                match PreparedDetector::from_images_with_masks(det, imgs, masks, frame_w, frame_h) {
                     Ok(p) => options.push((o.value.clone(), p)),
                     Err(e) => log::warn!("reader {} option {}: {e:#}", def.id, o.value),
                 }
@@ -436,6 +439,10 @@ pub fn prepare_for_ocr_with(gray: &GrayImage, target: f32, margin: f32) -> GrayI
 /// "131313" -> ("13", 3): the text read from three run-together copies. Three equal thirds win
 /// ("111111" is three "11", not six "1"); otherwise the shortest repeating unit.
 fn repeated_unit(s: &str) -> Option<(&str, u32)> {
+    // Byte slicing below: only for plain ASCII readings (OCR can return "é" and the like).
+    if !s.is_ascii() {
+        return None;
+    }
     let n = s.len();
     if n >= 3 && n.is_multiple_of(3) {
         let t = n / 3;
@@ -600,6 +607,8 @@ pub fn read_details(
     }
     // field -> value -> (votes, confidence sum)
     let mut votes: BTreeMap<String, BTreeMap<String, (u32, f32)>> = BTreeMap::new();
+    // field -> (time, value, confidence) of the last reading, for "latest" readers
+    let mut latest: BTreeMap<String, (u64, String, f32)> = BTreeMap::new();
     let mut local_traces: Vec<ReaderTrace> = prepared
         .iter()
         .map(|p| ReaderTrace {
@@ -618,6 +627,12 @@ pub fn read_details(
                     tr.readings.extend(found.iter().map(|(f, v, _)| (t, f.clone(), v.clone())));
                 }
                 for (f, v, c) in found {
+                    if r.def.pick == ReadPick::Latest {
+                        if latest.get(&f).is_none_or(|(lt, _, _)| t >= *lt) {
+                            latest.insert(f, (t, v, c));
+                        }
+                        continue;
+                    }
                     let e = votes.entry(f).or_default().entry(v).or_insert((0, 0.0));
                     e.0 += 1;
                     e.1 += c;
@@ -638,6 +653,11 @@ pub fn read_details(
                 DetailValue::new(v, DetailSource::Screen).with_confidence((conf * 100.0).round() / 100.0),
             );
         }
+    }
+    for (f, (_, v, c)) in latest {
+        // A field also read by a voting reader (an end screen) keeps that reading.
+        out.entry(f)
+            .or_insert_with(|| DetailValue::new(v, DetailSource::Screen).with_confidence((c * 100.0).round() / 100.0));
     }
     crate::details::combine_team_scores(&mut out);
     Ok(out)
@@ -663,6 +683,7 @@ mod tests {
             slots: None,
             highlight: None,
             when: ReadWhen::End,
+            pick: Default::default(),
             sample_fps: 1.0,
             pattern: None,
             values: vec![],
@@ -720,6 +741,7 @@ mod tests {
         assert_eq!(fix_digits("3/l/2 KDA"), "3/1/2 KDA");
         assert_eq!(repeated_unit("131313"), Some(("13", 3)));
         assert_eq!(repeated_unit("111111"), Some(("11", 3)));
+        assert_eq!(repeated_unit("é1é1é1"), None);
         assert_eq!(repeated_unit("9999"), Some(("9", 4)));
         assert_eq!(repeated_unit("13"), None);
 

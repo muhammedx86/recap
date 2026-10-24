@@ -111,7 +111,8 @@ interface GameInfo {
   detectors: Array<DetectorDef & { ready: boolean; user: boolean; templateUrls: string[] }>; // templateUrls = absolute file paths of templates
   hasPostMatch: boolean;
   hasRounds: boolean;
-  matchDetection: "api" | "detectors" | "process"; // how match boundaries are found ("process" = recording is the whole game session)             // the game has round markers (round detectors or an API that reports rounds)
+  matchDetection: "api" | "detectors" | "process"; // how match boundaries are found ("process" = recording is the whole game session)
+  assetsDir: string | null;      // the game's bundled assets/ folder (agents/<slug>.png, maps/<slug>.jpg, ranks/<slug>.png), if any
   eventTypes: EventTypeDef[];     // built-ins first, then this game's custom types
   readers: Array<ReaderDef & { ready: boolean; user: boolean; optionUrls: Record<string, string[]> }>; // optionUrls: value -> absolute reference paths
 }

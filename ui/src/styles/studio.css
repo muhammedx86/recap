@@ -64,7 +64,7 @@
 .det-item.on,
 .det-add.on {
   color: var(--ink);
-  background: rgba(168, 85, 247, 0.16);
+  background: rgba(242, 163, 58, 0.16);
 }
 .det-item.on .kind-icon {
   color: var(--ink-2) !important;
@@ -861,7 +861,7 @@
 .st-tl-progress {
   position: absolute;
   inset: 0 auto 0 0;
-  background: rgba(168, 85, 247, 0.4);
+  background: rgba(242, 163, 58, 0.4);
   transition: width 0.2s;
 }
 .st-tl-played {

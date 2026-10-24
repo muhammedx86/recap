@@ -118,7 +118,7 @@
 }
 .mrow.win {
   --stripe: var(--win);
-  --tint: rgba(34, 197, 94, 0.08);
+  --tint: rgba(62, 207, 142, 0.08);
 }
 .mrow.loss {
   --stripe: var(--loss);
@@ -370,7 +370,7 @@
   border-color: rgba(255, 255, 255, 0.16);
 }
 .mcard.win {
-  box-shadow: inset 0 -2px 0 rgba(34, 197, 94, 0.7);
+  box-shadow: inset 0 -2px 0 rgba(62, 207, 142, 0.7);
 }
 .mcard.loss {
   box-shadow: inset 0 -2px 0 rgba(239, 68, 68, 0.7);

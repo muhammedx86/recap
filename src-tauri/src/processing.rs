@@ -11,7 +11,8 @@ use recap_core::{
     clips::{concat, cut_clip, kinds_in_window, plan_auto_clips},
     details::{from_events, latest_snapshot, merge, retain_manual},
     events::{
-        apply_exclusions, apply_round_rules, builtin_event_types, is_round_kind, kind, merge_events, EventSource, EventTypeDef, GameEvent,
+        apply_exclusions, apply_round_rules, builtin_event_types, derive_multikills, is_round_kind, kind, merge_events, EventSource,
+        EventTypeDef, GameEvent, MULTIKILL_GAP_MS,
     },
     games::{ApiSource, LoadedDetector, LoadedGame},
     library::{ClipKind, ClipRecord, MatchRecord, MatchStatus},
@@ -226,6 +227,13 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
             merged = apply_round_rules(merged, rules);
         }
         merged = apply_exclusions(merged, &g.def.exclusions);
+    }
+    // Multikills from kill chains (replacing ones derived on an earlier scan).
+    let is_derived = |e: &GameEvent| matches!(&e.source, EventSource::PostMatch { processor } if processor == "multikill");
+    for d in derive_multikills(&merged, MULTIKILL_GAP_MS) {
+        if !merged.iter().any(|e| is_derived(e) && e.kind == d.kind && e.t_ms == d.t_ms) {
+            merged.push(d);
+        }
     }
     let new: Vec<GameEvent> = merged
         .into_iter()

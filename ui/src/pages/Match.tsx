@@ -6,6 +6,7 @@ import { useLibraryChanged, useLoad, useProcessing } from "../lib/hooks";
 import { kindStyle, sortKinds, sourceLabel } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import { computeRounds, type Round } from "../lib/rounds";
+import { groupMoments, momentTitle, type Moment } from "../lib/moments";
 import type { ClipRecord, GameEvent, MatchRecord } from "../lib/types";
 import { AssetImg } from "../components/AssetImg";
 import { useAssetDirs } from "../lib/assets";
@@ -56,6 +57,11 @@ export function MatchPage() {
   // Round starts are drawn as timeline dividers and the rounds strip; listing each one adds noise.
   const visible = useMemo(() => events.filter((e) => !hidden.has(e.kind) && e.kind !== "round_start"), [events, hidden]);
   const rounds = useMemo(() => computeRounds(events, m?.durationMs ?? 0), [events, m?.durationMs]);
+  const moments = useMemo(() => groupMoments(visible), [visible]);
+  const [grouped, setGrouped] = useState(() => loadPref<boolean>("match.grouped", true));
+  const [onlyBig, setOnlyBig] = useState(false);
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const shownMoments = onlyBig ? moments.filter((x) => momentTitle(x)) : moments;
 
   const addMarker = useCallback(async () => {
     if (!m) return;
@@ -210,6 +216,27 @@ export function MatchPage() {
   const live = m.status === "recording";
   const progress = processing[m.id];
   const current = [...visible].reverse().find((e) => e.tMs <= time + 500);
+
+  const renderEvent = (e: GameEvent, i: number) => {
+            const src = `${sourceLabel(e.source)}${e.confidence !== undefined ? `, ${Math.round(e.confidence * 100)}% match` : ""}`;
+            return (
+              <li key={e.id ?? i} className={`ev ${current === e ? "current" : ""}`}>
+                <button className="ev-main" onClick={() => jump(e)} title={`${kindStyle(e.kind).label} at ${timecode(e.tMs)} · ${src}`}>
+                  <span className="ev-time num">{timecode(e.tMs)}</span>
+                  <KindDot kind={e.kind} tone="color" size={13} />
+                  <span className="ev-kind">
+                    {kindStyle(e.kind).label}
+                    {e.meta?.count ? ` ×${e.meta.count}` : ""}
+                  </span>
+                </button>
+                {e.id !== undefined && (
+                  <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(e.kind).label} at ${timecode(e.tMs)}`} onClick={() => deleteEvent(e)}>
+                    <Icon name="close" size={13} />
+                  </button>
+                )}
+              </li>
+            );
+  };
 
   const customTitle = !!m.title?.trim();
 
@@ -377,9 +404,21 @@ export function MatchPage() {
         {tab === "plays" && (
           <div className="events-panel">
             <div className="events-head">
-              <span className="muted small">
-                {visible.length} of {events.filter((e) => e.kind !== "round_start").length} shown
-              </span>
+              <div className="seg" role="group" aria-label="List plays">
+                <button className={grouped ? "on" : ""} onClick={() => (setGrouped(true), savePref("match.grouped", true))} title="Plays close together as one moment">
+                  Moments
+                </button>
+                <button className={!grouped ? "on" : ""} onClick={() => (setGrouped(false), savePref("match.grouped", false))} title="Every play on its own">
+                  All
+                </button>
+              </div>
+              {grouped && moments.some((x) => momentTitle(x)) && (
+                <label className="check-inline small">
+                  <input type="checkbox" checked={onlyBig} onChange={(e) => setOnlyBig(e.target.checked)} />
+                  Multikills
+                </label>
+              )}
+              <span className="muted small events-count">{grouped ? `${shownMoments.length}` : `${visible.length}`}</span>
               {kinds.length > 1 && (
                 <details className="ev-filter" key={`f-${m.id}`}>
                   <summary className="btn btn-small btn-ghost">
@@ -415,28 +454,61 @@ export function MatchPage() {
                 {live ? "Events show up here after the match." : "No plays found. Press M to add a marker, or teach Recap this game in Detector Studio."}
               </p>
             )}
-            <ol className="events-list">
-              {visible.map((e, i) => {
-                const src = `${sourceLabel(e.source)}${e.confidence !== undefined ? `, ${Math.round(e.confidence * 100)}% match` : ""}`;
-                return (
-                  <li key={e.id ?? i} className={`ev ${current === e ? "current" : ""}`}>
-                    <button className="ev-main" onClick={() => jump(e)} title={`${kindStyle(e.kind).label} at ${timecode(e.tMs)} · ${src}`}>
-                      <span className="ev-time num">{timecode(e.tMs)}</span>
-                      <KindDot kind={e.kind} tone="color" size={13} />
-                      <span className="ev-kind">
-                        {kindStyle(e.kind).label}
-                        {e.meta?.count ? ` ×${e.meta.count}` : ""}
-                      </span>
-                    </button>
-                    {e.id !== undefined && (
-                      <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(e.kind).label} at ${timecode(e.tMs)}`} onClick={() => deleteEvent(e)}>
-                        <Icon name="close" size={13} />
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
+            {grouped ? (
+              <ol className="events-list moments-list">
+                {shownMoments.map((mo) => {
+                  const title = momentTitle(mo);
+                  const isOpen = open.has(mo.startMs);
+                  const isCurrent = time + 500 >= mo.startMs && time <= mo.endMs + 2000;
+                  return (
+                    <li key={mo.startMs} className={`moment ${title ? "big" : ""} ${!title && mo.events.length === 1 ? "single" : ""} ${isCurrent ? "current" : ""}`}>
+                      <div className="moment-row">
+                        <button className="ev-main" onClick={() => player.current?.seek(Math.max(0, mo.startMs - LEAD_IN_MS))} title={`Play from ${timecode(mo.startMs)}`}>
+                          <span className="ev-time num">{timecode(mo.startMs)}</span>
+                          <span className="moment-body">
+                            <span className="moment-title">{title ?? momentLabel(mo)}</span>
+                            <span className="moment-kinds">
+                              {mo.counts.map(([k, n]) => (
+                                <span key={k} className="moment-kind" title={`${n} ${n === 1 ? kindStyle(k).label : kindStyle(k).plural}`}>
+                                  <KindDot kind={k} tone="color" size={12} />
+                                  {n > 1 && <span className="num">{n}</span>}
+                                </span>
+                              ))}
+                              {mo.endMs - mo.startMs >= 1000 && <span className="moment-len num">{Math.round((mo.endMs - mo.startMs) / 1000)} s</span>}
+                            </span>
+                          </span>
+                        </button>
+                        {mo.events.length > 1 && (
+                          <button
+                            className="icon-btn moment-toggle"
+                            aria-expanded={isOpen}
+                            aria-label={isOpen ? "Hide the plays in this moment" : "Show the plays in this moment"}
+                            onClick={() =>
+                              setOpen((o) => {
+                                const n = new Set(o);
+                                if (n.has(mo.startMs)) n.delete(mo.startMs);
+                                else n.add(mo.startMs);
+                                return n;
+                              })
+                            }
+                          >
+                            <Icon name={isOpen ? "chev-up" : "chev-down"} size={13} />
+                          </button>
+                        )}
+                        {mo.events.length === 1 && mo.events[0].id !== undefined && (
+                          <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(mo.events[0].kind).label} at ${timecode(mo.startMs)}`} onClick={() => deleteEvent(mo.events[0])}>
+                            <Icon name="close" size={13} />
+                          </button>
+                        )}
+                      </div>
+                      {isOpen && <ol className="moment-children">{mo.events.map((e, i) => renderEvent(e, i))}</ol>}
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <ol className="events-list">{visible.map((e, i) => renderEvent(e, i))}</ol>
+            )}
           </div>
         )}
       </aside>
@@ -573,4 +645,12 @@ function MatchClips({ clips }: { clips: ClipRecord[] }) {
       </ul>
     </section>
   );
+}
+
+/** "Kill + assist", "Death", "2 bookmarks"... for a moment without a multikill. */
+function momentLabel(mo: Moment): string {
+  return mo.counts
+    .slice(0, 3)
+    .map(([k, n]) => (n > 1 ? `${n} ${kindStyle(k).plural.toLowerCase()}` : kindStyle(k).label))
+    .join(" + ");
 }

@@ -273,6 +273,7 @@ fn reader(id: &str, label: &str, field: &str, kind: ReaderKind, region: Region) 
         slots: None,
         highlight: None,
         when: ReadWhen::End,
+        pick: Default::default(),
         sample_fps: 2.0,
         pattern: None,
         values: vec![],

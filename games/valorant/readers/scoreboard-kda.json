@@ -1,0 +1,31 @@
+{
+  "id": "scoreboard-kda",
+  "label": "Your K/D/A (scoreboard)",
+  "field": "kda",
+  "kind": "text",
+  "region": {
+    "x": 0.484375,
+    "y": 0.31574074074074077,
+    "w": 0.06354166666666666,
+    "h": 0.027777777777777776
+  },
+  "slots": {
+    "count": 5,
+    "stepY": 0.03148148148148148
+  },
+  "highlight": {
+    "box": {
+      "x": 1.1229508196721312,
+      "y": 0.3,
+      "w": 0.7786885245901639,
+      "h": 0.4
+    },
+    "color": "#dbeca1",
+    "tolerance": 30
+  },
+  "when": "any",
+  "pick": "latest",
+  "sampleFps": 0.5,
+  "pattern": "(?P<kills>\\d+)\\D{1,6}(?P<deaths>\\d+)\\D{1,6}(?P<assists>\\d+)",
+  "notes": "Your row on the Tab scoreboard; the last time you opened it wins."
+}
