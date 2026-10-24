@@ -23,10 +23,14 @@ pub mod field {
     pub const ASSISTS: &str = "assists";
     pub const RESULT: &str = "result";
     pub const SCORE: &str = "score";
+    /// Competitive rank at the time of the match, e.g. "Gold 2".
+    pub const RANK: &str = "rank";
+    /// The player's in-game name (Riot ID "name#tag").
+    pub const PLAYER: &str = "player";
 }
 
 /// Built-in fields in display order: (id, label).
-pub const BUILTIN_FIELDS: [(&str, &str); 8] = [
+pub const BUILTIN_FIELDS: [(&str, &str); 10] = [
     (field::CHARACTER, "Character"),
     (field::MAP, "Map"),
     (field::MODE, "Mode"),
@@ -35,6 +39,8 @@ pub const BUILTIN_FIELDS: [(&str, &str); 8] = [
     (field::ASSISTS, "Assists"),
     (field::RESULT, "Result"),
     (field::SCORE, "Score"),
+    (field::RANK, "Rank"),
+    (field::PLAYER, "Player"),
 ];
 
 /// Where a detail value came from, best first.

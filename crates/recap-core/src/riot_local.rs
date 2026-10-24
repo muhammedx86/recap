@@ -76,7 +76,12 @@ pub fn map_display_name(path: &str) -> String {
         "jam" => "Lotus",
         "juliett" => "Sunset",
         "infinity" => "Abyss",
-        "range" | "poveglia" => "The Range",
+        "plummet" => "Summit",
+        "rook" => "Corrode",
+        "abilitydraft" => "Gauntlet",
+        "range" | "rangev2" | "poveglia" => "The Range",
+        "npev2" => "Basic Training",
+        "hurm_hightide" => "Glitch",
         "hurm_alley" => "District",
         "hurm_yard" => "Piazza",
         "hurm_bowl" => "Kasbah",
@@ -141,11 +146,20 @@ pub struct RiotTracker {
     mode: Option<String>,
     score: Option<(i64, i64)>,
     result: Option<String>,
+    rank: Option<String>,
+    player: Option<String>,
 }
 
 impl RiotTracker {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The player's Riot ID ("name#tag"), from the client's chat session.
+    pub fn set_player(&mut self, riot_id: Option<String>) {
+        if riot_id.is_some() {
+            self.player = riot_id;
+        }
     }
 
     /// Feed one decoded private presence at `rec_elapsed_ms`.
@@ -171,6 +185,9 @@ impl RiotTracker {
                 self.mode = Some(mode);
             }
             let num = |k: &str| find(private, k).and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok()));
+            if let Some(name) = num("competitiveTier").and_then(rank_name) {
+                self.rank = Some(name.to_string());
+            }
             if let (Some(a), Some(e)) = (num("partyOwnerMatchScoreAllyTeam"), num("partyOwnerMatchScoreEnemyTeam")) {
                 // A score change is a round result (the first score seen is only a baseline).
                 if let Some((pa, pe)) = self.score {
@@ -210,8 +227,59 @@ impl RiotTracker {
         if let Some(r) = &self.result {
             d.insert(field::RESULT.to_string(), r.clone());
         }
+        if let Some(r) = &self.rank {
+            d.insert(field::RANK.to_string(), r.clone());
+        }
+        if let Some(p) = &self.player {
+            d.insert(field::PLAYER.to_string(), p.clone());
+        }
         out.extend(self.details.update(d, rec_elapsed_ms, SOURCE_NAME));
         out
+    }
+}
+
+/// VALORANT competitive tier number -> rank name (0 = unranked).
+pub fn rank_name(tier: i64) -> Option<&'static str> {
+    const NAMES: [&str; 25] = [
+        "Iron 1",
+        "Iron 2",
+        "Iron 3",
+        "Bronze 1",
+        "Bronze 2",
+        "Bronze 3",
+        "Silver 1",
+        "Silver 2",
+        "Silver 3",
+        "Gold 1",
+        "Gold 2",
+        "Gold 3",
+        "Platinum 1",
+        "Platinum 2",
+        "Platinum 3",
+        "Diamond 1",
+        "Diamond 2",
+        "Diamond 3",
+        "Ascendant 1",
+        "Ascendant 2",
+        "Ascendant 3",
+        "Immortal 1",
+        "Immortal 2",
+        "Immortal 3",
+        "Radiant",
+    ];
+    match tier {
+        0 => Some("Unranked"),
+        3..=27 => Some(NAMES[(tier - 3) as usize]),
+        _ => None,
+    }
+}
+
+/// "name#tag" from the client's `/chat/v1/session` reply.
+pub fn riot_id(session: &Value) -> Option<String> {
+    let name = session["game_name"].as_str().filter(|s| !s.is_empty())?;
+    match session["game_tag"].as_str().filter(|s| !s.is_empty()) {
+        Some(tag) => Some(format!("{name}#{tag}")),
+        None => Some(name.to_string()),
     }
 }
 
@@ -239,6 +307,14 @@ mod tests {
         assert_eq!(map_display_name("/Game/Maps/Mystery/Mystery"), "Mystery");
         assert_eq!(mode_display_name("spikerush", false), "Spike Rush");
         assert_eq!(mode_display_name("competitive", true), "Custom");
+        assert_eq!(rank_name(14), Some("Gold 3"));
+        assert_eq!(rank_name(12), Some("Gold 1"));
+        assert_eq!(rank_name(27), Some("Radiant"));
+        assert_eq!(rank_name(1), None);
+        assert_eq!(
+            riot_id(&json!({"game_name": "11lumin", "game_tag": "1111"})).as_deref(),
+            Some("11lumin#1111")
+        );
     }
 
     #[test]

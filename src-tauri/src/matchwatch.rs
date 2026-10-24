@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use recap_core::{
     games::ApiSource,
     matchgate::MatchGate,
-    riot_local::{decode_private, lockfile_path, Lockfile, RiotTracker},
+    riot_local::{decode_private, lockfile_path, riot_id, Lockfile, RiotTracker},
 };
 use tauri::AppHandle;
 
@@ -104,6 +104,7 @@ pub fn spawn_riot_watcher(app: AppHandle) {
                 }
             };
             let mut puuid: Option<(u16, String)> = None;
+            let mut player: Option<String> = None;
             // Details for the recording in progress (reset per recording).
             let mut tracker: Option<(String, RiotTracker)> = None;
             loop {
@@ -127,9 +128,9 @@ pub fn spawn_riot_watcher(app: AppHandle) {
                         .and_then(|r| r.json::<serde_json::Value>())
                 };
                 if puuid.as_ref().is_none_or(|(port, _)| *port != lock.port) {
-                    puuid = get("/chat/v1/session")
-                        .ok()
-                        .and_then(|v| v["puuid"].as_str().map(|p| (lock.port, p.to_string())));
+                    let session = get("/chat/v1/session").ok();
+                    player = session.as_ref().and_then(riot_id);
+                    puuid = session.and_then(|v| v["puuid"].as_str().map(|p| (lock.port, p.to_string())));
                 }
                 let Some((_, me)) = puuid.as_ref() else { continue };
                 let private = get("/chat/v4/presences").ok().and_then(|p| decode_private(&p, me));
@@ -155,6 +156,7 @@ pub fn spawn_riot_watcher(app: AppHandle) {
                         tracker = Some((match_id.clone(), RiotTracker::new()));
                     }
                     if let Some((_, t)) = tracker.as_mut() {
+                        t.set_player(player.clone());
                         add_live_events(&app, &match_id, t.ingest(&private, elapsed));
                     }
                 }

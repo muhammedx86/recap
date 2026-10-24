@@ -140,7 +140,14 @@ impl AppState {
 
     pub fn game_info(&self, g: &LoadedGame) -> GameInfo {
         let enabled = self.settings.read().unwrap().game_enabled(&g.def.id);
-        GameInfo::from_loaded(g, enabled)
+        let mut info = GameInfo::from_loaded(g, enabled);
+        // Icons (agents, maps, ranks) ship with the bundled game folder; a user's edited copy of
+        // the game does not carry them.
+        info.assets_dir = [g.dir.join("assets"), self.paths.bundled_games.join(&g.def.id).join("assets")]
+            .into_iter()
+            .find(|d| d.is_dir())
+            .map(|d| d.to_string_lossy().into_owned());
+        info
     }
 }
 
@@ -253,6 +260,8 @@ pub struct GameInfo {
     pub match_detection: &'static str,
     pub event_types: Vec<recap_core::events::EventTypeDef>,
     pub readers: Vec<ReaderInfo>,
+    /// The game's bundled `assets/` folder (agent, map and rank icons), if it has one.
+    pub assets_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -303,6 +312,7 @@ impl GameInfo {
                 "process"
             },
             event_types: g.event_types(),
+            assets_dir: None,
             readers: g
                 .readers
                 .iter()
