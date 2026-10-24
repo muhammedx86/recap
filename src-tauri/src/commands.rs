@@ -406,6 +406,8 @@ pub fn start_manual_recording(app: AppHandle, st: State<'_, AppState>) -> CmdRes
 
 #[tauri::command]
 pub fn stop_recording(app: AppHandle, st: State<'_, AppState>) -> CmdResult<RecorderStatus> {
+    // In a game: skip this match only; the next one records again.
+    crate::monitor::on_manual_stop(&app);
     session::stop(&app).map_err(err)?;
     Ok(st.status.read().unwrap().clone())
 }

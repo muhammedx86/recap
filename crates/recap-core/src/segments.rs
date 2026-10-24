@@ -22,6 +22,9 @@ pub struct SegmentOptions {
     pub pad_after_ms: u64,
     /// Shorter segments are dropped (false positives, aborted queues).
     pub min_len_ms: u64,
+    /// Ignore everything before the first match start (the recording resumed in the middle of a
+    /// match the player chose to skip).
+    pub skip_until_first_start: bool,
 }
 
 impl Default for SegmentOptions {
@@ -30,6 +33,7 @@ impl Default for SegmentOptions {
             pad_before_ms: 5_000,
             pad_after_ms: 8_000,
             min_len_ms: 60_000,
+            skip_until_first_start: false,
         }
     }
 }
@@ -45,6 +49,13 @@ pub fn plan_match_segments(events: &[GameEvent], duration_ms: u64, opts: &Segmen
         return Vec::new();
     }
     marks.sort_by_key(|e| e.t_ms);
+    if opts.skip_until_first_start {
+        let first = marks.iter().position(|e| e.kind == kind::MATCH_START);
+        marks.drain(..first.unwrap_or(marks.len()));
+        if marks.is_empty() {
+            return Vec::new();
+        }
+    }
 
     let mut raw: Vec<(u64, u64)> = Vec::new();
     let mut open: Option<u64> = None;
@@ -164,6 +175,7 @@ mod tests {
                 pad_before_ms: 0,
                 pad_after_ms: 0,
                 min_len_ms: MIN,
+                skip_until_first_start: false,
             },
         );
         assert_eq!(
@@ -188,6 +200,7 @@ mod tests {
                 pad_before_ms: 0,
                 pad_after_ms: 0,
                 min_len_ms: MIN,
+                skip_until_first_start: false,
             },
         );
         assert_eq!(
@@ -214,5 +227,24 @@ mod tests {
         // A false positive shorter than a minute is ignored.
         let blip = vec![ev("match_start", 100), ev("match_end", 120)];
         assert!(plan_match_segments(&blip, 1200 * 1000, &SegmentOptions::default()).is_empty());
+    }
+
+    #[test]
+    fn resumed_session_skips_the_rest_of_the_skipped_match() {
+        let ev = |k: &str, t: u64| GameEvent::new(k, t, crate::events::EventSource::Manual);
+        let events = vec![
+            ev(kind::MATCH_END, 90_000),
+            ev(kind::MATCH_START, 200_000),
+            ev(kind::MATCH_END, 500_000),
+        ];
+        let opts = SegmentOptions {
+            skip_until_first_start: true,
+            ..Default::default()
+        };
+        let segs = plan_match_segments(&events, 600_000, &opts);
+        assert_eq!(segs.len(), 1);
+        assert_eq!((segs[0].start_ms, segs[0].end_ms), (195_000, 508_000));
+        // Only the tail of the skipped match: nothing to keep.
+        assert!(plan_match_segments(&events[..1], 600_000, &opts).is_empty());
     }
 }

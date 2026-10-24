@@ -13,6 +13,7 @@ pub mod ffmpeg;
 pub mod games;
 pub mod league;
 pub mod library;
+pub mod matchgate;
 pub mod postmatch;
 pub mod protocol;
 pub mod readers;

@@ -28,6 +28,29 @@ use crate::{
 pub const SAMPLE_GAME: &str = "recap-sample-game";
 
 static STARTED: AtomicBool = AtomicBool::new(false);
+/// Phase 2: the driver asked for a manual stop and the resumed recording finished.
+static PHASE2_STOPS: AtomicBool = AtomicBool::new(false);
+
+/// The driver writes `stop.request` to press "stop" like the player would (phase 2).
+pub fn poll_stop_request(app: &AppHandle) {
+    let Some(d) = dir() else { return };
+    let req = d.join("stop.request");
+    if req.exists() {
+        let _ = fs::remove_file(&req);
+        log::info!("self-test: manual stop requested");
+        crate::monitor::on_manual_stop(app);
+        let _ = crate::session::stop(app);
+    }
+    // Phase 2 is done recording once its game has exited and nothing is recording.
+    if d.join("phase2.txt").exists()
+        && d.join("phase2-game-exited").exists()
+        && state(app).session.lock().unwrap().is_none()
+        && !PHASE2_STOPS.swap(true, Ordering::SeqCst)
+    {
+        // Processing may already have finished: check now too.
+        after_processing(app);
+    }
+}
 
 /// Folder for report.json / tour.txt when self-test mode is on.
 pub fn dir() -> Option<PathBuf> {
@@ -53,6 +76,38 @@ pub fn after_processing(app: &AppHandle) {
     let Some(out) = dir() else { return };
     let st = state(app);
     if st.session.lock().unwrap().is_some() || !st.processing.lock().unwrap().is_empty() {
+        return;
+    }
+    // Phase 2 (manual stop mid-match): once both of its recordings are processed, list the matches.
+    if STARTED.load(Ordering::SeqCst) && out.join("phase2.txt").exists() {
+        let ids_before: Vec<String> = fs::read_to_string(out.join("phase2.txt"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let lib = st.library.lock().unwrap();
+        let all = lib.list_matches(Some(SAMPLE_GAME)).unwrap_or_default();
+        let new: Vec<_> = all.iter().filter(|m| !ids_before.contains(&m.id)).collect();
+        let settled = new.iter().all(|m| matches!(m.status, MatchStatus::Ready | MatchStatus::Error));
+        // The stopped recording and the resumed one (both processed).
+        if settled && PHASE2_STOPS.load(Ordering::SeqCst) && !new.is_empty() && !out.join("report2.json").exists() {
+            let mut v: Vec<Value> = new
+                .iter()
+                .map(|m| {
+                    let events: Vec<Value> = lib
+                        .list_events(&m.id)
+                        .unwrap_or_default()
+                        .iter()
+                        .filter(|e| !e.kind.starts_with('_'))
+                        .map(|e| json!({ "kind": e.kind, "tMs": e.t_ms }))
+                        .collect();
+                    json!({ "id": m.id, "startedUnixMs": m.started_unix_ms, "durationMs": m.duration_ms, "status": m.status, "events": events })
+                })
+                .collect();
+            v.sort_by_key(|m| m["startedUnixMs"].as_u64().unwrap_or(0));
+            write_json(&out.join("report2.json"), &json!({ "matches": v }));
+            log::info!("self-test phase 2 report written");
+        }
         return;
     }
     let matches = st.library.lock().unwrap().list_matches(Some(SAMPLE_GAME)).unwrap_or_default();

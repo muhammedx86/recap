@@ -228,11 +228,25 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
     // One session, several matches? Split it and finish each match separately.
     if settings.split_matches && game.is_some() {
         let events = st.library.lock().unwrap().list_events(match_id)?;
+        let resumed = events.iter().any(|e| e.kind == crate::session::RESUMED_KIND);
         let opts = SegmentOptions {
             min_len_ms: crate::selftest::min_match_len_ms(),
+            skip_until_first_start: resumed,
             ..SegmentOptions::default()
         };
         let segments = plan_match_segments(&events, m.duration_ms, &opts);
+        if resumed && segments.is_empty() && !events.iter().any(|e| e.kind == kind::MATCH_START) {
+            // Only the rest of the match the player skipped (and menus): nothing to keep.
+            log::info!("{match_id}: resumed recording holds no new match; removing it");
+            let removed = st.library.lock().unwrap().delete_match(match_id)?;
+            if let Some(r) = removed {
+                let _ = fs::remove_file(&r.path);
+                if let Some(t) = &r.thumbnail {
+                    let _ = fs::remove_file(t);
+                }
+            }
+            return Ok(());
+        }
         if !segments.is_empty() {
             return split_session(app, &st, &m, game.as_ref(), &settings, &events, &segments, rescan);
         }
@@ -279,6 +293,8 @@ fn fill_details(
         }
     }
     merge(&mut d, &from_events(events));
+    // Score but no result (e.g. the recording stopped before the API reported it).
+    recap_core::details::result_from_score_detail(&mut d);
     m.details = d;
 }
 

@@ -2,6 +2,7 @@
 
 mod commands;
 mod hotkeys;
+mod matchwatch;
 mod monitor;
 mod ocr;
 mod paths;
@@ -94,6 +95,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }),
         processing: Mutex::new(HashSet::new()),
         gsi_token: token,
+        gates: Default::default(),
+        resume_pids: Default::default(),
     });
 
     // Recordings cut short by a crash still have a playable (hybrid MP4) file: process them.
@@ -141,6 +144,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     tray.build(app)?;
 
     monitor::spawn(handle.clone());
+    matchwatch::spawn_riot_watcher(handle.clone());
     let gsi_app = handle.clone();
     std::thread::spawn(move || sources::start_cs2_gsi(gsi_app));
     refresh_status(&handle, None);

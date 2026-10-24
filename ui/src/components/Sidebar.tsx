@@ -55,10 +55,18 @@ function RecordingIndicator() {
   if (!recording && status.state !== "starting" && status.state !== "stopping") {
     return (
       <div className="rec">
-        <div className="rec-row" title="Recording starts on its own when an enabled game launches">
-          <span className="rec-dot idle" aria-hidden />
-          <span className="rec-title">Waiting for a game</span>
+        <div
+          className="rec-row"
+          title={
+            status.waitingFor
+              ? "Each match is recorded on its own; recording starts when the next match begins"
+              : "Recording starts on its own when an enabled game launches"
+          }
+        >
+          <span className={`rec-dot ${status.waitingFor ? "armed" : "idle"}`} aria-hidden />
+          <span className="rec-title">{status.waitingFor ? "Waiting for a match" : "Waiting for a game"}</span>
         </div>
+        {status.waitingFor && <p className="rec-meta">{status.waitingFor} is open</p>}
         <div className="rec-actions">
           <button className="btn btn-small btn-ghost" onClick={() => api.startManualRecording().catch((e) => toast.error(e, "Could not start recording"))}>
             <Icon name="record" size={13} />

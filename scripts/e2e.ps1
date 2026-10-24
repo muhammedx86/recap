@@ -89,6 +89,26 @@ while ((Test-Path $reportPath) -and (Get-Date) -lt $tourDeadline -and -not $app.
     Start-Sleep -Milliseconds 500
 }
 
+# 5b. Phase 2: play again and press "stop" during match 1. The rest of match 1 must be skipped
+#     and match 2 recorded on its own, without relaunching anything.
+$report2Path = Join-Path $Out "report2.json"
+if ((Test-Path $reportPath) -and -not $app.HasExited) {
+    $r1 = Get-Content $reportPath -Raw | ConvertFrom-Json
+    ($r1.matches | ForEach-Object { $_.id }) -join "`n" | Set-Content (Join-Path $Out "phase2.txt")
+    $game2 = if ($gameArgs.Count) { Start-Process -FilePath $GameExe -ArgumentList $gameArgs -PassThru } else { Start-Process -FilePath $GameExe -PassThru }
+    $t0 = Get-Date
+    Write-Host "phase 2: sample game pid $($game2.Id)"
+    while (((Get-Date) - $t0).TotalSeconds -lt 18) { Start-Sleep -Milliseconds 200 }
+    Set-Content (Join-Path $Out "stop.request") "stop"
+    Write-Host "phase 2: manual stop at +18 s (mid match 1)"
+    Start-Sleep -Seconds 12
+    Shot "03-phase2-after-stop"
+    if (-not $game2.WaitForExit(120000)) { Fail "phase 2 game did not exit"; Stop-Process -Id $game2.Id -Force }
+    Set-Content (Join-Path $Out "phase2-game-exited") "1"
+    $deadline2 = (Get-Date).AddMinutes(5)
+    while (-not (Test-Path $report2Path) -and (Get-Date) -lt $deadline2 -and -not $app.HasExited) { Start-Sleep -Seconds 3 }
+}
+
 # 6. Stop the app and collect logs.
 if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
 Get-Process recap-recorder -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -165,6 +185,25 @@ if (-not (Test-Path $reportPath)) {
 
     $mont = @($r.montages | Where-Object exists)
     if ($mont.Count -ge 1) { Pass "montage written" } else { Fail "no montage file" }
+}
+# Phase 2 assertions.
+if (-not (Test-Path $report2Path)) {
+    Fail "no report2.json (phase 2: manual stop mid-match did not finish)"
+} else {
+    $r2 = Get-Content $report2Path -Raw | ConvertFrom-Json
+    $new = @($r2.matches)
+    Write-Host "phase 2 recordings: $($new.Count)"
+    foreach ($m in $new) { Write-Host ("  {0} ms: {1}" -f $m.durationMs, (($m.events | ForEach-Object { "$($_.kind)@$([math]::Round($_.tMs/1000,1))" }) -join ", ")) }
+    $full = @($new | Where-Object { @($_.events | Where-Object kind -eq "round_win").Count -ge 1 -and @($_.events | Where-Object kind -eq "match_end").Count -ge 1 })
+    $skipped = @($new | Where-Object { @($_.events | Where-Object kind -eq "round_loss").Count -ge 1 })
+    if ($full.Count -eq 1) { Pass "phase 2: the next match recorded on its own after a manual stop" } else { Fail "phase 2: expected 1 full match after the stop, got $($full.Count)" }
+    if ($skipped.Count -eq 0) { Pass "phase 2: the rest of the stopped match was skipped" } else { Fail "phase 2: the skipped match's remainder (round lost at 26.5 s) was kept" }
+    if ($full.Count -eq 1) {
+        $m2 = $full[0]
+        $starts = @($m2.events | Where-Object kind -eq "match_start")
+        $kills = @($m2.events | Where-Object kind -eq "kill")
+        if ($starts.Count -eq 1 -and $kills.Count -eq 1) { Pass "phase 2 match is match 2 (1 start, 1 kill)" } else { Fail "phase 2 match has $($starts.Count) starts and $($kills.Count) kills (expected 1 and 1)" }
+    }
 }
 foreach ($p in "library", "match", "clips", "studio", "games", "settings") {
     if (-not (Test-Path (Join-Path $Shots "page-$p.png"))) { Fail "no screenshot of the $p page (UI tour did not run)" }

@@ -42,6 +42,8 @@ pub struct RecorderStatus {
     pub capture: Option<CaptureMode>,
     pub bookmarks: u32,
     pub message: Option<String>,
+    /// Idle while a game that records per match is open between matches (its name).
+    pub waiting_for: Option<String>,
 }
 
 impl RecorderStatus {
@@ -55,6 +57,7 @@ impl RecorderStatus {
             encoder: None,
             capture: None,
             bookmarks: 0,
+            waiting_for: None,
             message,
         }
     }
@@ -108,6 +111,11 @@ pub struct AppState {
     pub processing: Mutex<HashSet<String>>,
     /// CS2 GSI auth token.
     pub gsi_token: String,
+    /// Live "in a match?" signals from game APIs, by game id (see `matchwatch`).
+    pub gates: Mutex<std::collections::HashMap<String, crate::matchwatch::GateEntry>>,
+    /// Game pids whose recording the player stopped in a game without a match API: recording
+    /// resumes in the background and the skipped match's remainder is dropped when splitting.
+    pub resume_pids: Mutex<HashSet<u32>>,
 }
 
 impl AppState {
@@ -154,8 +162,16 @@ pub fn refresh_status(app: &AppHandle, message: Option<String>) {
                     RecState::Unavailable
                 };
                 let msg = message.or_else(|| (!st.recorder.available()).then(|| "Recorder not installed".to_string()));
+                let waiting_for = st
+                    .gates
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .find(|(_, e)| e.fresh() && !e.gate.in_match())
+                    .and_then(|(id, _)| st.game(id).map(|g| g.def.name));
                 RecorderStatus {
                     state,
+                    waiting_for,
                     ..RecorderStatus::idle(msg)
                 }
             }
@@ -183,6 +199,7 @@ pub fn refresh_status(app: &AppHandle, message: Option<String>) {
                 },
                 bookmarks: s.bookmarks,
                 message: message.or(prev.message.filter(|_| prev.match_id.as_deref() == Some(&s.match_id))),
+                waiting_for: None,
             },
         }
     };

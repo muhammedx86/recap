@@ -311,3 +311,17 @@ readers, and finally counts of detected events. Your edits are never overwritten
 
 The bundled VALORANT readers are positioned from Riot's published end-of-match screen; if yours
 differs, redraw the boxes in Studio.
+
+## Recording each match
+
+Recap records one entry per match, without relaunching the game:
+
+* **VALORANT** and **CS2** report when a match is on (the Riot Client's local presence; CS2 Game
+  State Integration). Recording starts when a match begins and stops a few seconds after it ends.
+* **League of Legends / TFT**: the game process only exists during a game.
+* **Other games** (Marvel Rivals, Rainbow Six Siege, custom games): Recap records while the game
+  runs and cuts the session into matches with the game's `match_start` / `match_end` detectors,
+  dropping menus. Set those detectors up in Detector Studio (the victory/defeat screen is a good
+  `match_end`); without them a session stays one recording.
+
+Pressing **Stop** skips the rest of the current match only; the next match records again.

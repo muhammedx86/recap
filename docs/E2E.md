@@ -100,5 +100,8 @@ driver can screenshot the desktop.
   en-US OCR capability if missing). A manual detail edit persists (`manualDetail` check).
 - Every entry in `checks` is ok.
 - The UI tour produced a screenshot for every page.
+- Phase 2: the sample game plays again and the driver presses "stop" (`stop.request`) at +18 s,
+  in the middle of match 1. Recording resumes in the background; the rest of match 1 is dropped
+  and match 2 is recorded on its own (`report2.json`).
 
 Artifacts: `report.json`, screenshots, `recap.log`, `recorder.log`, the recordings.

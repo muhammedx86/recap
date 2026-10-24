@@ -190,6 +190,24 @@ pub fn combine_team_scores(d: &mut MatchDetails) {
     offer(d, field::RESULT, mk(result_from_score(x, y).to_string()));
 }
 
+/// When there is a score ("13-11") but no result, derive the result from it (same source).
+pub fn result_from_score_detail(d: &mut MatchDetails) {
+    if d.contains_key(field::RESULT) {
+        return;
+    }
+    let Some(sc) = d.get(field::SCORE).cloned() else { return };
+    let mut parts = sc.value.split(['-', ':', '–']).map(|p| p.trim().parse::<i64>());
+    if let (Some(Ok(a)), Some(Ok(b)), None) = (parts.next(), parts.next(), parts.next()) {
+        d.insert(
+            field::RESULT.into(),
+            DetailValue {
+                value: result_from_score(a, b).into(),
+                ..sc
+            },
+        );
+    }
+}
+
 /// Result from a "mine-theirs" score, e.g. 13-9 -> win.
 pub fn result_from_score(mine: i64, theirs: i64) -> &'static str {
     match mine.cmp(&theirs) {
@@ -327,6 +345,10 @@ mod tests {
         combine_team_scores(&mut d);
         assert_eq!((d[field::SCORE].value.as_str(), d[field::RESULT].value.as_str()), ("11-13", "loss"));
         assert!(!d.contains_key("team_score"));
+        let mut d = MatchDetails::new();
+        d.insert(field::SCORE.into(), DetailValue::new("13-7", DetailSource::Api));
+        result_from_score_detail(&mut d);
+        assert_eq!(d[field::RESULT], DetailValue::new("win", DetailSource::Api));
         let s = serde_json::to_string(&DetailValue::new("Jett", DetailSource::Screen).with_confidence(0.9)).unwrap();
         assert_eq!(s, r#"{"value":"Jett","source":"screen","confidence":0.9}"#);
     }

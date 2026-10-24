@@ -152,6 +152,7 @@ interface RecorderStatus {
   matchId: string | null; gameId: string | null; gameName: string | null;
   startedUnixMs: number | null; encoder: string | null; capture: CaptureMode | null;
   bookmarks: number; message: string | null;
+  waitingFor?: string | null;  // idle between matches of a per-match game (its name)
 }
 
 interface StorageInfo { recordingsDir: string; usedBytes: number; freeBytes: number; matchCount: number; clipCount: number }

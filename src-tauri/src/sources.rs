@@ -14,7 +14,6 @@ use std::{
 use recap_core::{
     cs2::{find_cs2_cfg_dirs, gsi_config, GSI_CFG_NAME},
     league::{LeagueTracker, LIVE_CLIENT_ALLGAMEDATA},
-    riot_local::{decode_private, lockfile_path, Lockfile, RiotTracker},
 };
 use tauri::AppHandle;
 
@@ -64,83 +63,6 @@ pub fn spawn_league_poller(app: AppHandle, match_id: String, stop: Arc<AtomicBoo
         .ok();
 }
 
-/// Recording time of the session `match_id`, or None when it ended (Some(None) before the first frame).
-fn session_elapsed(app: &AppHandle, match_id: &str) -> Option<Option<u64>> {
-    let st = state(app);
-    let guard = st.session.lock().unwrap();
-    match guard.as_ref() {
-        Some(s) if s.match_id == match_id => Some(s.started.map(|_| s.elapsed_ms())),
-        _ => None,
-    }
-}
-
-/// Poll the Riot Client's local presence every 5 s while a VALORANT session records: map, mode,
-/// live score and the result. Only `127.0.0.1` is contacted.
-pub fn spawn_riot_poller(app: AppHandle, match_id: String, stop: Arc<AtomicBool>) {
-    std::thread::Builder::new()
-        .name("riot-poller".into())
-        .spawn(move || {
-            let client = match reqwest::blocking::Client::builder()
-                // The Riot Client serves a self-signed certificate on localhost.
-                .danger_accept_invalid_certs(true)
-                .timeout(Duration::from_secs(2))
-                .no_proxy()
-                .build()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    log::error!("riot poller: {e}");
-                    return;
-                }
-            };
-            let mut tracker = RiotTracker::new();
-            let mut puuid: Option<String> = None;
-            let mut warned = false;
-            while !stop.load(Ordering::Relaxed) {
-                let Some(elapsed) = session_elapsed(&app, &match_id) else { break };
-                let Some(elapsed) = elapsed else {
-                    std::thread::sleep(Duration::from_millis(500));
-                    continue;
-                };
-                let lock = lockfile_path()
-                    .and_then(|p| std::fs::read_to_string(p).ok())
-                    .and_then(|t| Lockfile::parse(&t));
-                match lock {
-                    Some(lock) => {
-                        let get = |path: &str| {
-                            client
-                                .get(format!("{}{path}", lock.base_url()))
-                                .header("Authorization", lock.auth_header())
-                                .send()
-                                .and_then(|r| r.json::<serde_json::Value>())
-                        };
-                        if puuid.is_none() {
-                            puuid = get("/chat/v1/session").ok().and_then(|v| v["puuid"].as_str().map(str::to_string));
-                        }
-                        if let (Some(me), Ok(pres)) = (puuid.as_deref(), get("/chat/v4/presences")) {
-                            if let Some(private) = decode_private(&pres, me) {
-                                let ev = tracker.ingest(&private, elapsed);
-                                add_live_events(&app, &match_id, ev.into_iter().collect());
-                            }
-                        }
-                    }
-                    None if !warned => {
-                        log::info!("riot poller: Riot Client lockfile not found; VALORANT details will come from the screen");
-                        warned = true;
-                    }
-                    None => {}
-                }
-                for _ in 0..50 {
-                    if stop.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-            }
-        })
-        .ok();
-}
-
 /// Port the CS2 GSI listener uses.
 pub const GSI_PORT: u16 = 47_821;
 
@@ -177,6 +99,10 @@ pub fn start_cs2_gsi(app: AppHandle) {
                 let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body) else {
                     continue;
                 };
+                // Match on/off for per-match recording (only for our own config's token).
+                if payload["auth"]["token"].as_str() == Some(token.as_str()) {
+                    crate::matchwatch::observe_cs2(&app, &payload);
+                }
                 let st = state(&app);
                 let (match_id, events) = {
                     let mut guard = st.session.lock().unwrap();

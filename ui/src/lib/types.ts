@@ -247,6 +247,8 @@ export interface RecorderStatus {
   capture: CaptureMode | null;
   bookmarks: number;
   message: string | null;
+  /** Idle between matches of a game that records each match (its name). */
+  waitingFor?: string | null;
 }
 
 export interface StorageInfo {

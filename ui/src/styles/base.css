@@ -251,6 +251,12 @@ kbd {
   opacity: 0.5;
   animation: none;
 }
+/* A game is open between matches: ready, not recording. */
+.rec-dot.armed {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--rec);
+  animation: none;
+}
 @keyframes blink {
   50% {
     opacity: 0.35;

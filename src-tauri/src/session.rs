@@ -125,10 +125,8 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
         fail_start(app, &match_id, &format!("{e:#}"));
         bail!("{e:#}");
     }
-    match api {
-        Some(ApiSource::LeagueLiveClient) => sources::spawn_league_poller(app.clone(), match_id.clone(), stop_flag),
-        Some(ApiSource::RiotClient) => sources::spawn_riot_poller(app.clone(), match_id.clone(), stop_flag),
-        _ => {}
+    if api == Some(ApiSource::LeagueLiveClient) {
+        sources::spawn_league_poller(app.clone(), match_id.clone(), stop_flag);
     }
     let _ = app.emit("library-changed", serde_json::json!({ "matchId": match_id }));
     refresh_status(app, None);
@@ -193,6 +191,17 @@ pub fn stop(app: &AppHandle) -> Result<()> {
         }
     });
     Ok(())
+}
+
+/// Hidden marker on a recording that resumed in the middle of a match the player skipped.
+pub const RESUMED_KIND: &str = "_resumed";
+
+/// Mark the current recording as resumed after a skipped match (see `monitor`).
+pub fn mark_resumed(app: &AppHandle) {
+    let id = state(app).session.lock().unwrap().as_ref().map(|s| s.match_id.clone());
+    if let Some(id) = id {
+        add_live_events(app, &id, vec![GameEvent::new(RESUMED_KIND, 0, EventSource::Manual)]);
+    }
 }
 
 /// Drop a bookmark on the current recording.
