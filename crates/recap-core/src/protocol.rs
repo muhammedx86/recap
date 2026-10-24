@@ -42,6 +42,10 @@ pub struct AudioConfig {
     /// WASAPI device id, None = default device.
     #[serde(default)]
     pub microphone_device: Option<String>,
+    /// Write the microphone alone to audio track 2 as well. Track 1 always carries the full mix
+    /// (desktop + microphone), which is what players and browsers play.
+    #[serde(default)]
+    pub separate_mic_track: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,10 +134,15 @@ mod tests {
             },
             audio: AudioConfig {
                 desktop: true,
-                microphone: false,
+                microphone: true,
                 microphone_device: None,
+                separate_mic_track: true,
             },
         };
+        assert!(serde_json::to_string(&s).unwrap().contains(r#""separateMicTrack":true"#));
+        // Older apps do not send it: one mixed track.
+        let old: AudioConfig = serde_json::from_str(r#"{"desktop":true,"microphone":true}"#).unwrap();
+        assert!(!old.separate_mic_track);
         let back: RecorderCommand = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
     }

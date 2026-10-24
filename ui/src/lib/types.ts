@@ -232,9 +232,29 @@ export interface Settings {
   analysisHeight: number;
   gamesEnabled: Record<string, boolean>;
   storageLimitGb: number | null;
+  /** Include bookmarks in the in-game notifications. */
   notifyOnBookmark: boolean;
+  /** Also keep the microphone alone on audio track 2 (track 1 is always the full mix). */
+  separateMicTrack: boolean;
+  /** Start Recap when Windows starts. */
+  launchAtStartup: boolean;
+  /** When started with Windows, stay in the tray. */
+  startMinimized: boolean;
+  /** Small notifications over the game. */
+  notifications: boolean;
+  notificationCorner: NotificationCorner;
   /** Split game sessions into separate matches using Match start / Match end markers. */
   splitMatches: boolean;
+}
+
+export type NotificationCorner = "top-right" | "top-left" | "bottom-right" | "bottom-left";
+
+/** Payload of the "overlay-toast" event (the in-game notification window). */
+export interface OverlayToast {
+  kind: "recording" | "saved" | "bookmark" | "clips" | "skipped";
+  title: string;
+  detail?: string;
+  corner: NotificationCorner;
 }
 
 export interface RecorderStatus {

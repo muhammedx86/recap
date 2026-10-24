@@ -6,5 +6,11 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: { port: 1420, strictPort: true, host: "127.0.0.1" },
-  build: { outDir: "dist", target: "es2022", sourcemap: false },
+  build: {
+    outDir: "dist",
+    target: "es2022",
+    sourcemap: false,
+    // Two pages: the app and the in-game notification window.
+    rollupOptions: { input: { main: "index.html", overlay: "overlay.html" } },
+  },
 });

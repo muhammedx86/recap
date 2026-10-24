@@ -355,6 +355,9 @@ pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settin
     if settings.bitrate_kbps < 500 {
         return Err("Bitrate must be at least 500 kbps".into());
     }
+    if !["top-right", "top-left", "bottom-right", "bottom-left"].contains(&settings.notification_corner.as_str()) {
+        return Err("Unknown notification corner".into());
+    }
     if !settings.recordings_dir.trim().is_empty() {
         fs::create_dir_all(settings.recordings_dir.trim()).map_err(|e| format!("Cannot use that recordings folder: {e}"))?;
     }
@@ -370,6 +373,9 @@ pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settin
         }
     }
     st.settings.read().unwrap().save(&st.paths.settings_file).map_err(err)?;
+    if previous.launch_at_startup != settings.launch_at_startup {
+        crate::startup::apply(&app, settings.launch_at_startup);
+    }
     let app2 = app.clone();
     std::thread::spawn(move || processing::enforce_storage_limit(&app2));
     Ok(settings)

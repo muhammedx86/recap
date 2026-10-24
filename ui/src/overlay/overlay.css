@@ -1,0 +1,104 @@
+/* In-game notifications. The window itself is transparent; only the toasts paint. */
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+body {
+  font-family: "Bricolage Grotesque Variable", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.ov-stack {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px;
+}
+.ov-stack.top-right,
+.ov-stack.bottom-right {
+  align-items: flex-end;
+}
+.ov-stack.top-left,
+.ov-stack.bottom-left {
+  align-items: flex-start;
+}
+.ov-stack.bottom-right,
+.ov-stack.bottom-left {
+  justify-content: flex-end;
+}
+.ov-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 190px;
+  max-width: 300px;
+  box-sizing: border-box;
+  padding: 9px 14px 9px 10px;
+  border-radius: 10px;
+  background: rgba(15, 17, 21, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  color: #e7e5e0;
+  animation: ov-in 180ms ease-out both;
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+.ov-toast.leaving {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.ov-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #b4b2ac;
+  flex: none;
+}
+.k-recording .ov-icon {
+  color: #e5484d;
+}
+.k-saved .ov-icon,
+.k-clips .ov-icon {
+  color: #7cc3a3;
+}
+.k-bookmark .ov-icon {
+  color: #f2a93b;
+}
+.ov-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.ov-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+.ov-detail {
+  font-size: 12px;
+  color: #858993;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes ov-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-toast {
+    animation: none;
+    transition: none;
+  }
+}

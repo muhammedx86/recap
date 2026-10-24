@@ -143,7 +143,13 @@ interface Settings {
   autoClip: { enabled: boolean; secondsBefore: number; secondsAfter: number; mergeGapSeconds: number; eventsOverride: string[]; preciseCuts: boolean };
   scanAfterMatch: boolean; analysisHeight: number;
   gamesEnabled: Record<string, boolean>;
-  storageLimitGb: number | null; notifyOnBookmark: boolean;
+  storageLimitGb: number | null;
+  notifyOnBookmark: boolean;       // include bookmarks in the in-game notifications
+  separateMicTrack: boolean;       // default true: track 1 = full mix (what players play), track 2 = microphone alone
+  launchAtStartup: boolean;        // default false: start Recap when Windows starts (autostart entry passes --minimized)
+  startMinimized: boolean;         // default true: when launched by that entry, stay in the tray
+  notifications: boolean;          // default true: in-game notifications (overlay window)
+  notificationCorner: "top-right" | "top-left" | "bottom-right" | "bottom-left";
   splitMatches: boolean;   // split a game session into one Library entry per match using match_start/match_end markers
 }
 
@@ -225,3 +231,4 @@ Errors are returned as rejected promises with a string message.
 | `library-changed` | `{ matchId?: string }` |
 | `processing-progress` | `ProcessingProgress` |
 | `bookmark-added` | `{ matchId: string; tMs: number }` |
+| `overlay-toast` | `{ kind: "recording" \| "saved" \| "bookmark" \| "clips" \| "skipped"; title: string; detail?: string; corner }`, sent only to the `overlay` window (`overlay.html`). Not sent while the main window has focus. |

@@ -272,6 +272,11 @@ let settings: Settings = {
   gamesEnabled: { fortnite: false },
   storageLimitGb: 200,
   notifyOnBookmark: true,
+  separateMicTrack: true,
+  launchAtStartup: false,
+  startMinimized: true,
+  notifications: true,
+  notificationCorner: "top-right",
   splitMatches: true,
 };
 

@@ -14,6 +14,7 @@ use std::{
 use libobs_wrapper::{
     context::ObsContext,
     data::{
+        object::ObsObjectTrait,
         output::{ObsOutputRef, ObsOutputTrait},
         video::ObsVideoInfoBuilder,
         ObsDataSetters,
@@ -21,7 +22,9 @@ use libobs_wrapper::{
     encoders::{ObsAudioEncoderType, ObsContextEncoders, ObsVideoEncoderType},
     enums::ObsLogLevel,
     logger::ObsLogger,
+    run_with_obs,
     scenes::{ObsSceneRef, SceneItemExtSceneTrait},
+    sources::ObsSourceRef,
     utils::{AudioEncoderInfo, ObsString, OutputInfo, SourceInfo, StartupInfo, VideoEncoderInfo},
 };
 use recap_core::{games::CaptureMode, protocol::VideoConfig};
@@ -30,6 +33,24 @@ use crate::{
     select::{choose_encoder, is_hardware, output_size, X264},
     session::{Backend, StartError, StartOutcome, StartRequest},
 };
+
+/// Audio tracks (OBS mixers, bit i = track i+1). Track 1 is the full mix that players play;
+/// with a separate mic track, the microphone is also written alone to track 2.
+const TRACK_1: u32 = 0b01;
+const TRACKS_1_AND_2: u32 = 0b11;
+
+/// Route an audio source to the given tracks.
+fn set_audio_tracks(source: &ObsSourceRef, mixers: u32) -> anyhow::Result<()> {
+    let ptr = source.as_ptr();
+    let runtime = source.runtime().clone();
+    run_with_obs!(runtime, (ptr), move || {
+        unsafe {
+            // Safety: ptr is kept alive by the smart pointer for the duration of the call.
+            libobs_wrapper::sys::obs_source_set_audio_mixers(ptr.get_ptr(), mixers);
+        }
+    })
+    .map_err(err("setting audio tracks"))
+}
 
 /// How long to wait for the game window to appear before falling back to monitor capture.
 const WINDOW_WAIT: Duration = Duration::from_secs(60);
@@ -104,11 +125,12 @@ impl ObsBackend {
     }
 
     /// Add audio sources requested by the app to the scene.
-    fn add_audio(&mut self, id: &str, desktop: bool, mic: bool, mic_device: Option<&str>) -> anyhow::Result<()> {
+    fn add_audio(&mut self, id: &str, desktop: bool, mic: bool, mic_device: Option<&str>, mic_track: bool) -> anyhow::Result<()> {
         if desktop {
             let mut data = self.ctx.data().map_err(err("audio settings"))?;
             data.set_string("device_id", "default").map_err(err("audio settings"))?;
-            self.scene
+            let item = self
+                .scene
                 .add_and_create_source(SourceInfo::new(
                     "wasapi_output_capture",
                     format!("recap_desktop_{id}"),
@@ -116,20 +138,23 @@ impl ObsBackend {
                     None,
                 ))
                 .map_err(err("adding desktop audio"))?;
+            set_audio_tracks(item.inner_source(), TRACK_1)?;
         }
         if mic {
             let mut data = self.ctx.data().map_err(err("mic settings"))?;
             data.set_string("device_id", mic_device.unwrap_or("default"))
                 .map_err(err("mic settings"))?;
-            self.scene
+            let item = self
+                .scene
                 .add_and_create_source(SourceInfo::new("wasapi_input_capture", format!("recap_mic_{id}"), Some(data), None))
                 .map_err(err("adding microphone"))?;
+            set_audio_tracks(item.inner_source(), if mic_track { TRACKS_1_AND_2 } else { TRACK_1 })?;
         }
         Ok(())
     }
 
     /// Configure the (reused) output for `path` with `encoder` and start it.
-    fn start_output(&mut self, path: &str, encoder: &str, bitrate_kbps: u32) -> anyhow::Result<()> {
+    fn start_output(&mut self, path: &str, encoder: &str, bitrate_kbps: u32, mic_track: bool) -> anyhow::Result<()> {
         let mut out_settings = self.ctx.data().map_err(err("output settings"))?;
         out_settings.set_string("path", path).map_err(err("output settings"))?;
         if self.output.is_none() {
@@ -167,6 +192,32 @@ impl ObsBackend {
                 0,
             )
             .map_err(err("creating audio encoder"))?;
+        let has_mic_track = output.audio_encoders().read().map(|m| m.contains_key(&1)).unwrap_or(false);
+        if mic_track {
+            // Track 2: the microphone alone (mixer 1).
+            let mut mic_aud = self.ctx.data().map_err(err("mic encoder settings"))?;
+            mic_aud.set_int("bitrate", 128).map_err(err("mic encoder settings"))?;
+            output
+                .create_and_set_audio_encoder(
+                    AudioEncoderInfo::new(ObsAudioEncoderType::FFMPEG_AAC, "recap_audio_encoder_mic", Some(mic_aud), None),
+                    1,
+                )
+                .map_err(err("creating mic track encoder"))?;
+        } else if has_mic_track {
+            // The output is reused: drop the mic track left over from an earlier recording.
+            let out_ptr = output.as_ptr();
+            let runtime = output.runtime().clone();
+            run_with_obs!(runtime, (out_ptr), move || {
+                unsafe {
+                    // Safety: out_ptr is kept alive by the smart pointer; a null encoder detaches track 2.
+                    libobs_wrapper::sys::obs_output_set_audio_encoder(out_ptr.get_ptr(), std::ptr::null_mut(), 1);
+                }
+            })
+            .map_err(err("removing mic track"))?;
+            if let Ok(mut m) = output.audio_encoders().write() {
+                m.remove(&1);
+            }
+        }
         output.start().map_err(err("starting output"))?;
         Ok(())
     }
@@ -182,17 +233,20 @@ impl ObsBackend {
         self.configure_video(req.video).map_err(failed)?;
 
         let (capture, fallback_reason) = capture::add_capture(self, req, abort)?;
+        // A separate mic track only makes sense when the mic is recorded.
+        let mic_track = req.audio.microphone && req.audio.separate_mic_track;
         self.add_audio(
             req.id,
             req.audio.desktop,
             req.audio.microphone,
             req.audio.microphone_device.as_deref(),
+            mic_track,
         )
         .map_err(failed)?;
 
         let available = self.encoders().unwrap_or_default();
         let encoder = choose_encoder(&req.video.encoder, &available);
-        match self.start_output(req.path, &encoder, req.video.bitrate_kbps) {
+        match self.start_output(req.path, &encoder, req.video.bitrate_kbps, mic_track) {
             Ok(()) => Ok(StartOutcome {
                 encoder,
                 capture,
@@ -200,7 +254,8 @@ impl ObsBackend {
             }),
             Err(e) if is_hardware(&encoder) => {
                 eprintln!("[recorder] {encoder} failed ({e:#}); retrying with x264");
-                self.start_output(req.path, X264, req.video.bitrate_kbps).map_err(failed)?;
+                self.start_output(req.path, X264, req.video.bitrate_kbps, mic_track)
+                    .map_err(failed)?;
                 Ok(StartOutcome {
                     encoder: X264.to_string(),
                     capture,

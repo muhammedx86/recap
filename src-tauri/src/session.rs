@@ -75,6 +75,7 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
             desktop: settings.record_desktop_audio,
             microphone: settings.record_microphone,
             microphone_device: settings.microphone_device.clone(),
+            separate_mic_track: settings.separate_mic_track,
         },
     };
 
@@ -217,6 +218,12 @@ pub fn bookmark(app: &AppHandle) {
         (s.match_id.clone(), s.elapsed_ms())
     };
     add_live_events(app, &match_id, vec![GameEvent::new(kind::BOOKMARK, t, EventSource::Manual)]);
+    crate::overlay::notify(
+        app,
+        crate::overlay::ToastKind::Bookmark,
+        "Bookmark added",
+        Some(format!("{}:{:02}", t / 60_000, (t / 1000) % 60)),
+    );
     let _ = app.emit("bookmark-added", serde_json::json!({ "matchId": match_id, "tMs": t }));
     refresh_status(app, None);
 }
@@ -252,6 +259,13 @@ fn finalize(app: &AppHandle, match_id: &str, duration_ms: Option<u64>) {
     refresh_status(app, None);
     let _ = app.emit("library-changed", serde_json::json!({ "matchId": match_id }));
     if session.path.exists() {
+        let len = duration_ms.or(elapsed).unwrap_or(0) / 1000;
+        crate::overlay::notify(
+            app,
+            crate::overlay::ToastKind::Saved,
+            "Recording saved",
+            Some(format!("{} · {}:{:02}", session.game_name(), len / 60, len % 60)),
+        );
         processing::spawn(app.clone(), match_id.to_string(), false);
     }
 }
@@ -305,6 +319,13 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
                     let _ = lib.update_match(&m);
                 }
             }
+            let game = st
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .filter(|s| s.match_id == id)
+                .map(|s| s.game_name());
             {
                 let mut status = st.status.write().unwrap();
                 status.encoder = Some(encoder);
@@ -312,6 +333,9 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
                 status.match_id = Some(id);
             }
             refresh_status(app, None);
+            if let Some(name) = game {
+                crate::overlay::notify(app, crate::overlay::ToastKind::Recording, "Recording", Some(name));
+            }
         }
         RecorderEvent::CaptureChanged { id, capture, reason } => {
             {
