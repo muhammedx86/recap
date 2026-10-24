@@ -3,7 +3,6 @@
 use std::{fs, path::Path};
 
 use recap_core::{
-    clips::concat,
     events::{builtin_event_types, EventSource, EventTypeDef, GameEvent},
     games::{
         delete_user_detector, remove_event_type, save_user_game, upsert_event_type, ApiSource, AutoClipDef, CaptureMode, DetectorDef,
@@ -17,9 +16,9 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::{
     hotkeys,
-    processing::{self, clips_dir, unique_path},
+    processing,
     session,
-    state::{now_unix_ms, refresh_status, AppState, GameInfo, RecorderStatus},
+    state::{refresh_status, AppState, GameInfo, RecorderStatus},
     studio::{self, FrameResult, FrameSource, TestResult},
 };
 
@@ -174,57 +173,7 @@ pub async fn create_clip(app: AppHandle, match_id: String, start_ms: u64, end_ms
 pub async fn create_montage(app: AppHandle, clip_ids: Vec<String>, title: String) -> CmdResult<ClipRecord> {
     tauri::async_runtime::spawn_blocking(move || {
         let st = crate::state::state(&app);
-        if clip_ids.len() < 2 {
-            return Err("Pick at least two clips".to_string());
-        }
-        let clips: Vec<ClipRecord> = {
-            let lib = st.library.lock().unwrap();
-            clip_ids
-                .iter()
-                .map(|id| lib.get_clip(id).map_err(err)?.ok_or_else(|| format!("Clip {id} not found")))
-                .collect::<Result<_, _>>()?
-        };
-        let inputs: Vec<_> = clips.iter().map(|c| std::path::PathBuf::from(&c.path)).collect();
-        let title = if title.trim().is_empty() {
-            "Montage".to_string()
-        } else {
-            title.trim().to_string()
-        };
-        let dir = clips_dir(&st, "Montages");
-        fs::create_dir_all(&dir).map_err(err)?;
-        let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-        let out = unique_path(&dir, &format!("{stamp}_{}", crate::paths::sanitize(&title)), "mp4");
-        concat(&st.ff, &inputs, &out).map_err(err)?;
-        let id = uuid::Uuid::new_v4().to_string();
-        let thumb = st.paths.thumbnails.join(format!("clip-{id}.jpg"));
-        let thumbnail = st
-            .ff
-            .thumbnail(&out, 1000, &thumb, 360)
-            .ok()
-            .map(|_| thumb.to_string_lossy().into_owned());
-        let duration_ms = st
-            .ff
-            .probe(&out)
-            .map(|i| i.duration_ms)
-            .unwrap_or_else(|_| clips.iter().map(|c| c.duration_ms).sum());
-        let mut kinds: Vec<String> = clips.iter().flat_map(|c| c.event_kinds.clone()).collect();
-        kinds.sort();
-        kinds.dedup();
-        let clip = ClipRecord {
-            id,
-            match_id: None,
-            path: out.to_string_lossy().into_owned(),
-            start_ms: 0,
-            end_ms: duration_ms,
-            duration_ms,
-            kind: ClipKind::Montage,
-            title,
-            event_kinds: kinds,
-            created_unix_ms: now_unix_ms(),
-            thumbnail,
-            size_bytes: fs::metadata(&out).map(|m| m.len()).unwrap_or(0),
-        };
-        st.library.lock().unwrap().insert_clip(&clip).map_err(err)?;
+        let clip = processing::make_montage(&st, &clip_ids, &title).map_err(err)?;
         changed(&app, None);
         Ok(clip)
     })
@@ -546,4 +495,16 @@ pub fn open_path(path: String) -> CmdResult<()> {
 #[tauri::command]
 pub fn refresh(app: AppHandle) {
     refresh_status(&app, None);
+}
+
+/// True when the app runs in end-to-end self-test mode (docs/E2E.md).
+#[tauri::command]
+pub fn selftest_enabled() -> bool {
+    crate::selftest::enabled()
+}
+
+/// The UI reports each page of the self-test tour so the driver can screenshot it.
+#[tauri::command]
+pub fn selftest_tour_step(page: String) {
+    crate::selftest::tour_step(&page);
 }

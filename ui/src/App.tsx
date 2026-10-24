@@ -9,6 +9,7 @@ import { Clips } from "./pages/Clips";
 import { Studio } from "./pages/Studio";
 import { Games } from "./pages/Games";
 import { SettingsPage } from "./pages/Settings";
+import { SelfTestTour } from "./components/SelfTestTour";
 
 export function App() {
   // Subscribing here re-renders every screen when event types load or change.
@@ -19,6 +20,7 @@ export function App() {
   return (
     <ToastProvider>
       <HashRouter>
+        <SelfTestTour />
         <div className="shell">
           <Sidebar />
           <main className="main">

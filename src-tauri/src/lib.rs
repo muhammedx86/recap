@@ -6,6 +6,7 @@ mod monitor;
 mod paths;
 mod processing;
 mod recorder;
+mod selftest;
 mod session;
 mod sources;
 mod state;
@@ -155,6 +156,12 @@ pub fn run() {
                     file_name: Some("recap".into()),
                 }))
                 .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .targets(std::env::var_os("RECAP_DATA_DIR").filter(|v| !v.is_empty()).map(|d| {
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+                        path: std::path::PathBuf::from(d),
+                        file_name: Some("recap".into()),
+                    })
+                }))
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -202,6 +209,8 @@ pub fn run() {
             commands::studio_delete_detector,
             commands::open_path,
             commands::refresh,
+            commands::selftest_enabled,
+            commands::selftest_tour_step,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Recap");

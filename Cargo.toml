@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/recap-core", "crates/recap-recorder", "src-tauri"]
+members = ["crates/recap-core", "crates/recap-recorder", "crates/sample-game", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

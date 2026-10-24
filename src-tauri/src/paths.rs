@@ -23,7 +23,11 @@ pub struct Paths {
 
 impl Paths {
     pub fn resolve(app: &AppHandle) -> anyhow::Result<Self> {
-        let data_dir = app.path().app_data_dir()?;
+        // RECAP_DATA_DIR isolates a run (used by the end-to-end test).
+        let data_dir = match std::env::var_os("RECAP_DATA_DIR").filter(|v| !v.is_empty()) {
+            Some(d) => PathBuf::from(d),
+            None => app.path().app_data_dir()?,
+        };
         let resources = app.path().resource_dir().unwrap_or_else(|_| exe_dir());
         // In `tauri dev` resources are not copied; fall back to the repo layout.
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
@@ -59,8 +63,14 @@ impl Paths {
         })
     }
 
+    /// Bundled games, then RECAP_EXTRA_GAMES (test fixtures), then the user's folder (wins).
     pub fn game_roots(&self) -> Vec<PathBuf> {
-        vec![self.bundled_games.clone(), self.user_games.clone()]
+        let mut roots = vec![self.bundled_games.clone()];
+        if let Some(extra) = std::env::var_os("RECAP_EXTRA_GAMES").filter(|v| !v.is_empty()) {
+            roots.push(PathBuf::from(extra));
+        }
+        roots.push(self.user_games.clone());
+        roots
     }
 }
 

@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use recap_core::{
-    clips::{cut_clip, kinds_in_window, plan_auto_clips},
+    clips::{concat, cut_clip, kinds_in_window, plan_auto_clips},
     events::{builtin_event_types, is_round_kind, kind, merge_events, EventSource, EventTypeDef, GameEvent},
     games::{ApiSource, LoadedDetector, LoadedGame},
     library::{ClipKind, ClipRecord, MatchRecord, MatchStatus},
@@ -126,6 +126,7 @@ pub fn spawn(app: AppHandle, match_id: String, rescan: bool) {
             }
             let _ = app.emit("library-changed", serde_json::json!({ "matchId": match_id }));
             enforce_storage_limit(&app);
+            crate::selftest::after_processing(&app);
         })
         .ok();
 }
@@ -223,7 +224,8 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
     // One session, several matches? Split it and finish each match separately.
     if settings.split_matches && game.is_some() {
         let events = st.library.lock().unwrap().list_events(match_id)?;
-        let segments = plan_match_segments(&events, m.duration_ms, &SegmentOptions::default());
+        let opts = SegmentOptions { min_len_ms: crate::selftest::min_match_len_ms(), ..SegmentOptions::default() };
+        let segments = plan_match_segments(&events, m.duration_ms, &opts);
         if !segments.is_empty() {
             return split_session(app, &st, &m, game.as_ref(), &settings, &events, &segments);
         }
@@ -406,6 +408,48 @@ pub fn make_clip(
         created_unix_ms: now_unix_ms(),
         thumbnail,
         size_bytes: fs::metadata(&out).map(|x| x.len()).unwrap_or(0),
+    };
+    st.library.lock().unwrap().insert_clip(&clip)?;
+    Ok(clip)
+}
+
+/// Join clips (in order) into a montage and record it in the library.
+pub fn make_montage(st: &AppState, clip_ids: &[String], title: &str) -> Result<ClipRecord> {
+    anyhow::ensure!(clip_ids.len() >= 2, "Pick at least two clips");
+    let clips: Vec<ClipRecord> = {
+        let lib = st.library.lock().unwrap();
+        clip_ids
+            .iter()
+            .map(|id| lib.get_clip(id)?.with_context(|| format!("Clip {id} not found")))
+            .collect::<Result<_>>()?
+    };
+    let inputs: Vec<PathBuf> = clips.iter().map(|c| PathBuf::from(&c.path)).collect();
+    let title = if title.trim().is_empty() { "Montage".to_string() } else { title.trim().to_string() };
+    let dir = clips_dir(st, "Montages");
+    fs::create_dir_all(&dir)?;
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+    let out = unique_path(&dir, &format!("{stamp}_{}", sanitize(&title)), "mp4");
+    concat(&st.ff, &inputs, &out)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let thumb = st.paths.thumbnails.join(format!("clip-{id}.jpg"));
+    let thumbnail = st.ff.thumbnail(&out, 1000, &thumb, 360).ok().map(|_| thumb.to_string_lossy().into_owned());
+    let duration_ms = st.ff.probe(&out).map(|i| i.duration_ms).unwrap_or_else(|_| clips.iter().map(|c| c.duration_ms).sum());
+    let mut kinds: Vec<String> = clips.iter().flat_map(|c| c.event_kinds.clone()).collect();
+    kinds.sort();
+    kinds.dedup();
+    let clip = ClipRecord {
+        id,
+        match_id: None,
+        path: out.to_string_lossy().into_owned(),
+        start_ms: 0,
+        end_ms: duration_ms,
+        duration_ms,
+        kind: ClipKind::Montage,
+        title,
+        event_kinds: kinds,
+        created_unix_ms: now_unix_ms(),
+        thumbnail,
+        size_bytes: fs::metadata(&out).map(|m| m.len()).unwrap_or(0),
     };
     st.library.lock().unwrap().insert_clip(&clip)?;
     Ok(clip)

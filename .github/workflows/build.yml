@@ -161,6 +161,27 @@ jobs:
           Copy-Item games "$out/games" -Recurse -Force
           Copy-Item LICENSE, README.md $out/
 
+      # ---- End-to-end test: the packaged app against the scripted sample game ----
+      - name: Build sample game
+        run: cargo build -p recap-sample-game --release --locked
+
+      - name: End-to-end test
+        shell: pwsh
+        run: ./scripts/e2e.ps1 -AppDir portable/Recap -GameExe target/release/recap-sample-game.exe -Out e2e-out
+
+      - name: Upload end-to-end results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recap-e2e
+          path: |
+            e2e-out/report.json
+            e2e-out/summary.txt
+            e2e-out/*.log
+            e2e-out/screenshots/
+            e2e-out/recordings/
+          if-no-files-found: warn
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

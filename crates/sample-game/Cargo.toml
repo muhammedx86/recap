@@ -1,0 +1,27 @@
+[package]
+name = "recap-sample-game"
+description = "A scripted fake game for Recap's end-to-end test: shows synthetic event banners at known times."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "recap_sample_game"
+path = "src/lib.rs"
+
+[[bin]]
+name = "recap-sample-game"
+path = "src/main.rs"
+
+[dependencies]
+recap-core = { path = "../recap-core" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+image.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+minifb = "0.29"
+
+[dev-dependencies]
+tempfile = "3"

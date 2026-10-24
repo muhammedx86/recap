@@ -1,0 +1,97 @@
+# End-to-end test (Windows CI)
+
+The packaged app is run for real on a Windows runner against a scripted **sample game**.
+Nothing is mocked: process detection, the OBS recorder, post-match scanning, match
+splitting, auto-clips, montage, Detector Studio commands and the UI all run as shipped.
+
+## Pieces
+
+| Piece | Where |
+|---|---|
+| Sample game | `crates/sample-game` → `recap-sample-game.exe` |
+| Self-test mode in the app | `src-tauri` (env vars below), UI page tour in `ui/` |
+| Driver script | `scripts/e2e.ps1` |
+| CI job | `.github/workflows/build.yml` job `e2e` (needs the Windows build) |
+
+## Sample game
+
+Window 1280×720, title `Recap Sample Game`, process `recap-sample-game.exe`, software-rendered
+(GDI), animated background so frames are never static. It shows high-contrast synthetic banners
+at fixed times (seconds after launch), then exits at 61 s:
+
+| t (s) | Banner (shown ~1.2–2 s) | Event kind |
+|---|---|---|
+| 10.0 | match start | `match_start` |
+| 12.5 | round start | `round_start` |
+| 15.0 | kill | `kill` |
+| 18.0 | kill | `kill` |
+| 20.0 | round won | `round_win` |
+| 22.0 | round start | `round_start` |
+| 24.0 | kill | `kill` |
+| 26.5 | round lost | `round_loss` |
+| 29.0 | match end | `match_end` |
+| 31–45 | menu | – |
+| 45.0 | match start | `match_start` |
+| 47.5 | round start | `round_start` |
+| 50.0 | kill | `kill` |
+| 53.0 | round won | `round_win` |
+| 56.0 | match end | `match_end` |
+| 61.0 | exit | – |
+
+Absolute times in the recording depend on how fast recording starts, so checks use offsets
+relative to each match's `match_start` event.
+
+CLI:
+- `recap-sample-game.exe` – run the game (Windows).
+- `recap-sample-game --export-fixture <dir>` – write `<dir>/recap-sample-game/` with
+  `game.json` (capture `window`, auto-clips on `kill`), `detectors/*.json` and `templates/*.png`
+  drawn by the same code as the game (templateFrameHeight 720). Works on any OS.
+- `recap-sample-game --export-frames <dir> --fps <n>` – render the timeline to PNG frames (any OS),
+  used by a Linux test that encodes them with ffmpeg and runs the real scanner.
+- `recap-sample-game --timeline` – print the table above as JSON.
+
+## Self-test mode (environment variables)
+
+| Variable | Effect |
+|---|---|
+| `RECAP_DATA_DIR` | Use this folder instead of the app data folder (settings, library, user games, thumbnails, logs). |
+| `RECAP_EXTRA_GAMES` | Extra game root loaded after the bundled games (the exported fixture). |
+| `RECAP_SELFTEST` | Folder for `report.json` + `tour.txt`. Enables: 5 s minimum match length for splitting; the post-processing check suite; the UI page tour. |
+
+The driver writes `settings.json` into `RECAP_DATA_DIR` before launch (recordings folder,
+30 fps, 4000 kbps, auto-clips on, split matches on).
+
+When every sample-game match is processed, the app runs the check suite (manual clip, montage,
+Studio frame load, Studio detector test, custom event type, games list) and writes
+`report.json` with `"done": true`. Then the UI tours Library → Match → Clips → Studio → Games →
+Settings, writing the current page name to `tour.txt` and holding each page for 4 s so the
+driver can screenshot the desktop.
+
+### report.json
+
+```json
+{
+  "done": true,
+  "games": [{ "id": "valorant", "name": "VALORANT", "detectors": 7, "readyDetectors": 0 }],
+  "matches": [{
+    "id": "…", "gameId": "recap-sample-game", "status": "ready", "durationMs": 30000,
+    "path": "…", "exists": true, "sizeBytes": 123,
+    "events": [{ "kind": "kill", "tMs": 15000, "source": "vision:kill" }],
+    "clips": [{ "kind": "auto", "path": "…", "exists": true, "durationMs": 8000 }]
+  }],
+  "checks": { "manualClip": { "ok": true, "detail": "…" } },
+  "errors": []
+}
+```
+
+## What the driver asserts
+
+- At least the 5 bundled games load, plus the sample game.
+- The session was split into exactly 2 sample-game matches, both `ready`, files present.
+- Match 1 (relative to its `match_start`): kills at +5, +8, +14 s; `round_start` ×2; `round_win` ×1;
+  `round_loss` ×1; `match_end` at +19 s. Match 2: kill at +5 s; `round_win` ×1. Tolerance ±1.5 s.
+- Each match with a kill has at least one auto-clip whose file exists.
+- Every entry in `checks` is ok.
+- The UI tour produced a screenshot for every page.
+
+Artifacts: `report.json`, screenshots, `recap.log`, `recorder.log`, the recordings.
