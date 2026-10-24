@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::{
     hotkeys, processing, session,
     state::{refresh_status, AppState, GameInfo, RecorderStatus},
-    studio::{self, FrameReadResult, FrameResult, FrameSource, OptionCrop, ReaderTestResult, TestResult},
+    studio::{self, FrameReadResult, FrameResult, FrameSource, OptionCrop, ReaderTestResult, TestResult, VideoInfoResult},
 };
 
 type CmdResult<T> = Result<T, String>;
@@ -501,10 +501,32 @@ pub async fn studio_test_detector(app: AppHandle, game_id: String, detector: Det
             .get_match(&match_id)
             .map_err(err)?
             .ok_or("Recording not found")?;
-        studio::test_detector(&st, &game_id, detector, Path::new(&m.path)).map_err(err)
+        let app2 = app.clone();
+        let progress = move |p: f32| {
+            let _ = app2.emit("studio-progress", serde_json::json!({ "task": "test", "progress": p }));
+        };
+        studio::test_detector_with_progress(&st, &game_id, detector, Path::new(&m.path), &progress).map_err(err)
     })
     .await
     .map_err(err)?
+}
+
+/// Size, length and game picture (inside any black bars) of a recording, for Detector Studio.
+#[tauri::command]
+pub async fn studio_video_info(app: AppHandle, path: String) -> CmdResult<VideoInfoResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        studio::video_info(&crate::state::state(&app), Path::new(&path))
+            .map(|(i, _)| i)
+            .map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Stop a running Studio test early (it returns what it has so far).
+#[tauri::command]
+pub fn studio_cancel() {
+    studio::cancel_running();
 }
 
 #[tauri::command]

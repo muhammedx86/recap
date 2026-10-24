@@ -191,6 +191,7 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
                     keep_traces: false,
                     cancel: None,
                     progress: Some(&progress),
+                    content: None,
                 },
             )?;
             derived.extend(res.events);

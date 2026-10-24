@@ -14,9 +14,9 @@ use serde::Serialize;
 
 use crate::{
     events::{EventSource, GameEvent},
-    ffmpeg::Ffmpeg,
+    ffmpeg::{ContentRect, Ffmpeg},
     games::LoadedDetector,
-    vision::{PreparedDetector, Trigger},
+    vision::{MatchLocation, PreparedDetector, Trigger},
 };
 
 /// Score samples for one detector, for the Detector Studio graph.
@@ -26,6 +26,8 @@ pub struct ScoreTrace {
     pub detector: String,
     /// (t_ms, score) pairs.
     pub samples: Vec<(u64, f32)>,
+    /// Where it matched when it fired: (t_ms of the event, location on the frame that fired it).
+    pub hits: Vec<(u64, MatchLocation)>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -44,6 +46,8 @@ pub struct ScanOptions<'a> {
     pub cancel: Option<&'a AtomicBool>,
     /// Called with progress 0..1 roughly once per second of video.
     pub progress: Option<&'a (dyn Fn(f32) + Sync)>,
+    /// The game picture, when already known (`Some(None)` = no black bars); detected otherwise.
+    pub content: Option<Option<ContentRect>>,
 }
 
 impl Default for ScanOptions<'_> {
@@ -53,6 +57,7 @@ impl Default for ScanOptions<'_> {
             keep_traces: false,
             cancel: None,
             progress: None,
+            content: None,
         }
     }
 }
@@ -65,7 +70,10 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
     let info = ff.probe(video)?;
     let fps = ready.iter().map(|d| d.def.sample_fps).fold(0.5f32, f32::max);
     // Measure regions inside the game picture, not the black bars around it.
-    let crop = ff.content_rect(video, &info);
+    let crop = match opts.content {
+        Some(c) => c,
+        None => ff.content_rect(video, &info),
+    };
     if let Some(c) = crop {
         log::info!(
             "{}: game picture is {}x{} at ({}, {}) inside {}x{}",
@@ -86,6 +94,7 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
         trig: Trigger,
         every: u64,
         trace: Vec<(u64, f32)>,
+        hits: Vec<(u64, MatchLocation)>,
     }
     let mut slots = Vec::new();
     for d in ready {
@@ -97,6 +106,7 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
                     det,
                     every,
                     trace: Vec::new(),
+                    hits: Vec::new(),
                 });
             }
             Err(e) => log::warn!("detector {} not loaded: {e:#}", d.def.id),
@@ -120,6 +130,11 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
                 s.trace.push((t_ms, score));
             }
             if let Some((at, peak)) = s.trig.push(t_ms, score) {
+                if opts.keep_traces && s.hits.len() < 200 {
+                    if let Some(loc) = s.det.locate_frame(&frame) {
+                        s.hits.push((at, loc));
+                    }
+                }
                 result.events.push(
                     GameEvent::new(
                         s.det.def.event.clone(),
@@ -145,6 +160,7 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
             .map(|s| ScoreTrace {
                 detector: s.det.def.id,
                 samples: s.trace,
+                hits: s.hits,
             })
             .collect();
     }

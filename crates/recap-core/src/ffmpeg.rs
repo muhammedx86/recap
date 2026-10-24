@@ -64,6 +64,19 @@ pub struct VideoInfo {
     pub width: u32,
     pub height: u32,
     pub duration_ms: u64,
+    /// Average frames per second (0 when unknown).
+    pub fps: f32,
+}
+
+/// Parse an ffprobe rate such as `60/1` or `30000/1001`.
+fn parse_rate(r: &str) -> f32 {
+    match r.split_once('/') {
+        Some((n, d)) => match (n.parse::<f32>(), d.parse::<f32>()) {
+            (Ok(n), Ok(d)) if d > 0.0 => n / d,
+            _ => 0.0,
+        },
+        None => r.parse().unwrap_or(0.0),
+    }
 }
 
 impl Ffmpeg {
@@ -104,7 +117,7 @@ impl Ffmpeg {
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=width,height:format=duration",
+                "stream=width,height,avg_frame_rate,r_frame_rate:format=duration",
                 "-of",
                 "json",
             ])
@@ -119,10 +132,12 @@ impl Ffmpeg {
         let width = s["width"].as_u64().context("no video width")? as u32;
         let height = s["height"].as_u64().context("no video height")? as u32;
         let duration = v["format"]["duration"].as_str().and_then(|d| d.parse::<f64>().ok()).unwrap_or(0.0);
+        let rate = |k: &str| s[k].as_str().map(parse_rate).filter(|f| f.is_finite() && *f > 0.0 && *f < 1000.0);
         Ok(VideoInfo {
             width,
             height,
             duration_ms: (duration * 1000.0) as u64,
+            fps: rate("avg_frame_rate").or_else(|| rate("r_frame_rate")).unwrap_or(0.0),
         })
     }
 
@@ -347,6 +362,14 @@ pub fn format_secs(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_frame_rates() {
+        assert_eq!(parse_rate("60/1"), 60.0);
+        assert!((parse_rate("30000/1001") - 29.97).abs() < 0.01);
+        assert_eq!(parse_rate("0/0"), 0.0);
+        assert_eq!(parse_rate("25"), 25.0);
+    }
 
     #[test]
     fn cropdetect_parsing() {

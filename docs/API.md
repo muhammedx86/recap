@@ -167,10 +167,23 @@ interface StorageInfo { recordingsDir: string; usedBytes: number; freeBytes: num
 // Detector Studio
 type FrameSource = { kind: "video"; path: string; tMs: number } | { kind: "image"; path: string };
 interface FrameResult { dataUrl: string; width: number; height: number }   // PNG data URL at full resolution
+interface MatchLocation {
+  score: number;
+  region: Region;       // where it matched, fractions of the game picture
+  scale: number;        // template size relative to the reference (1 = as cut)
+  reference: number;    // index into the detector's templates
+}
 interface TestResult {
   events: GameEvent[];
   samples: Array<[number, number]>;  // [tMs, score]
   durationMs: number;
+  hits: Array<MatchLocation & { tMs: number }>;  // where each detection matched
+  cancelled: boolean;                 // stopped by studio_cancel; samples cover part of the recording
+}
+interface VideoInfo {
+  width: number; height: number; durationMs: number;
+  fps: number;                        // 0 when unknown
+  content: { x: number; y: number; w: number; h: number } | null;  // game picture inside black bars, video pixels; null = fills the frame
 }
 interface ProcessingProgress { matchId: string; stage: "scanning" | "postMatch" | "clipping" | "done" | "error"; progress: number; message?: string }
 ```
@@ -209,9 +222,11 @@ Arguments are passed as an object with these camelCase keys.
 | `stop_recording` | – | `RecorderStatus` |
 | `add_bookmark` | – | `null` (same as the hotkey) |
 | `get_storage` | – | `StorageInfo` |
-| `studio_load_frame` | `{ source: FrameSource }` | `FrameResult` |
-| `studio_save_detector` | `{ gameId, detector: DetectorDef, source: FrameSource, templateBox: Region \| null }` | `GameInfo` — when `templateBox` is set, the backend cuts that box from the frame at full resolution, saves it as a new template PNG, appends it to `detector.templates`, and sets `templateFrameHeight` to the frame height |
-| `studio_test_detector` | `{ gameId, detector: DetectorDef, matchId }` | `TestResult` (runs the unsaved detector over the recording; templates are read from the game folders) |
+| `studio_load_frame` | `{ source: FrameSource }` | `FrameResult` (game picture only, black bars removed). Studio uses it for screenshots and as a fallback for colour picking; recordings are played directly |
+| `studio_save_detector` | `{ gameId, detector: DetectorDef, source: FrameSource, templateBox: Region \| null }` | `GameInfo` — when `templateBox` is set, the backend cuts that box from the frame at full resolution, saves it as a new template PNG, appends it to `detector.templates`, and sets `templateFrameHeight` to the frame height. With `templateBox: null` the detector is saved as given (Studio removes a reference by saving `templates` without it) |
+| `studio_video_info` | `{ path }` | `VideoInfo`. Studio plays the recording itself (asset URL) and uses `content` to crop black bars so boxes are fractions of the game picture. Black-bar detection decodes a few seconds of video, so results are cached per file until it changes |
+| `studio_test_detector` | `{ gameId, detector: DetectorDef, matchId }` | `TestResult` (runs the unsaved detector over the recording; templates are read from the game folders). Reports `studio-progress` events; `studio_cancel` stops it early |
+| `studio_cancel` | – | `null` — stop the running Studio test; it returns what it has so far with `cancelled: true` |
 | `studio_delete_detector` | `{ gameId, detectorId }` | `GameInfo` |
 | `studio_save_reader` | `{ gameId, reader: ReaderDef, source: FrameSource \| null, crops: Array<{ value, region }> }` (each crop becomes a reference for that choice value) | `GameInfo` |
 | `studio_read_frame` | `{ gameId, reader: ReaderDef, source: FrameSource }` | `{ slot: number \| null; readings: Array<{ field; value; confidence }>; ocrAvailable: boolean }` |
@@ -234,4 +249,5 @@ Errors are returned as rejected promises with a string message.
 | `processing-progress` | `ProcessingProgress` |
 | `bookmark-added` | `{ matchId: string; tMs: number }` |
 | `window-hidden` | `{ reason: "closed" \| "minimized" }` — the window went to the tray or was minimized; the UI pauses all media |
+| `studio-progress` | `{ task: "test"; progress: number }` — a Studio detector test is running (0..1) |
 | `overlay-toast` | `{ kind: "recording" \| "saved" \| "bookmark" \| "clips" \| "skipped"; title: string; detail?: string; corner }`, sent only to the `overlay` window (`overlay.html`). Not sent while the main window has focus. |

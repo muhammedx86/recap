@@ -26,6 +26,7 @@ import type {
   Settings,
   StorageInfo,
   TestResult,
+  VideoInfo,
 } from "./types";
 
 const ROOT = "C:\\Users\\William\\Videos\\Recap";
@@ -593,8 +594,21 @@ ${cards}
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+/**
+ * Detector Studio in the browser shows these drawn frames instead of a video. To try the real
+ * video player, set localStorage "studio-mock-video" to {"url": "...mp4", "info": VideoInfo}.
+ */
+export function mockStudioVideo(): { url: string; info: VideoInfo } | null {
+  try {
+    const raw = localStorage.getItem("studio-mock-video");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** A 1920x1080 HUD-like frame with a kill banner, for Detector Studio. */
-function studioFrame(t: number, path: string): string {
+export function studioFrame(t: number, path: string): string {
   const m = matches.find((x) => x.path === path);
   if (m && m.gameId === "valorant" && t >= m.durationMs - 60_000) return endScreenFrame();
   const g = gameFromPath(path);
@@ -652,14 +666,17 @@ function matchDetail(id: string): MatchDetail {
   return { match: { ...m }, events: [...evs], clips: clips.filter((c) => c.matchId === id).sort((a, b) => b.createdUnixMs - a.createdUnixMs) };
 }
 
-function testDetector(det: DetectorDef, matchId: string): TestResult {
+let studioCancelled = false;
+
+function testDetector(det: DetectorDef, matchId: string, upTo = 1): TestResult {
   const m = matches.find((x) => x.id === matchId);
   if (!m) throw "Recording not found";
+  const scanned = m.durationMs * upTo;
   const kills = (eventsByMatch.get(matchId) ?? []).filter((e) => e.kind === det.event);
   const step = Math.max(1000 / det.sampleFps, m.durationMs / 1800);
   const r = rng(Math.round(det.threshold * 1000) + matchId.length);
   const samples: Array<[number, number]> = [];
-  for (let t = 0; t < m.durationMs; t += step) {
+  for (let t = 0; t < scanned; t += step) {
     let s = 0.12 + r() * 0.22;
     for (const k of kills) {
       const d = t - k.tMs;
@@ -692,7 +709,9 @@ function testDetector(det: DetectorDef, matchId: string): TestResult {
       }
     } else run = 0;
   }
-  return { events, samples, durationMs: m.durationMs };
+  const at = det.templateBox ?? det.region;
+  const hits = events.map((e, i) => ({ tMs: e.tMs, score: e.confidence ?? 0.9, region: at, scale: 1, reference: i % Math.max(1, det.templates.length) }));
+  return { events, samples, durationMs: m.durationMs, hits, cancelled: upTo < 1 };
 }
 
 const handlers: Record<string, (a: any) => unknown> = {
@@ -914,7 +933,17 @@ const handlers: Record<string, (a: any) => unknown> = {
     g.userModified = true;
     return gameInfo(gameId);
   },
-  studio_test_detector: ({ detector: det, matchId }: { detector: DetectorDef; matchId: string }) => testDetector(det, matchId),
+  studio_video_info: ({ path }: { path: string }): VideoInfo => {
+    const custom = mockStudioVideo();
+    if (custom) return custom.info;
+    const m = matches.find((x) => x.path === path);
+    if (!m) throw "Recording not found";
+    return { width: 1920, height: 1080, durationMs: m.durationMs, fps: 60, content: null };
+  },
+  studio_cancel: () => {
+    studioCancelled = true;
+    return null;
+  },
   studio_delete_detector: ({ gameId, detectorId }) => {
     const g = games.find((x) => x.id === gameId);
     if (!g) throw "Unknown game";
@@ -986,6 +1015,21 @@ const handlers: Record<string, (a: any) => unknown> = {
 };
 
 export async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+  if (cmd === "studio_test_detector") {
+    // Report progress like the backend, and stop early on studio_cancel.
+    studioCancelled = false;
+    const steps = 16;
+    for (let i = 1; i <= steps; i++) {
+      await delay(110);
+      if (studioCancelled) {
+        const a = args as { detector: DetectorDef; matchId: string };
+        return structuredClone(testDetector(a.detector, a.matchId, (i - 1) / steps)) as T;
+      }
+      emit("studio-progress", { task: "test", progress: i / steps });
+    }
+    const a = args as { detector: DetectorDef; matchId: string };
+    return structuredClone(testDetector(a.detector, a.matchId)) as T;
+  }
   await delay(cmd.startsWith("studio_test") ? 700 : 90);
   const h = handlers[cmd];
   if (!h) throw `Unknown command ${cmd}`;

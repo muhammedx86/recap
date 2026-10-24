@@ -1,12 +1,12 @@
 // Detector Studio, Details mode: screen readers that fill match details (map, character, K/D/A…).
-// Studio owns the frame and source; this hook supplies the rail list, canvas overlays, the test
+// Studio owns the viewer; this hook supplies the rail list, viewer overlays and markers, the test
 // panel and the settings form.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, fileSrc } from "../lib/api";
 import { timecode } from "../lib/format";
 import { KDA_PATTERN, READER_FIELDS, detailLabel, displayValue, sourceText } from "../lib/details";
-import type { FrameReadResult, FrameResult, FrameSource, GameInfo, MatchRecord, ReaderDef, ReaderTestResult, Region } from "../lib/types";
+import type { FrameReadResult, FrameSource, GameEvent, GameInfo, ReaderInfo, MatchRecord, ReaderDef, ReaderTestResult, Region } from "../lib/types";
 import { Confirm, Field, Icon, Toggle } from "../components/ui";
 
 export const NEW_READER = "__new_reader__";
@@ -60,23 +60,18 @@ function grow(b: Region, m: number): Region {
   return { x, y, w: Math.min(1, b.x + b.w * (1 + m)) - x, h: Math.min(1, b.y + b.h * (1 + m)) - y };
 }
 
-/** Average colour of a 5×5 patch of the frame at (x, y) fractions, as #rrggbb. */
-async function sampleColour(frame: FrameResult, p: { x: number; y: number }): Promise<string> {
-  const img = new Image();
-  img.src = frame.dataUrl;
-  await img.decode();
-  const c = document.createElement("canvas");
-  c.width = frame.width;
-  c.height = frame.height;
-  const ctx = c.getContext("2d")!;
-  ctx.drawImage(img, 0, 0, frame.width, frame.height);
-  const cx = Math.round(p.x * frame.width);
-  const cy = Math.round(p.y * frame.height);
-  const data = ctx.getImageData(Math.max(0, cx - 2), Math.max(0, cy - 2), 5, 5).data;
-  const sum = [0, 0, 0];
-  for (let i = 0; i < data.length; i += 4) for (let k = 0; k < 3; k++) sum[k] += data[i + k];
-  const n = data.length / 4;
-  return "#" + sum.map((v) => Math.round(v / n).toString(16).padStart(2, "0")).join("");
+function defOf(r: ReaderInfo): ReaderDef {
+  const { ready: _r, user: _u, optionUrls: _o, ...def } = r;
+  return def;
+}
+
+/** What the reader workspace needs from Studio's viewer. */
+export interface ViewerApi {
+  /** A picture is showing (boxes can be drawn). */
+  ready: boolean;
+  /** The exact frame on screen. */
+  source: () => FrameSource | null;
+  sampleColour: (p: { x: number; y: number }) => Promise<string>;
 }
 
 const NUMERIC = ["kda", "kills", "deaths", "assists", "team_score", "enemy_score"];
@@ -86,22 +81,23 @@ const WHEN_LABEL: Record<ReaderDef["when"], string> = { end: "End of match", sta
 export function useReaderWorkspace(o: {
   game: GameInfo | undefined;
   setGames: (f: (gs: GameInfo[] | null) => GameInfo[] | null) => void;
-  frame: FrameResult | null;
-  frameSource: FrameSource | null;
+  viewer: ViewerApi;
   match: MatchRecord | undefined;
+  matchEvents: GameEvent[];
   readerId: string;
   setReaderId: (id: string) => void;
   toast: { error: (e: unknown, title?: string) => void; info: (m: string) => void };
   showFrameAt: (tMs: number) => void;
 }) {
-  const { game, frame, frameSource, match, readerId, setReaderId, toast } = o;
+  const { game, viewer, match, readerId, setReaderId, toast } = o;
   const existing = game?.readers.find((r) => r.id === readerId);
   const isNew = readerId === NEW_READER;
   const [draft, setDraft] = useState<ReaderDef>(blankReader());
   const [drawn, setDrawn] = useState(false);
   const [target, setTarget] = useState<Target>("region");
   const [optionValue, setOptionValue] = useState("");
-  const [crops, setCrops] = useState<Array<{ value: string; region: Region }>>([]);
+  // New picture references, each with the frame it was drawn on.
+  const [crops, setCrops] = useState<Array<{ value: string; region: Region; source: FrameSource }>>([]);
   const [customField, setCustomField] = useState(false);
   const [read, setRead] = useState<FrameReadResult | null>(null);
   const [test, setTest] = useState<ReaderTestResult | null>(null);
@@ -117,7 +113,7 @@ export function useReaderWorkspace(o: {
     setTarget("region");
     setDrawn(false);
     if (existing) {
-      const { ready: _r, user: _u, optionUrls: _o, ...def } = existing;
+      const def = defOf(existing);
       setDraft(def);
       setCustomField(!READER_FIELDS.some((f) => f.id === def.field));
     } else {
@@ -158,7 +154,9 @@ export function useReaderWorkspace(o: {
         toast.error("Type the value this picture means first, e.g. the agent's name.");
         return;
       }
-      setCrops((c) => [...c, { value, region: r }]);
+      const source = viewer.source();
+      if (!source) return;
+      setCrops((c) => [...c, { value, region: r, source }]);
       // The first reference also sets where to look (with a margin).
       if (!drawn && !(draft.options ?? []).some((x) => x.templates.length)) {
         set("region", grow(r, 0.25));
@@ -174,10 +172,10 @@ export function useReaderWorkspace(o: {
   };
 
   const onPoint =
-    target === "pick" && frame
+    target === "pick" && viewer.ready
       ? async (p: { x: number; y: number }) => {
           try {
-            const color = await sampleColour(frame, p);
+            const color = await viewer.sampleColour(p);
             setDraft((d) => ({ ...d, highlight: { box: d.highlight?.box ?? { x: 0, y: 0, w: 1, h: 1 }, tolerance: d.highlight?.tolerance ?? 40, color } }));
           } catch {
             toast.error("Could not read the colour here. Type it instead.");
@@ -199,11 +197,29 @@ export function useReaderWorkspace(o: {
     if (!id) return toast.error("Give the reader a name first.");
     if (!draft.field.trim()) return toast.error("Pick what this reader fills in.");
     if (isNew && !drawn && !crops.length) return toast.error("Draw a box on the frame around what to read.");
-    if (crops.length && !frameSource) return toast.error("Load a frame before adding a reference.");
     setSaving(true);
     try {
-      const updated = await api.studioSaveReader(game.id, { ...readerForCall(), id }, crops.length ? frameSource : null, crops);
-      o.setGames((gs) => (gs ?? []).map((g) => (g.id === updated.id ? updated : g)));
+      // References are cut from the frame each was drawn on: one save per frame.
+      const groups = new Map<string, typeof crops>();
+      for (const c of crops) {
+        const k = JSON.stringify(c.source);
+        groups.set(k, [...(groups.get(k) ?? []), c]);
+      }
+      let def: ReaderDef = { ...readerForCall(), id };
+      let updated: GameInfo | null = null;
+      const batches = groups.size ? [...groups.values()] : [[]];
+      for (const batch of batches) {
+        updated = await api.studioSaveReader(
+          game.id,
+          def,
+          batch[0]?.source ?? null,
+          batch.map(({ value, region }) => ({ value, region })),
+        );
+        const saved = updated.readers.find((x) => x.id === id);
+        if (saved) def = defOf(saved);
+      }
+      if (updated) o.setGames((gs) => (gs ?? []).map((g) => (g.id === updated!.id ? updated! : g)));
+      setDraft(def);
       setReaderId(id);
       setCrops([]);
       toast.info(crops.length ? `Reader saved with ${crops.length} new ${crops.length === 1 ? "reference" : "references"}` : "Reader saved");
@@ -215,10 +231,11 @@ export function useReaderWorkspace(o: {
   };
 
   const readFrame = async () => {
-    if (!game || !frameSource) return;
+    const source = viewer.source();
+    if (!game || !source) return;
     setReading(true);
     try {
-      setRead(await api.studioReadFrame(game.id, readerForCall(), frameSource));
+      setRead(await api.studioReadFrame(game.id, readerForCall(), source));
     } catch (e) {
       toast.error(e, "Could not read the frame");
     } finally {
@@ -310,7 +327,7 @@ export function useReaderWorkspace(o: {
       <div className="test-head">
         <h2>Try it</h2>
         <div className="test-actions">
-          <button className="btn btn-small" disabled={!frameSource || reading} onClick={readFrame} title="Read the frame shown above">
+          <button className="btn btn-small" disabled={!viewer.ready || reading} onClick={readFrame} title="Read the frame shown above">
             {reading ? "Reading…" : "Read this frame"}
           </button>
           <button className="btn btn-small" disabled={!match || testing} onClick={runTest} title="Read the whole recording the way Recap does after a match">
@@ -318,6 +335,12 @@ export function useReaderWorkspace(o: {
           </button>
         </div>
       </div>
+      {testing && (
+        <div className="test-progress is-indeterminate" role="progressbar" aria-label="Reading the recording">
+          <div />
+          <span className="muted small">Reading {WHEN_LABEL[draft.when].toLowerCase()}…</span>
+        </div>
+      )}
       {!read && !test && <p className="muted small">Read the frame above, or run {readerName.toLowerCase()} over a whole recording.</p>}
       {read && (
         <div className="read-result">
@@ -483,7 +506,7 @@ export function useReaderWorkspace(o: {
               onChange={(e) => setOptionValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && optionValue.trim() && setTarget("option")}
             />
-            <button className={`btn btn-small ${target === "option" ? "btn-primary" : ""}`} disabled={!optionValue.trim() || !frame} onClick={() => setTarget(target === "option" ? "region" : "option")}>
+            <button className={`btn btn-small ${target === "option" ? "btn-primary" : ""}`} disabled={!optionValue.trim() || !viewer.ready} onClick={() => setTarget(target === "option" ? "region" : "option")}>
               {target === "option" ? "Drawing…" : "Draw it"}
             </button>
           </div>
@@ -535,7 +558,7 @@ export function useReaderWorkspace(o: {
                 />
               </Field>
             </div>
-            <button className={`btn btn-small form-btn ${target === "slot2" ? "btn-primary" : ""}`} onClick={() => setTarget(target === "slot2" ? "region" : "slot2")} disabled={!frame} title="Or set how far apart the boxes are above, as a share of the frame">
+            <button className={`btn btn-small form-btn ${target === "slot2" ? "btn-primary" : ""}`} onClick={() => setTarget(target === "slot2" ? "region" : "slot2")} disabled={!viewer.ready} title="Or set how far apart the boxes are above, as a share of the frame">
               {target === "slot2" ? "Drawing the second box…" : "Draw the second box"}
             </button>
             <div className="field field-inline">
@@ -561,7 +584,7 @@ export function useReaderWorkspace(o: {
                   onChange={(e) => set("highlight", { ...draft.highlight!, color: e.target.value })}
                   aria-label="Highlight colour (hex)"
                 />
-                <button className={`btn btn-small ${target === "pick" ? "btn-primary" : ""}`} disabled={!frame} onClick={() => setTarget(target === "pick" ? "region" : "pick")}>
+                <button className={`btn btn-small ${target === "pick" ? "btn-primary" : ""}`} disabled={!viewer.ready} onClick={() => setTarget(target === "pick" ? "region" : "pick")}>
                   {target === "pick" ? "Click the frame…" : "Pick from frame"}
                 </button>
               </div>
@@ -620,5 +643,37 @@ export function useReaderWorkspace(o: {
       />
     ) : null;
 
-  return { rail, canvas, testPanel, form, dialogs, when: draft.when };
+  // ---- timeline and jumps ----
+  const markers = useMemo(
+    () => (test?.readings ?? []).map(([t, f, v]) => ({ tMs: t, color: "var(--ok)", title: `${detailLabel(f)}: ${displayValue(f, v)}` })),
+    [test],
+  );
+  const readTimes = useMemo(() => [...new Set((test?.readings ?? []).map(([t]) => t))].sort((a, b) => a - b), [test]);
+  const evAt = (k: string, first: boolean) => {
+    const ts = o.matchEvents.filter((e) => e.kind === k).map((e) => e.tMs);
+    return ts.length ? (first ? Math.min(...ts) : Math.max(...ts)) : null;
+  };
+  const stageActions: ReactNode = match ? (
+    <div className="stage-actions">
+      <button className="btn btn-ghost btn-small" onClick={() => o.showFrameAt((evAt("match_start", true) ?? 0) + 5000)} title="Show the start of the match">
+        Match start
+      </button>
+      <button className="btn btn-ghost btn-small" onClick={() => o.showFrameAt(Math.max(0, (evAt("match_end", false) ?? match.durationMs - 40_000) + 2000))} title="Show the end screen">
+        End screen
+      </button>
+    </div>
+  ) : null;
+
+  return {
+    rail,
+    canvas,
+    testPanel,
+    form,
+    dialogs,
+    when: draft.when,
+    markers,
+    jumps: readTimes.length ? { times: readTimes, noun: "reading" } : undefined,
+    stageActions,
+    testing,
+  };
 }
