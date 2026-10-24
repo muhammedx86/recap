@@ -13,6 +13,7 @@ mod session;
 mod sources;
 mod state;
 mod studio;
+mod tray;
 
 use std::{
     collections::HashSet,
@@ -21,11 +22,7 @@ use std::{
 };
 
 use recap_core::{ffmpeg::Ffmpeg, games::load_games, library::Library, settings::Settings};
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, RunEvent, WindowEvent,
-};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
 use crate::{
     paths::Paths,
@@ -33,7 +30,18 @@ use crate::{
     state::{refresh_status, AppState, RecState, RecorderStatus},
 };
 
-fn show_main(app: &AppHandle) {
+/// Stop recording and exit (tray "Quit", or closing the window when "close to tray" is off).
+pub(crate) fn quit(app: &AppHandle) {
+    let _ = session::stop(app);
+    app.exit(0);
+}
+
+/// Tell the UI the window was hidden or minimized, so it stops playing media.
+fn window_hidden(window: &tauri::Window, reason: &str) {
+    let _ = window.emit("window-hidden", serde_json::json!({ "reason": reason }));
+}
+
+pub(crate) fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -110,38 +118,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         log::warn!("hotkeys: {e:#}");
     }
 
-    // Tray icon: keeps Recap running (and recording) when the window is closed.
-    let open = MenuItem::with_id(app, "open", "Open Recap", true, None::<&str>)?;
-    let bookmark = MenuItem::with_id(app, "bookmark", "Add bookmark", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &bookmark, &quit])?;
-    let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("Recap")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, ev| match ev.id().as_ref() {
-            "open" => show_main(app),
-            "bookmark" => session::bookmark(app),
-            "quit" => {
-                let _ = session::stop(app);
-                app.exit(0);
-            }
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, ev| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = ev
-            {
-                show_main(tray.app_handle());
-            }
-        });
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
-    tray.build(app)?;
+    tray::build(app)?;
 
     monitor::spawn(handle.clone());
     matchwatch::spawn_riot_watcher(handle.clone());
@@ -172,13 +149,37 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // Remember the window's size and position (not its visibility: hidden-to-tray must not
+        // make the next launch start hidden).
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .setup(setup)
-        .on_window_event(|window, event| {
-            // Closing the window hides it to the tray; recording continues.
-            if let WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            // Closing the window hides it to the tray (recording continues), unless the player
+            // chose "Quit when the window is closed".
+            WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
-                let _ = window.hide();
+                let to_tray = window
+                    .app_handle()
+                    .try_state::<AppState>()
+                    .map(|st| st.settings.read().unwrap().close_to_tray)
+                    .unwrap_or(true);
+                if to_tray {
+                    window_hidden(window, "closed");
+                    let _ = window.hide();
+                } else {
+                    quit(window.app_handle());
+                }
             }
+            WindowEvent::Resized(_) if window.is_minimized().unwrap_or(false) => window_hidden(window, "minimized"),
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
@@ -218,6 +219,7 @@ pub fn run() {
             commands::studio_test_reader,
             commands::studio_delete_reader,
             commands::open_path,
+            commands::set_fullscreen,
             commands::refresh,
             commands::selftest_enabled,
             commands::selftest_tour_step,

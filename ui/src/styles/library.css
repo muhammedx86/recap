@@ -167,3 +167,10 @@
 .wl-draw {
   color: var(--ink-2);
 }
+
+/* search sits at the end of the filter row */
+.lib-search {
+  margin-left: auto;
+  width: 220px;
+  max-width: 100%;
+}

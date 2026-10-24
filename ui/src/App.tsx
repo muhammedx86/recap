@@ -10,10 +10,12 @@ import { Studio } from "./pages/Studio";
 import { Games } from "./pages/Games";
 import { SettingsPage } from "./pages/Settings";
 import { SelfTestTour } from "./components/SelfTestTour";
+import { useMediaGuard } from "./lib/media";
 
 export function App() {
   // Subscribing here re-renders every screen when event types load or change.
   useEventTypes();
+  useMediaGuard();
   useEffect(() => {
     refreshEventTypes();
   }, []);

@@ -145,6 +145,7 @@ interface Settings {
   gamesEnabled: Record<string, boolean>;
   storageLimitGb: number | null; notifyOnBookmark: boolean;
   splitMatches: boolean;   // split a game session into one Library entry per match using match_start/match_end markers
+  closeToTray: boolean;    // closing the window keeps Recap running in the tray (default true); false quits
 }
 
 interface RecorderStatus {
@@ -211,6 +212,7 @@ Arguments are passed as an object with these camelCase keys.
 | `studio_test_reader` | `{ gameId, reader: ReaderDef, matchId }` | `{ details: Record<string, DetailValue>; readings: Array<[tMs, field, value]>; frames: number; window: [startMs, endMs] }` |
 | `studio_delete_reader` | `{ gameId, readerId }` | `GameInfo` |
 | `open_path` | `{ path }` | `null` (reveal in Explorer) |
+| `set_fullscreen` | `{ on: boolean }` | `null` (the app window; used by the video player's full screen) |
 | `refresh` | – | `null` (re-broadcasts `status-changed`) |
 
 Media files are shown with `convertFileSrc(path)` from `@tauri-apps/api/core` (asset protocol); there is no command for it.
@@ -225,3 +227,4 @@ Errors are returned as rejected promises with a string message.
 | `library-changed` | `{ matchId?: string }` |
 | `processing-progress` | `ProcessingProgress` |
 | `bookmark-added` | `{ matchId: string; tMs: number }` |
+| `window-hidden` | `{ reason: "closed" \| "minimized" }` — the window went to the tray or was minimized; the UI pauses all media |

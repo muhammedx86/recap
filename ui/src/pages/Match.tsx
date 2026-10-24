@@ -56,14 +56,56 @@ export function MatchPage() {
     }
   }, [m, time, setData, toast]);
 
-  // Keyboard: K/space play, J/L ±10s, arrows ±5s, I/O in/out, M marker.
+  // Previous / next marker in the list (ignores markers within a second of the playhead).
+  const stepEvent = useCallback(
+    (dir: -1 | 1) => {
+      const p = player.current;
+      if (!p) return;
+      const now = p.time() + LEAD_IN_MS;
+      const list = visible.map((e) => e.tMs).sort((a, b) => a - b);
+      const target = dir > 0 ? list.find((t) => t > now + 1000) : [...list].reverse().find((t) => t < now - 1000);
+      if (target !== undefined) p.seek(Math.max(0, target - LEAD_IN_MS));
+    },
+    [visible],
+  );
+
+  // Keyboard: Space/K play, J/L ±10s, arrows ±5s (Shift 1s), Ctrl+arrows previous/next marker,
+  // ↑/↓ speed, Backspace normal speed, , . frame step, F full screen, I/O in/out, M marker.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, [contenteditable=true]") || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (t.closest("input, textarea, select, [contenteditable=true]") || e.metaKey || e.altKey) return;
       const p = player.current;
       if (!p) return;
+      if (e.ctrlKey) {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          stepEvent(e.key === "ArrowLeft" ? -1 : 1);
+        }
+        return;
+      }
       switch (e.key.toLowerCase()) {
+        case "arrowup":
+          e.preventDefault();
+          p.changeRate(0.25);
+          break;
+        case "arrowdown":
+          e.preventDefault();
+          p.changeRate(-0.25);
+          break;
+        case "backspace":
+          e.preventDefault();
+          p.changeRate(0);
+          break;
+        case ",":
+          p.frameStep(-1);
+          break;
+        case ".":
+          p.frameStep(1);
+          break;
+        case "f":
+          p.toggleFullscreen();
+          break;
         case " ":
         case "k":
           e.preventDefault();
@@ -97,7 +139,7 @@ export function MatchPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [addMarker]);
+  }, [addMarker, stepEvent]);
 
   const jump = (e: GameEvent) => player.current?.seek(Math.max(0, e.tMs - LEAD_IN_MS));
 
@@ -201,7 +243,7 @@ export function MatchPage() {
 
       <div className="match-grid">
         <div className="match-main">
-          <Player key={m.id} ref={player} path={m.path} poster={m.thumbnail} durationMs={m.durationMs} onTime={setTime} />
+          <Player key={m.id} ref={player} path={m.path} poster={m.thumbnail} durationMs={m.durationMs} onTime={setTime} resume={!live} />
           <Timeline
             events={events}
             rounds={rounds}
@@ -248,6 +290,22 @@ export function MatchPage() {
                     <kbd>←</kbd> <kbd>→</kbd>
                   </dt>
                   <dd>Back / forward 5 s (Shift: 1 s)</dd>
+                  <dt>
+                    <kbd>Ctrl</kbd> <kbd>←</kbd> <kbd>→</kbd>
+                  </dt>
+                  <dd>Previous / next marker</dd>
+                  <dt>
+                    <kbd>,</kbd> <kbd>.</kbd>
+                  </dt>
+                  <dd>Previous / next frame</dd>
+                  <dt>
+                    <kbd>↑</kbd> <kbd>↓</kbd>
+                  </dt>
+                  <dd>Faster / slower (Backspace: normal)</dd>
+                  <dt>
+                    <kbd>F</kbd>
+                  </dt>
+                  <dd>Full screen (double-click the video too)</dd>
                   <dt>
                     <kbd>I</kbd> <kbd>O</kbd>
                   </dt>

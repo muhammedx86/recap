@@ -26,6 +26,7 @@ export function Library() {
   const processing = useProcessing();
   const [game, setGame] = useState<string>("all");
   const [favOnly, setFavOnly] = useState(false);
+  const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<MatchRecord | null>(null);
   const [deleting, setDeleting] = useState<MatchRecord | null>(null);
   const toast = useToast();
@@ -38,7 +39,11 @@ export function Library() {
   }, [matches]);
 
   const groups = useMemo(() => {
-    const list = (matches ?? []).filter((m) => (game === "all" || m.gameId === game) && (!favOnly || m.favorite));
+    const q = query.trim().toLowerCase();
+    const matchesQuery = (m: MatchRecord) =>
+      !q ||
+      [m.title, m.gameName, ...Object.values(m.details ?? {}).map((d) => d.value)].some((v) => v && v.toLowerCase().includes(q));
+    const list = (matches ?? []).filter((m) => (game === "all" || m.gameId === game) && (!favOnly || m.favorite) && matchesQuery(m));
     const out: Array<{ key: string; label: string; items: MatchRecord[] }> = [];
     for (const m of list) {
       const k = dayKey(m.startedUnixMs);
@@ -47,7 +52,7 @@ export function Library() {
       else out.push({ key: k, label: dayLabel(m.startedUnixMs), items: [m] });
     }
     return out;
-  }, [matches, game, favOnly]);
+  }, [matches, game, favOnly, query]);
 
   const patch = (m: MatchRecord) => setData((list) => (list ?? []).map((x) => (x.id === m.id ? m : x)));
 
@@ -81,8 +86,17 @@ export function Library() {
               {name}
             </button>
           ))}
+          <input
+            className="input input-small lib-search"
+            type="search"
+            placeholder="Search title, map, character…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search recordings"
+          />
         </div>
       )}
+      {query && groups.length === 0 && <p className="muted small">Nothing matches “{query}”.</p>}
 
       {error && <p className="error-line">Could not load recordings: {error}</p>}
       {!loading && !error && matches?.length === 0 && (

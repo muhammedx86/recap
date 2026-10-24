@@ -180,6 +180,74 @@
 .player-modal .player-stage {
   cursor: pointer;
 }
+.player-volume {
+  display: flex;
+  align-items: center;
+}
+/* The volume slider opens on hover/focus so the bar stays quiet. */
+.player-vol {
+  width: 0;
+  opacity: 0;
+  height: 14px;
+  transition:
+    width 0.15s ease,
+    opacity 0.15s ease;
+}
+.player-volume:hover .player-vol,
+.player-volume:focus-within .player-vol {
+  width: 72px;
+  opacity: 1;
+  margin-left: 2px;
+}
+.player-resumed {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(9, 10, 13, 0.8);
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: default;
+}
+.player-resumed .num {
+  color: var(--ink);
+}
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* Full screen: the player fills the window (and the window fills the screen). */
+.player.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  background: #000;
+}
+.player.is-fullscreen .player-stage {
+  flex: 1;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+.page-match .player.is-fullscreen .player-bar,
+.player.is-fullscreen .player-bar {
+  padding: 6px 12px;
+  background: var(--bg);
+}
 
 /* timeline — the signature element */
 

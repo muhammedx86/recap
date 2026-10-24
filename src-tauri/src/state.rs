@@ -204,6 +204,7 @@ pub fn refresh_status(app: &AppHandle, message: Option<String>) {
         }
     };
     *st.status.write().unwrap() = status.clone();
+    crate::tray::sync(&status);
     let _ = app.emit("status-changed", status);
 }
 

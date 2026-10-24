@@ -271,6 +271,7 @@ let settings: Settings = {
   analysisHeight: 720,
   gamesEnabled: { fortnite: false },
   storageLimitGb: 200,
+  closeToTray: true,
   notifyOnBookmark: true,
   splitMatches: true,
 };
@@ -976,6 +977,7 @@ const handlers: Record<string, (a: any) => unknown> = {
     return gameInfo(gameId);
   },
   open_path: () => null,
+  set_fullscreen: () => null,
 };
 
 export async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {

@@ -213,6 +213,28 @@ kbd {
   min-width: 0;
 }
 
+/* ---------- low disk space ---------- */
+
+.disk-warn {
+  margin-top: auto;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(240, 122, 106, 0.1);
+  color: var(--danger);
+  font-size: 12px;
+  text-decoration: none;
+}
+.disk-warn:hover {
+  background: rgba(240, 122, 106, 0.16);
+}
+.disk-warn + .rec {
+  margin-top: 0;
+}
+
 /* ---------- recording indicator ---------- */
 
 .rec {

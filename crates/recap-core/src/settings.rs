@@ -32,6 +32,8 @@ pub struct Settings {
     pub games_enabled: BTreeMap<String, bool>,
     /// Keep at most this many GB of recordings (oldest non-favourite deleted first). None = unlimited.
     pub storage_limit_gb: Option<f32>,
+    /// Closing the window keeps Recap running in the tray (true) or quits it (false).
+    pub close_to_tray: bool,
     /// Show a small overlay toast when a bookmark is saved.
     pub notify_on_bookmark: bool,
     /// Split a game session into one recording per match using match_start/match_end markers.
@@ -83,6 +85,7 @@ impl Default for Settings {
             analysis_height: 720,
             games_enabled: BTreeMap::new(),
             storage_limit_gb: None,
+            close_to_tray: true,
             notify_on_bookmark: true,
             split_matches: true,
         }

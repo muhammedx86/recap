@@ -139,4 +139,5 @@ export const api = {
   studioDeleteReader: (gameId: string, readerId: string) => call<GameInfo>("studio_delete_reader", { gameId, readerId }),
 
   openPath: (path: string) => call<null>("open_path", { path }),
+  setFullscreen: (on: boolean) => call<null>("set_fullscreen", { on }),
 };

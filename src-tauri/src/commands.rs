@@ -559,6 +559,12 @@ pub fn studio_delete_reader(st: State<'_, AppState>, game_id: String, reader_id:
     st.game(&game_id).map(|g| st.game_info(&g)).ok_or_else(|| "Unknown game".into())
 }
 
+/// Fullscreen the app window (the video player's fullscreen button).
+#[tauri::command]
+pub fn set_fullscreen(window: tauri::WebviewWindow, on: bool) -> CmdResult<()> {
+    window.set_fullscreen(on).map_err(err)
+}
+
 #[tauri::command]
 pub fn open_path(path: String) -> CmdResult<()> {
     tauri_plugin_opener::reveal_item_in_dir(&path).map_err(err)

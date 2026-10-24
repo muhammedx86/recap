@@ -164,6 +164,9 @@ const ICONS: Record<string, string> = {
   down: "M12 5v14M6 13l6 6 6-6",
   record: "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z",
   stop: "M7 7h10v10H7z",
+  maximize: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+  minimize: "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5",
+  warning: "M12 4 2.5 20h19zM12 10v4M12 17h.01",
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

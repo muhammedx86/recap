@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { api } from "../lib/api";
-import { timecode } from "../lib/format";
+import { api, on } from "../lib/api";
+import { bytes, timecode } from "../lib/format";
 import { useNow, useStatus } from "../lib/hooks";
 import { useToast } from "../lib/toast";
 import { Icon } from "./ui";
@@ -28,8 +29,41 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      <DiskWarning />
       <RecordingIndicator />
     </aside>
+  );
+}
+
+/** Below this much free space on the recordings drive, warn before recordings start failing. */
+const LOW_DISK_BYTES = 15e9;
+
+function DiskWarning() {
+  const [free, setFree] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const check = () =>
+      api
+        .getStorage()
+        .then((s) => alive && setFree(s.freeBytes))
+        .catch(() => {});
+    check();
+    const timer = setInterval(check, 5 * 60_000);
+    const off = on("library-changed", check);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      off();
+    };
+  }, []);
+  if (free === null || free >= LOW_DISK_BYTES) return null;
+  return (
+    <NavLink to="/settings" className="disk-warn" title="Recordings stop when the drive is full. Free some space or set a storage limit in Settings.">
+      <Icon name="warning" size={14} />
+      <span>
+        Low disk space · <span className="num">{bytes(free)}</span> free
+      </span>
+    </NavLink>
   );
 }
 

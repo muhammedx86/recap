@@ -239,6 +239,12 @@ export function SettingsPage() {
         </Row>
       </Section>
 
+      <Section title="Window">
+        <Row label="Keep running when the window is closed" hint="Recap stays in the tray and keeps recording games. Off: closing the window quits Recap.">
+          <Toggle checked={s.closeToTray ?? true} onChange={(v) => set("closeToTray", v)} label="Keep running in the tray" />
+        </Row>
+      </Section>
+
       <p className="set-foot muted small">Everything stays on this computer.</p>
 
       <div className={`save-bar ${dirty ? "show" : ""}`} aria-hidden={!dirty}>

@@ -232,6 +232,8 @@ export interface Settings {
   analysisHeight: number;
   gamesEnabled: Record<string, boolean>;
   storageLimitGb: number | null;
+  /** Closing the window keeps Recap running in the tray (true) or quits it (false). */
+  closeToTray: boolean;
   notifyOnBookmark: boolean;
   /** Split game sessions into separate matches using Match start / Match end markers. */
   splitMatches: boolean;
@@ -296,4 +298,6 @@ export interface EventMap {
   "library-changed": { matchId?: string };
   "processing-progress": ProcessingProgress;
   "bookmark-added": { matchId: string; tMs: number };
+  /** The window was closed to the tray or minimized: stop playing media. */
+  "window-hidden": { reason: "closed" | "minimized" };
 }
