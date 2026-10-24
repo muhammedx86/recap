@@ -177,6 +177,15 @@ jobs:
           Add-Type -AssemblyName System.Windows.Forms
           Write-Host "screen: $([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)"
 
+      # Screen readers use the OCR engine built into Windows; server images may lack the language data.
+      - name: Ensure Windows OCR (en-US)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $cap = Get-WindowsCapability -Online | Where-Object Name -like "Language.OCR*en-US*" | Select-Object -First 1
+          Write-Host "OCR capability: $($cap.Name) $($cap.State)"
+          if ($cap -and $cap.State -ne "Installed") { Add-WindowsCapability -Online -Name $cap.Name | Out-Host }
+
       - name: End-to-end test
         shell: pwsh
         run: ./scripts/e2e.ps1 -AppDir portable/Recap -GameExe target/release/recap-sample-game.exe -Out e2e-out

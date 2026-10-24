@@ -5,8 +5,8 @@ use std::{fs, path::Path};
 use recap_core::{
     events::{builtin_event_types, EventSource, EventTypeDef, GameEvent},
     games::{
-        delete_user_detector, remove_event_type, save_user_game, upsert_event_type, ApiSource, AutoClipDef, CaptureMode, DetectorDef,
-        GameDef, Region,
+        delete_user_detector, delete_user_reader, remove_event_type, save_user_game, upsert_event_type, ApiSource, AutoClipDef,
+        CaptureMode, DetectorDef, GameDef, ReaderDef, Region,
     },
     library::{ClipKind, ClipRecord, MatchRecord},
     settings::Settings,
@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::{
     hotkeys, processing, session,
     state::{refresh_status, AppState, GameInfo, RecorderStatus},
-    studio::{self, FrameResult, FrameSource, TestResult},
+    studio::{self, FrameReadResult, FrameResult, FrameSource, OptionCrop, ReaderTestResult, TestResult},
 };
 
 type CmdResult<T> = Result<T, String>;
@@ -81,6 +81,28 @@ pub fn update_match(
     if let Some(f) = favorite {
         m.favorite = f;
     }
+    lib.update_match(&m).map_err(err)?;
+    let m = lib.get_match(&id).map_err(err)?.ok_or("Recording not found")?;
+    drop(lib);
+    changed(&app, Some(&id));
+    Ok(m)
+}
+
+/// Set (or clear, with an empty value) one match detail by hand. Typed values are never
+/// replaced by rescans.
+#[tauri::command]
+pub fn update_match_detail(app: AppHandle, st: State<'_, AppState>, id: String, field: String, value: String) -> CmdResult<MatchRecord> {
+    let field = field.trim().to_string();
+    if field.is_empty() {
+        return Err("Missing field".into());
+    }
+    let lib = st.library.lock().unwrap();
+    let mut m = lib.get_match(&id).map_err(err)?.ok_or("Recording not found")?;
+    recap_core::details::offer(
+        &mut m.details,
+        &field,
+        recap_core::details::DetailValue::new(value, recap_core::details::DetailSource::Manual),
+    );
     lib.update_match(&m).map_err(err)?;
     let m = lib.get_match(&id).map_err(err)?.ok_or("Recording not found")?;
     drop(lib);
@@ -480,6 +502,57 @@ pub async fn studio_test_detector(app: AppHandle, game_id: String, detector: Det
 #[tauri::command]
 pub fn studio_delete_detector(st: State<'_, AppState>, game_id: String, detector_id: String) -> CmdResult<GameInfo> {
     delete_user_detector(&st.paths.user_games, &game_id, &detector_id).map_err(err)?;
+    st.reload_games();
+    st.game(&game_id).map(|g| st.game_info(&g)).ok_or_else(|| "Unknown game".into())
+}
+
+#[tauri::command]
+pub async fn studio_save_reader(
+    app: AppHandle,
+    game_id: String,
+    reader: ReaderDef,
+    source: Option<FrameSource>,
+    crops: Vec<OptionCrop>,
+) -> CmdResult<GameInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = crate::state::state(&app);
+        studio::save_reader(&st, &game_id, reader, source.as_ref(), &crops).map_err(err)?;
+        st.reload_games();
+        st.game(&game_id)
+            .map(|g| st.game_info(&g))
+            .ok_or_else(|| "Unknown game".to_string())
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn studio_read_frame(app: AppHandle, game_id: String, reader: ReaderDef, source: FrameSource) -> CmdResult<FrameReadResult> {
+    tauri::async_runtime::spawn_blocking(move || studio::read_frame(&crate::state::state(&app), &game_id, reader, &source).map_err(err))
+        .await
+        .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn studio_test_reader(app: AppHandle, game_id: String, reader: ReaderDef, match_id: String) -> CmdResult<ReaderTestResult> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let st = crate::state::state(&app);
+        let m = st
+            .library
+            .lock()
+            .unwrap()
+            .get_match(&match_id)
+            .map_err(err)?
+            .ok_or("Recording not found")?;
+        studio::test_reader(&st, &game_id, reader, &m).map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub fn studio_delete_reader(st: State<'_, AppState>, game_id: String, reader_id: String) -> CmdResult<GameInfo> {
+    delete_user_reader(&st.paths.user_games, &game_id, &reader_id).map_err(err)?;
     st.reload_games();
     st.game(&game_id).map(|g| st.game_info(&g)).ok_or_else(|| "Unknown game".into())
 }

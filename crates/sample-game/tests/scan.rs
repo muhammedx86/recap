@@ -10,10 +10,29 @@ use std::{
 use recap_core::{
     ffmpeg::Ffmpeg,
     games::load_games,
+    readers::{read_details, ReadWindows, TextReader},
     scan::{scan_video, ScanOptions},
     segments::{plan_match_segments, SegmentOptions},
 };
-use recap_sample_game::{export_fixture, new_frame, render_frame, timeline, EXIT_AT_S, HEIGHT, WIDTH};
+use recap_sample_game::{endscreen::end_screens, export_fixture, new_frame, render_frame, timeline, EXIT_AT_S, HEIGHT, WIDTH};
+
+/// Tesseract stands in for Windows OCR on Linux (text readers are skipped without it).
+struct Tesseract;
+
+impl TextReader for Tesseract {
+    fn read_text(&self, img: &image::GrayImage) -> anyhow::Result<String> {
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)?;
+        let mut child = Command::new("tesseract")
+            .args(["stdin", "stdout", "--psm", "7"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        child.stdin.take().unwrap().write_all(&png)?;
+        Ok(String::from_utf8_lossy(&child.wait_with_output()?.stdout).trim().to_string())
+    }
+}
 
 /// Recorded at the detectors' sample rate to keep the debug-mode test quick.
 const FPS: f64 = 6.0;
@@ -21,6 +40,14 @@ const FPS: f64 = 6.0;
 fn have(bin: &str) -> bool {
     Command::new(bin)
         .arg("-version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn have_tesseract() -> bool {
+    Command::new("tesseract")
+        .arg("--version")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -160,6 +187,44 @@ fn scanner_finds_every_banner_once() {
     assert_eq!(segs.len(), 2, "{segs:?}");
     assert!(segs[0].start_ms <= 10_000 && segs[0].end_ms >= 31_000, "{segs:?}");
     assert!(segs[1].start_ms <= 45_000 && segs[1].end_ms >= 58_000, "{segs:?}");
+
+    // Match details from the end screens, read on the session the way processing does.
+    let ocr = have_tesseract().then_some(Tesseract);
+    let readers = &games[0].readers;
+    assert_eq!(readers.len(), 6);
+    for (i, (seg, screen)) in segs.iter().zip(end_screens().iter()).enumerate() {
+        let ev = |k: &str| {
+            res.events
+                .iter()
+                .filter(|e| e.kind == k && e.t_ms >= seg.start_ms && e.t_ms <= seg.end_ms)
+                .map(|e| e.t_ms)
+                .collect::<Vec<_>>()
+        };
+        let window = ReadWindows::for_match(
+            duration,
+            ev("match_start").into_iter().min(),
+            ev("match_end").into_iter().max(),
+            segs.get(i + 1).map(|n| n.start_ms),
+        );
+        let d = read_details(&ff, &video, readers, &window, ocr.as_ref().map(|o| o as &dyn TextReader), None).unwrap();
+        let v = |k: &str| d.get(k).map(|x| x.value.clone()).unwrap_or_default();
+        eprintln!(
+            "match {}: {:?}",
+            i + 1,
+            d.iter().map(|(k, v)| (k.as_str(), v.value.as_str())).collect::<Vec<_>>()
+        );
+        assert_eq!(v("character"), screen.me().icon.name(), "match {} character", i + 1);
+        if ocr.is_some() {
+            let me = screen.me();
+            assert_eq!(v("map").to_uppercase(), screen.map, "match {} map", i + 1);
+            assert_eq!(
+                (v("kills"), v("deaths"), v("assists")),
+                (me.kda.0.to_string(), me.kda.1.to_string(), me.kda.2.to_string())
+            );
+            assert_eq!(v("score"), format!("{}-{}", screen.team_score, screen.enemy_score));
+            assert_eq!(v("result"), if screen.team_score > screen.enemy_score { "win" } else { "loss" });
+        }
+    }
 
     // Each detector stays well below threshold when its banner is absent (no near-misses).
     for tr in &res.traces {

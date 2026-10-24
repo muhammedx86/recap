@@ -3,6 +3,7 @@
 mod commands;
 mod hotkeys;
 mod monitor;
+mod ocr;
 mod paths;
 mod processing;
 mod recorder;
@@ -180,6 +181,7 @@ pub fn run() {
             commands::list_matches,
             commands::get_match,
             commands::update_match,
+            commands::update_match_detail,
             commands::delete_match,
             commands::add_event,
             commands::delete_event,
@@ -207,6 +209,10 @@ pub fn run() {
             commands::studio_save_detector,
             commands::studio_test_detector,
             commands::studio_delete_detector,
+            commands::studio_save_reader,
+            commands::studio_read_frame,
+            commands::studio_test_reader,
+            commands::studio_delete_reader,
             commands::open_path,
             commands::refresh,
             commands::selftest_enabled,

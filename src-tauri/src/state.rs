@@ -11,7 +11,7 @@ use recap_core::{
     cs2::Cs2Tracker,
     events::GameEvent,
     ffmpeg::Ffmpeg,
-    games::{load_games, ApiSource, CaptureMode, DetectorDef, LoadedGame},
+    games::{load_games, ApiSource, CaptureMode, DetectorDef, LoadedGame, ReaderDef},
     library::Library,
     settings::Settings,
 };
@@ -234,6 +234,18 @@ pub struct GameInfo {
     /// "api" | "detectors" | "process"
     pub match_detection: &'static str,
     pub event_types: Vec<recap_core::events::EventTypeDef>,
+    pub readers: Vec<ReaderInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderInfo {
+    #[serde(flatten)]
+    pub def: ReaderDef,
+    pub ready: bool,
+    pub user: bool,
+    /// Reference image paths per choice option value.
+    pub option_urls: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl GameInfo {
@@ -261,7 +273,7 @@ impl GameInfo {
                 .collect(),
             has_post_match: !g.def.post_match.is_empty(),
             has_rounds: g.has_rounds(),
-            match_detection: if g.def.api.is_some() {
+            match_detection: if g.def.api.is_some_and(|a| a.detects_matches()) {
                 "api"
             } else if g
                 .detectors
@@ -273,6 +285,28 @@ impl GameInfo {
                 "process"
             },
             event_types: g.event_types(),
+            readers: g
+                .readers
+                .iter()
+                .map(|r| ReaderInfo {
+                    ready: r.def.is_ready(),
+                    user: r.user,
+                    option_urls: r
+                        .def
+                        .options
+                        .iter()
+                        .map(|o| {
+                            let urls = o
+                                .templates
+                                .iter()
+                                .map(|t| r.base_dir.join(t).to_string_lossy().into_owned())
+                                .collect();
+                            (o.value.clone(), urls)
+                        })
+                        .collect(),
+                    def: r.def.clone(),
+                })
+                .collect(),
         }
     }
 }

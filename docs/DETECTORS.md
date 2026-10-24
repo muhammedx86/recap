@@ -270,3 +270,44 @@ Recap lines the references up, keeps only the pixels they agree on, and compares
 On real Valorant footage this lifted kill-emblem matches on unseen clips from about 0.57 to 0.98
 while non-kill frames stayed below 0.3. References that show different things (say, two
 different agent icons) are not masked against each other; each still matches on its own.
+
+## Match details: screen readers
+
+Besides events, a game folder can describe how to read **match details** (character, map, mode,
+K/D/A, result, score) from the screen. Readers live in `readers/<id>.json`; Detector Studio's
+**Details** mode creates them by drawing boxes, like detectors.
+
+```json
+{
+  "id": "end-kda",
+  "label": "Your K/D/A",
+  "field": "kda",
+  "kind": "text",
+  "region": { "x": 0.104, "y": 0.563, "w": 0.145, "h": 0.054 },
+  "slots": { "count": 5, "stepX": 0.162 },
+  "highlight": { "box": { "x": 0.1, "y": -1.2, "w": 0.8, "h": 0.95 }, "color": "#e2e88f", "tolerance": 40 },
+  "when": "end",
+  "pattern": "(?P<kills>\\d+)\\D{1,4}(?P<deaths>\\d+)\\D{1,4}(?P<assists>\\d+)"
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `field` | Detail to fill: `character`, `map`, `mode`, `kills`, `deaths`, `assists`, `result`, `score`, or any custom name. Named groups in `pattern` fill those fields instead. `team_score` + `enemy_score` become `score` and `result`. |
+| `kind` | `text`: text recognition with the OCR engine built into Windows (offline). `choice`: the labelled reference image that matches best (agent portraits, VICTORY/DEFEAT banners), using the detector matcher. |
+| `region` | The box to read, as fractions of the game picture. |
+| `slots` | Repeated boxes, e.g. one card per player: slot *i* is the region moved by *i* × `stepX`/`stepY`. |
+| `highlight` | Read only the slot showing this colour (your own row or card is usually highlighted). `box` is relative to the slot and may reach outside it (e.g. the name above the K/D/A). |
+| `when` | `end` (default): from 5 s before the match-end marker to the next match. `start`: the first minute. `any`: the whole match. |
+| `sampleFps` | Frames read per second (default 1). Every frame votes; the most common reading wins. |
+| `pattern` | Text only: a regular expression the reading must match. Letters that OCR confuses with digits are fixed in number-like tokens. |
+| `values` | Text only: allowed values; readings snap to the closest (one typo per four letters) or are dropped. Use it for maps, agents and modes so a misplaced box yields nothing rather than nonsense. |
+| `options` | Choice only: `[{ "value": "Jett", "templates": ["templates/jett.png"] }]`. |
+| `threshold`, `method`, `templateFrameHeight` | Choice only: as for detectors. |
+
+Where details come from, best first: what you typed on the match page, a local game API
+(League Live Client, CS2 GSI, the Riot Client on 127.0.0.1 for VALORANT map/mode/score), screen
+readers, and finally counts of detected events. Your edits are never overwritten by a rescan.
+
+The bundled VALORANT readers are positioned from Riot's published end-of-match screen; if yours
+differs, redraw the boxes in Studio.

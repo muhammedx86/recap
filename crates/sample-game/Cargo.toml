@@ -19,6 +19,7 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 image.workspace = true
+ab_glyph = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 minifb = "0.29"

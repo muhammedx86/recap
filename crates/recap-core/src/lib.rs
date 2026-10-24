@@ -7,6 +7,7 @@
 
 pub mod clips;
 pub mod cs2;
+pub mod details;
 pub mod events;
 pub mod ffmpeg;
 pub mod games;
@@ -14,6 +15,8 @@ pub mod league;
 pub mod library;
 pub mod postmatch;
 pub mod protocol;
+pub mod readers;
+pub mod riot_local;
 pub mod scan;
 pub mod segments;
 pub mod settings;

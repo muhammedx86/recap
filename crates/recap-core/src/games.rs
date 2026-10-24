@@ -7,7 +7,8 @@
 //! games/valorant/
 //!   game.json               # GameDef
 //!   detectors/kill.json     # DetectorDef (one per file)
-//!   templates/kill-1.png    # reference images referenced by detectors
+//!   readers/map.json        # ReaderDef: reads a match detail (map, K/D/A...) from the screen
+//!   templates/kill-1.png    # reference images referenced by detectors and readers
 //! ```
 //!
 //! A user folder with the same game id overrides the bundled one, detector by detector.
@@ -69,6 +70,15 @@ pub enum ApiSource {
     LeagueLiveClient,
     /// Counter-Strike 2 Game State Integration.
     Cs2Gsi,
+    /// VALORANT: the Riot Client's local API on 127.0.0.1 (map, mode, score; no events).
+    RiotClient,
+}
+
+impl ApiSource {
+    /// Whether this source reports match start/end (so matches can be split on it).
+    pub fn detects_matches(self) -> bool {
+        matches!(self, ApiSource::LeagueLiveClient | ApiSource::Cs2Gsi)
+    }
 }
 
 /// How the recorder should capture this game.
@@ -259,12 +269,195 @@ impl DetectorDef {
     }
 }
 
+/// What a reader produces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReaderKind {
+    /// Text recognition (OCR) of the box, optionally filtered by a pattern or a list of values.
+    #[default]
+    Text,
+    /// The best-matching labelled reference image (agent portraits, map names, VICTORY/DEFEAT).
+    Choice,
+}
+
+/// When in a match a reader looks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReadWhen {
+    /// Around and after the end of the match (end screen, final scoreboard).
+    #[default]
+    End,
+    /// The first minute (loading screen, agent select).
+    Start,
+    /// Throughout the match (persistent HUD such as your character's portrait).
+    Any,
+}
+
+/// Repeated boxes, e.g. one card per player: slot `i` is `region` moved by `i * step`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Slots {
+    pub count: u32,
+    #[serde(default)]
+    pub step_x: f32,
+    #[serde(default)]
+    pub step_y: f32,
+}
+
+/// Pick the slot that shows a colour (your own row or card is usually highlighted).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Highlight {
+    /// Part of the slot to look at, as fractions of the slot.
+    #[serde(rename = "box")]
+    pub area: Region,
+    /// Hex colour, e.g. "#ebe86a".
+    pub color: String,
+    /// Max per-channel difference (0..255) to count as that colour.
+    #[serde(default = "default_tolerance")]
+    pub tolerance: u8,
+}
+
+fn default_tolerance() -> u8 {
+    48
+}
+
+/// One labelled value of a choice reader.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceOption {
+    pub value: String,
+    /// Reference images, relative to the game folder.
+    #[serde(default)]
+    pub templates: Vec<String>,
+}
+
+/// A screen reader, one per file in `readers/`: fills a match detail from what is on screen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderDef {
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    /// Detail field to fill (`map`, `character`, `kills`, ... or a custom id). Named groups in
+    /// `pattern` (e.g. `(?P<kills>\d+)`) fill those fields instead.
+    pub field: String,
+    #[serde(default)]
+    pub kind: ReaderKind,
+    /// The box to read (the first slot when `slots` is set), as fractions of the game picture.
+    pub region: Region,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slots: Option<Slots>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<Highlight>,
+    #[serde(default)]
+    pub when: ReadWhen,
+    /// Frames per second to read while looking.
+    #[serde(default = "default_reader_fps")]
+    pub sample_fps: f32,
+    /// Text: regular expression the reading must match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// Text: allowed values; readings snap to the closest one or are dropped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<String>,
+    /// Choice: the labelled values.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<ChoiceOption>,
+    /// Choice: minimum match score.
+    #[serde(default = "default_choice_threshold")]
+    pub threshold: f32,
+    #[serde(default)]
+    pub method: DetectMethod,
+    /// Height of the frame the choice references were cut from.
+    #[serde(default = "default_frame_height")]
+    pub template_frame_height: u32,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+fn default_reader_fps() -> f32 {
+    1.0
+}
+fn default_choice_threshold() -> f32 {
+    0.75
+}
+fn default_frame_height() -> u32 {
+    1080
+}
+
+impl ReaderDef {
+    pub fn validate(&self) -> Result<()> {
+        if self.id.trim().is_empty() || !self.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            bail!("reader id {:?} must be non-empty and use only letters, digits, - and _", self.id);
+        }
+        if self.field.trim().is_empty() {
+            bail!("reader {} has no field", self.id);
+        }
+        self.region.validate().with_context(|| format!("reader {}", self.id))?;
+        if let Some(p) = &self.pattern {
+            regex::Regex::new(p).with_context(|| format!("reader {} pattern", self.id))?;
+        }
+        if let Some(sl) = &self.slots {
+            if sl.count == 0 || sl.count > 16 {
+                bail!("reader {} slots.count must be 1..16", self.id);
+            }
+        }
+        if let Some(h) = &self.highlight {
+            parse_hex(&h.color).with_context(|| format!("reader {} highlight colour", self.id))?;
+        }
+        if self.sample_fps <= 0.0 || self.sample_fps > 10.0 {
+            bail!("reader {} sampleFps must be in (0, 10]", self.id);
+        }
+        Ok(())
+    }
+
+    /// Text readers always run; choice readers need at least one labelled reference.
+    pub fn is_ready(&self) -> bool {
+        self.enabled && (self.kind == ReaderKind::Text || self.options.iter().any(|o| !o.templates.is_empty()))
+    }
+
+    /// Box of slot `i`.
+    pub fn slot_region(&self, i: u32) -> Region {
+        let (dx, dy) = self.slots.map(|s| (s.step_x * i as f32, s.step_y * i as f32)).unwrap_or((0.0, 0.0));
+        let x = (self.region.x + dx).clamp(0.0, 1.0 - self.region.w);
+        let y = (self.region.y + dy).clamp(0.0, 1.0 - self.region.h);
+        Region { x, y, ..self.region }
+    }
+
+    pub fn slot_count(&self) -> u32 {
+        self.slots.map(|s| s.count).unwrap_or(1).max(1)
+    }
+}
+
+/// "#rrggbb" -> [r, g, b]
+pub fn parse_hex(s: &str) -> Result<[u8; 3]> {
+    let h = s.trim().trim_start_matches('#');
+    if h.len() != 6 {
+        bail!("colour {s:?} must look like #rrggbb");
+    }
+    let p = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).with_context(|| format!("colour {s:?}"));
+    Ok([p(0)?, p(2)?, p(4)?])
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedReader {
+    pub def: ReaderDef,
+    /// Game folder the template paths are relative to.
+    pub base_dir: PathBuf,
+    pub user: bool,
+}
+
 /// A game definition plus its detectors, with the folders they were loaded from.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadedGame {
     pub def: GameDef,
     pub detectors: Vec<LoadedDetector>,
+    pub readers: Vec<LoadedReader>,
     /// Folder holding game.json (user folder if overridden).
     pub dir: PathBuf,
     /// True if any file comes from the user's folder.
@@ -317,6 +510,30 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
     serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
 }
 
+fn load_readers(game_dir: &Path, user: bool) -> Vec<LoadedReader> {
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(game_dir.join("readers")) else {
+        return out;
+    };
+    let mut paths: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
+    paths.sort();
+    for p in paths {
+        match read_json::<ReaderDef>(&p).and_then(|d| d.validate().map(|_| d)) {
+            Ok(def) => out.push(LoadedReader {
+                def,
+                base_dir: game_dir.to_path_buf(),
+                user,
+            }),
+            Err(e) => log::warn!("skipping reader {}: {e:#}", p.display()),
+        }
+    }
+    out
+}
+
 fn load_detectors(game_dir: &Path, user: bool) -> Vec<LoadedDetector> {
     let mut out = Vec::new();
     let dir = game_dir.join("detectors");
@@ -362,6 +579,7 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
                 None
             };
             let detectors = load_detectors(&dir, user);
+            let readers = load_readers(&dir, user);
             let id = def
                 .as_ref()
                 .map(|d| d.id.clone())
@@ -376,6 +594,10 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
                         existing.detectors.retain(|x| x.def.id != d.def.id);
                         existing.detectors.push(d);
                     }
+                    for r in readers {
+                        existing.readers.retain(|x| x.def.id != r.def.id);
+                        existing.readers.push(r);
+                    }
                     existing.user_modified |= user;
                 }
                 None => {
@@ -388,6 +610,7 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
                         LoadedGame {
                             def,
                             detectors,
+                            readers,
                             dir,
                             user_modified: user,
                         },
@@ -399,6 +622,7 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
     let mut v: Vec<_> = games.into_values().collect();
     for g in &mut v {
         g.detectors.sort_by(|a, b| a.def.id.cmp(&b.def.id));
+        g.readers.sort_by(|a, b| a.def.id.cmp(&b.def.id));
     }
     v.sort_by_key(|g| g.def.name.to_lowercase());
     v
@@ -440,6 +664,35 @@ pub fn ensure_templates_copied(det: &DetectorDef, from_dir: &Path, user_game_dir
                 fs::copy(&src, &dst)?;
             }
         }
+    }
+    Ok(())
+}
+
+/// Write a reader (and optionally new reference PNGs, as (file name, bytes)) into the user's game folder.
+pub fn save_user_reader(user_root: &Path, game: &GameDef, reader: &ReaderDef, new_templates: &[(String, Vec<u8>)]) -> Result<PathBuf> {
+    reader.validate()?;
+    let game_dir = user_root.join(&game.id);
+    fs::create_dir_all(game_dir.join("readers"))?;
+    let gj = game_dir.join("game.json");
+    if !gj.exists() {
+        fs::write(&gj, serde_json::to_string_pretty(game)?)?;
+    }
+    for (name, bytes) in new_templates {
+        if name.contains("..") || name.contains('/') || name.contains('\\') {
+            bail!("invalid template file name {name:?}");
+        }
+        fs::create_dir_all(game_dir.join("templates"))?;
+        fs::write(game_dir.join("templates").join(name), bytes)?;
+    }
+    let path = game_dir.join("readers").join(format!("{}.json", reader.id));
+    fs::write(&path, serde_json::to_string_pretty(reader)?)?;
+    Ok(path)
+}
+
+pub fn delete_user_reader(user_root: &Path, game_id: &str, reader_id: &str) -> Result<()> {
+    let p = user_root.join(game_id).join("readers").join(format!("{reader_id}.json"));
+    if p.exists() {
+        fs::remove_file(p)?;
     }
     Ok(())
 }

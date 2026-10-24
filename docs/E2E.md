@@ -36,7 +36,11 @@ at fixed times (seconds after launch), then exits at 61 s:
 | 50.0 | kill | `kill` |
 | 53.0 | round won | `round_win` |
 | 56.0 | match end | `match_end` |
+| 58.2–60.8 | end screen 2 (CANYON, 9–13 DEFEAT, you: Cross, 1 / 0 / 4) | details |
 | 61.0 | exit | – |
+
+End screen 1 is shown at 31.3–37.3 s: HARBOR, 13–11 VICTORY, three player cards with your name in
+yellow (Ring, 3 / 1 / 2). Text is drawn with a system font (Segoe UI / Arial on Windows).
 
 Absolute times in the recording depend on how fast recording starts, so checks use offsets
 relative to each match's `match_start` event.
@@ -91,6 +95,9 @@ driver can screenshot the desktop.
 - Match 1 (relative to its `match_start`): kills at +5, +8, +14 s; `round_start` ×2; `round_win` ×1;
   `round_loss` ×1; `match_end` at +19 s. Match 2: kill at +5 s; `round_win` ×1. Tolerance ±1.5 s.
 - Each match with a kill has at least one auto-clip whose file exists.
+- Match details read by the fixture's screen readers: match 1 = Ring, Harbor, 3/1/2, win, 13-11;
+  match 2 = Cross, Canyon, 1/0/4, loss, 9-13 (text fields need Windows OCR; CI installs the
+  en-US OCR capability if missing). A manual detail edit persists (`manualDetail` check).
 - Every entry in `checks` is ok.
 - The UI tour produced a screenshot for every page.
 

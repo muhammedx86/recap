@@ -5,11 +5,14 @@
 //! once a second and feeds each response to [`LeagueTracker::ingest`], which
 //! turns new entries of `events.Events` into [`GameEvent`]s for the local player.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde_json::{json, Value};
 
-use crate::events::{kind, EventSource, GameEvent};
+use crate::{
+    details::{field, normalize_result, SnapshotEmitter},
+    events::{kind, EventSource, GameEvent},
+};
 
 pub const LIVE_CLIENT_ALLGAMEDATA: &str = "https://127.0.0.1:2999/liveclientdata/allgamedata";
 pub const SOURCE_NAME: &str = "league-live-client";
@@ -24,6 +27,32 @@ pub struct LeagueTracker {
     me: HashSet<String>,
     /// Game time (seconds) at which recording began, learned on the first ingest.
     recording_start_game_s: Option<f64>,
+    details: SnapshotEmitter,
+    result: Option<String>,
+}
+
+/// Map number -> name (Live Client `gameData.mapNumber`).
+fn map_name(n: i64) -> Option<&'static str> {
+    Some(match n {
+        11 => "Summoner's Rift",
+        12 => "Howling Abyss",
+        21 => "Nexus Blitz",
+        22 => "Convergence",
+        30 => "Rings of Wrath",
+        _ => return None,
+    })
+}
+
+fn mode_name(m: &str) -> String {
+    match m {
+        "CLASSIC" => "Classic".into(),
+        "ARAM" => "ARAM".into(),
+        "CHERRY" => "Arena".into(),
+        "URF" => "URF".into(),
+        "PRACTICETOOL" => "Practice Tool".into(),
+        "TUTORIAL" => "Tutorial".into(),
+        other => crate::details::pretty_name(other),
+    }
 }
 
 fn norm(name: &str) -> String {
@@ -65,8 +94,49 @@ impl LeagueTracker {
         ev["Assisters"].as_array().is_some_and(|a| a.iter().any(|x| self.is_me(x.as_str())))
     }
 
+    /// Current details: champion, map, mode, K/D/A, result.
+    fn snapshot(&self, all: &Value) -> BTreeMap<String, String> {
+        let mut d = BTreeMap::new();
+        let me = all["allPlayers"].as_array().and_then(|ps| {
+            ps.iter().find(|p| {
+                ["riotId", "riotIdGameName", "summonerName"]
+                    .iter()
+                    .any(|k| self.is_me(p[*k].as_str()))
+            })
+        });
+        if let Some(p) = me {
+            if let Some(c) = p["championName"].as_str() {
+                d.insert(field::CHARACTER.to_string(), c.to_string());
+            }
+            let sc = &p["scores"];
+            for (f, k) in [(field::KILLS, "kills"), (field::DEATHS, "deaths"), (field::ASSISTS, "assists")] {
+                if let Some(n) = sc[k].as_i64() {
+                    d.insert(f.to_string(), n.to_string());
+                }
+            }
+        }
+        let gd = &all["gameData"];
+        if let Some(m) = gd["mapNumber"].as_i64().and_then(map_name) {
+            d.insert(field::MAP.to_string(), m.to_string());
+        }
+        if let Some(m) = gd["gameMode"].as_str() {
+            d.insert(field::MODE.to_string(), mode_name(m));
+        }
+        if let Some(r) = &self.result {
+            d.insert(field::RESULT.to_string(), r.clone());
+        }
+        d
+    }
+
     /// Feed one `allgamedata` response. `rec_elapsed_ms` is the recording time when it was received.
     pub fn ingest(&mut self, all: &Value, rec_elapsed_ms: u64) -> Vec<GameEvent> {
+        let mut out = self.ingest_events(all, rec_elapsed_ms);
+        let snap = self.snapshot(all);
+        out.extend(self.details.update(snap, rec_elapsed_ms, SOURCE_NAME));
+        out
+    }
+
+    fn ingest_events(&mut self, all: &Value, rec_elapsed_ms: u64) -> Vec<GameEvent> {
         self.learn_identity(all);
         let Some(game_time) = all["gameData"]["gameTime"].as_f64() else {
             return vec![];
@@ -122,7 +192,12 @@ impl LeagueTracker {
                     }
                     out.push(mk(kind::OBJECTIVE, meta));
                 }
-                "GameEnd" => out.push(mk(kind::MATCH_END, json!({ "result": ev["Result"] }))),
+                "GameEnd" => {
+                    if let Some(r) = ev["Result"].as_str().and_then(normalize_result) {
+                        self.result = Some(r.to_string());
+                    }
+                    out.push(mk(kind::MATCH_END, json!({ "result": ev["Result"] })))
+                }
                 _ => {}
             }
         }
@@ -133,6 +208,31 @@ impl LeagueTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::details::{latest_snapshot, SNAPSHOT_KIND};
+
+    fn ingest_ev(t: &mut LeagueTracker, all: &Value, ms: u64) -> Vec<GameEvent> {
+        t.ingest(all, ms).into_iter().filter(|e| e.kind != SNAPSHOT_KIND).collect()
+    }
+
+    #[test]
+    fn details_snapshot() {
+        let mut t = LeagueTracker::new();
+        let mut d = data(300.0, json!([]));
+        d["allPlayers"] = json!([
+            { "riotId": "Other#EUW", "championName": "Zed", "scores": { "kills": 9, "deaths": 0, "assists": 0 } },
+            { "riotId": "Faker#KR1", "championName": "Ahri", "scores": { "kills": 4, "deaths": 1, "assists": 7 } }
+        ]);
+        d["gameData"]["mapNumber"] = json!(11);
+        let ev = t.ingest(&d, 1000);
+        assert!(t.ingest(&d, 2000).is_empty(), "unchanged snapshot is not re-sent");
+        d["events"]["Events"] = json!([{ "EventID": 9, "EventName": "GameEnd", "EventTime": 300.0, "Result": "Win" }]);
+        let mut all = ev;
+        all.extend(t.ingest(&d, 3000));
+        let det = latest_snapshot(&all);
+        let v = |k: &str| det.get(k).map(|v| v.value.as_str()).unwrap_or("");
+        assert_eq!((v("character"), v("map"), v("mode")), ("Ahri", "Summoner's Rift", "Classic"));
+        assert_eq!((v("kills"), v("deaths"), v("assists"), v("result")), ("4", "1", "7", "win"));
+    }
 
     fn data(game_time: f64, events: Value) -> Value {
         json!({
@@ -156,7 +256,7 @@ mod tests {
                 { "EventID": 3, "EventName": "ChampionKill", "EventTime": 108.0, "KillerName": "Ahri", "VictimName": "Faker#KR1", "Assisters": [] }
             ]),
         );
-        let ev = t.ingest(&first, 10_000);
+        let ev = ingest_ev(&mut t, &first, 10_000);
         // GameStart is too old (skipped); kill at 95s is 5s before recording -> t=0.
         assert_eq!(
             ev.iter().map(|e| (e.kind.as_str(), e.t_ms)).collect::<Vec<_>>(),
@@ -178,7 +278,7 @@ mod tests {
                 { "EventID": 9, "EventName": "GameEnd", "EventTime": 129.5, "Result": "Win" }
             ]),
         );
-        let ev = t.ingest(&second, 30_000);
+        let ev = ingest_ev(&mut t, &second, 30_000);
         let got: Vec<_> = ev.iter().map(|e| (e.kind.as_str(), e.t_ms)).collect();
         assert_eq!(
             got,
@@ -198,10 +298,11 @@ mod tests {
     #[test]
     fn tolerates_missing_fields() {
         let mut t = LeagueTracker::new();
-        assert!(t.ingest(&json!({}), 0).is_empty());
-        assert!(t.ingest(&json!({ "gameData": { "gameTime": 5.0 } }), 0).is_empty());
+        assert!(ingest_ev(&mut t, &json!({}), 0).is_empty());
+        assert!(ingest_ev(&mut t, &json!({ "gameData": { "gameTime": 5.0 } }), 0).is_empty());
         // No identity known -> nothing is attributed to me.
-        let ev = t.ingest(
+        let ev = ingest_ev(
+            &mut t,
             &json!({ "gameData": { "gameTime": 6.0 }, "events": { "Events": [ { "EventID": 1, "EventName": "ChampionKill", "EventTime": 5.5, "KillerName": "X", "VictimName": "Y" } ] } }),
             1000,
         );

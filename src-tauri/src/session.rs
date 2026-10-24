@@ -92,6 +92,7 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
         thumbnail: None,
         event_counts: Default::default(),
         error: None,
+        details: Default::default(),
     };
     // Never hold the session lock while taking the library lock (lock order: library, then session).
     st.library.lock().unwrap().insert_match(&record)?;
@@ -124,8 +125,10 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
         fail_start(app, &match_id, &format!("{e:#}"));
         bail!("{e:#}");
     }
-    if api == Some(ApiSource::LeagueLiveClient) {
-        sources::spawn_league_poller(app.clone(), match_id.clone(), stop_flag);
+    match api {
+        Some(ApiSource::LeagueLiveClient) => sources::spawn_league_poller(app.clone(), match_id.clone(), stop_flag),
+        Some(ApiSource::RiotClient) => sources::spawn_riot_poller(app.clone(), match_id.clone(), stop_flag),
+        _ => {}
     }
     let _ = app.emit("library-changed", serde_json::json!({ "matchId": match_id }));
     refresh_status(app, None);

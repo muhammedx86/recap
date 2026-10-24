@@ -8,7 +8,7 @@ Times are integers: `*Ms` = milliseconds, `*UnixMs` = Unix epoch milliseconds.
 
 ```ts
 type CaptureMode = "game" | "window" | "monitor";
-type ApiSource = "league-live-client" | "cs2-gsi";
+type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client";
 
 type EventSource =
   | { type: "vision"; detector: string }
@@ -39,9 +39,18 @@ interface MatchRecord {
   title: string | null;
   favorite: boolean;
   thumbnail: string | null;   // absolute .jpg path
-  eventCounts: Record<string, number>;  // kind -> count
+  eventCounts: Record<string, number>;  // kind -> count (hidden kinds starting with "_" excluded)
   error: string | null;
+  details: Record<string, DetailValue>; // field -> value, e.g. character, map, mode, kills, deaths, assists, result, score
 }
+
+// Where a detail came from, best first. A value is only replaced by an equal or better source;
+// "manual" (typed by the player) is never replaced by processing.
+type DetailSource = "manual" | "api" | "screen" | "events";
+interface DetailValue { value: string; source: DetailSource; confidence?: number }
+// Built-in fields in display order: character, map, mode, kills, deaths, assists,
+// result ("win" | "loss" | "draw"), score ("13-11", yours first). Readers may add custom fields.
+// Events of kind "_details" carry live-API snapshots (meta = {field: value}); the UI hides kinds starting with "_".
 
 type ClipKind = "auto" | "manual" | "montage";
 interface ClipRecord {
@@ -104,7 +113,26 @@ interface GameInfo {
   hasRounds: boolean;
   matchDetection: "api" | "detectors" | "process"; // how match boundaries are found ("process" = recording is the whole game session)             // the game has round markers (round detectors or an API that reports rounds)
   eventTypes: EventTypeDef[];     // built-ins first, then this game's custom types
+  readers: Array<ReaderDef & { ready: boolean; user: boolean; optionUrls: Record<string, string[]> }>; // optionUrls: value -> absolute reference paths
 }
+
+// Screen readers (games/<id>/readers/*.json): fill match details from the screen.
+interface ReaderDef {
+  id: string; label: string;
+  field: string;                       // detail field; named groups in `pattern` fill those fields instead
+  kind: "text" | "choice";             // text = OCR; choice = best-matching labelled reference
+  region: Region;                      // box to read (first slot), fractions of the game picture
+  slots?: { count: number; stepX: number; stepY: number };            // repeated boxes (one per player)
+  highlight?: { box: Region; color: string; tolerance: number };      // pick the slot showing this colour; box is relative to the slot
+  when: "end" | "start" | "any";       // end: from just before match_end until the next match
+  sampleFps: number;                   // default 1
+  pattern?: string;                    // text: regex; e.g. "(?P<kills>\\d+)\\D+(?P<deaths>\\d+)\\D+(?P<assists>\\d+)"
+  values?: string[];                   // text: allowed values (readings snap to the closest, or are dropped)
+  options?: Array<{ value: string; templates: string[] }>;            // choice
+  threshold: number; method: "ncc" | "edges"; templateFrameHeight: number;  // choice matching
+  enabled: boolean; notes?: string;
+}
+// Readers filling "team_score" and "enemy_score" are combined into "score" and "result".
 
 // Settings: see crates/recap-core/src/settings.rs (serde camelCase). Key fields:
 interface Settings {
@@ -149,6 +177,7 @@ Arguments are passed as an object with these camelCase keys.
 | `list_matches` | `{ gameId?: string }` | `MatchRecord[]` (newest first) |
 | `get_match` | `{ id }` | `{ match: MatchRecord; events: GameEvent[]; clips: ClipRecord[] }` |
 | `update_match` | `{ id, title?: string, favorite?: boolean }` (title `""` clears it) | `MatchRecord` |
+| `update_match_detail` | `{ id, field, value }` (`""` clears; saved as source `manual`) | `MatchRecord` |
 | `delete_match` | `{ id, deleteFiles: boolean }` | `null` |
 | `add_event` | `{ matchId, kind, tMs }` | `GameEvent` (manual marker from the player) |
 | `delete_event` | `{ matchId, eventId }` | `null` |
@@ -176,6 +205,10 @@ Arguments are passed as an object with these camelCase keys.
 | `studio_save_detector` | `{ gameId, detector: DetectorDef, source: FrameSource, templateBox: Region \| null }` | `GameInfo` — when `templateBox` is set, the backend cuts that box from the frame at full resolution, saves it as a new template PNG, appends it to `detector.templates`, and sets `templateFrameHeight` to the frame height |
 | `studio_test_detector` | `{ gameId, detector: DetectorDef, matchId }` | `TestResult` (runs the unsaved detector over the recording; templates are read from the game folders) |
 | `studio_delete_detector` | `{ gameId, detectorId }` | `GameInfo` |
+| `studio_save_reader` | `{ gameId, reader: ReaderDef, source: FrameSource \| null, crops: Array<{ value, region }> }` (each crop becomes a reference for that choice value) | `GameInfo` |
+| `studio_read_frame` | `{ gameId, reader: ReaderDef, source: FrameSource }` | `{ slot: number \| null; readings: Array<{ field; value; confidence }>; ocrAvailable: boolean }` |
+| `studio_test_reader` | `{ gameId, reader: ReaderDef, matchId }` | `{ details: Record<string, DetailValue>; readings: Array<[tMs, field, value]>; frames: number; window: [startMs, endMs] }` |
+| `studio_delete_reader` | `{ gameId, readerId }` | `GameInfo` |
 | `open_path` | `{ path }` | `null` (reveal in Explorer) |
 | `refresh` | – | `null` (re-broadcasts `status-changed`) |
 

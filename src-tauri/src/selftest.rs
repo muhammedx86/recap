@@ -175,6 +175,26 @@ fn run_checks(st: &AppState) -> Value {
     });
     out.insert(k, v);
 
+    let (k, v) = check("manualDetail", || {
+        let m = first.clone().ok_or_else(|| anyhow::anyhow!("no processed sample match"))?;
+        let lib = st.library.lock().unwrap();
+        let mut rec = lib.get_match(&m.id)?.ok_or_else(|| anyhow::anyhow!("match vanished"))?;
+        recap_core::details::offer(
+            &mut rec.details,
+            "mode",
+            recap_core::details::DetailValue::new("Self-test", recap_core::details::DetailSource::Manual),
+        );
+        lib.update_match(&rec)?;
+        let back = lib.get_match(&m.id)?.ok_or_else(|| anyhow::anyhow!("match vanished"))?;
+        let v = back.details.get("mode").ok_or_else(|| anyhow::anyhow!("manual detail not saved"))?;
+        anyhow::ensure!(
+            v.value == "Self-test" && v.source == recap_core::details::DetailSource::Manual,
+            "saved as {v:?}"
+        );
+        Ok(json!(v))
+    });
+    out.insert(k, v);
+
     let (k, v) = check("eventType", || {
         let game = st.game(SAMPLE_GAME).ok_or_else(|| anyhow::anyhow!("sample game not loaded"))?;
         let t = EventTypeDef {
@@ -225,7 +245,7 @@ fn build_report(st: &AppState, checks: Value) -> Value {
         matches.push(json!({
             "id": m.id, "gameId": m.game_id, "status": m.status, "error": m.error, "durationMs": m.duration_ms,
             "path": m.path, "exists": Path::new(&m.path).exists(), "sizeBytes": m.size_bytes,
-            "events": events, "clips": clips,
+            "events": events, "clips": clips, "details": m.details,
         }));
     }
     let montages: Vec<Value> = lib
@@ -235,7 +255,7 @@ fn build_report(st: &AppState, checks: Value) -> Value {
         .filter(|c| c.kind == ClipKind::Montage)
         .map(|c| json!({ "path": c.path, "exists": Path::new(&c.path).exists(), "durationMs": c.duration_ms }))
         .collect();
-    json!({ "done": true, "games": games, "matches": matches, "montages": montages, "checks": checks, "errors": [] })
+    json!({ "done": true, "games": games, "matches": matches, "montages": montages, "checks": checks, "errors": [], "ocrAvailable": recap_ocr::available() })
 }
 
 fn write_json(path: &Path, v: &Value) {

@@ -8,7 +8,10 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
-use crate::events::{EventSource, GameEvent};
+use crate::{
+    details::MatchDetails,
+    events::{EventSource, GameEvent},
+};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -57,6 +60,9 @@ pub struct MatchRecord {
     #[serde(default)]
     pub event_counts: BTreeMap<String, u32>,
     pub error: Option<String>,
+    /// Character, map, K/D/A, result... (see [`crate::details`]).
+    #[serde(default)]
+    pub details: MatchDetails,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +157,8 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_clips_match ON clips(match_id);
     CREATE INDEX idx_clips_created ON clips(created_unix_ms);",
+    // v2: match details (JSON object field -> {value, source, confidence})
+    "ALTER TABLE matches ADD COLUMN details TEXT",
 ];
 
 fn source_type(s: &EventSource) -> &'static str {
@@ -163,9 +171,13 @@ fn source_type(s: &EventSource) -> &'static str {
 }
 
 const MATCH_COLS: &str =
-    "id, game_id, game_name, path, started_unix_ms, duration_ms, size_bytes, status, title, favorite, thumbnail, error";
+    "id, game_id, game_name, path, started_unix_ms, duration_ms, size_bytes, status, title, favorite, thumbnail, error, details";
 const CLIP_COLS: &str =
     "id, match_id, path, start_ms, end_ms, duration_ms, kind, title, event_kinds, created_unix_ms, thumbnail, size_bytes";
+
+fn details_json(d: &MatchDetails) -> Option<String> {
+    (!d.is_empty()).then(|| serde_json::to_string(d).unwrap_or_default())
+}
 
 fn row_to_match(r: &Row) -> rusqlite::Result<MatchRecord> {
     Ok(MatchRecord {
@@ -182,6 +194,10 @@ fn row_to_match(r: &Row) -> rusqlite::Result<MatchRecord> {
         thumbnail: r.get(10)?,
         event_counts: BTreeMap::new(),
         error: r.get(11)?,
+        details: r
+            .get::<_, Option<String>>(12)?
+            .and_then(|d| serde_json::from_str(&d).ok())
+            .unwrap_or_default(),
     })
 }
 
@@ -244,7 +260,7 @@ impl Library {
     fn event_counts(&self, match_id: &str) -> Result<BTreeMap<String, u32>> {
         let mut stmt = self
             .conn
-            .prepare_cached("SELECT kind, COUNT(*) FROM events WHERE match_id = ?1 GROUP BY kind")?;
+            .prepare_cached("SELECT kind, COUNT(*) FROM events WHERE match_id = ?1 AND kind NOT LIKE '\\_%' ESCAPE '\\' GROUP BY kind")?;
         let rows = stmt.query_map([match_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -256,7 +272,7 @@ impl Library {
 
     pub fn insert_match(&self, m: &MatchRecord) -> Result<()> {
         self.conn.execute(
-            &format!("INSERT INTO matches ({MATCH_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"),
+            &format!("INSERT INTO matches ({MATCH_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"),
             params![
                 m.id,
                 m.game_id,
@@ -269,7 +285,8 @@ impl Library {
                 m.title,
                 m.favorite as i64,
                 m.thumbnail,
-                m.error
+                m.error,
+                details_json(&m.details)
             ],
         )?;
         Ok(())
@@ -278,7 +295,7 @@ impl Library {
     pub fn update_match(&self, m: &MatchRecord) -> Result<()> {
         let n = self.conn.execute(
             "UPDATE matches SET game_id = ?2, game_name = ?3, path = ?4, started_unix_ms = ?5, duration_ms = ?6,
-             size_bytes = ?7, status = ?8, title = ?9, favorite = ?10, thumbnail = ?11, error = ?12 WHERE id = ?1",
+             size_bytes = ?7, status = ?8, title = ?9, favorite = ?10, thumbnail = ?11, error = ?12, details = ?13 WHERE id = ?1",
             params![
                 m.id,
                 m.game_id,
@@ -291,7 +308,8 @@ impl Library {
                 m.title,
                 m.favorite as i64,
                 m.thumbnail,
-                m.error
+                m.error,
+                details_json(&m.details)
             ],
         )?;
         anyhow::ensure!(n == 1, "match {} not found", m.id);
@@ -486,6 +504,7 @@ mod tests {
             thumbnail: None,
             event_counts: BTreeMap::new(),
             error: None,
+            details: Default::default(),
         }
     }
 

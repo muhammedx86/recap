@@ -240,6 +240,76 @@ impl Ffmpeg {
     }
 }
 
+impl Ffmpeg {
+    /// Decode `[start_ms, start_ms + dur_ms)` as full-resolution RGB frames at `fps`, cropped to
+    /// the game picture when `crop` is given. Timestamps are from the start of the video.
+    pub fn rgb_frames(
+        &self,
+        video: &Path,
+        start_ms: u64,
+        dur_ms: u64,
+        fps: f32,
+        info: &VideoInfo,
+        crop: Option<ContentRect>,
+    ) -> Result<RgbFrames> {
+        let (width, height) = crop.map(|c| (c.w, c.h)).unwrap_or((info.width, info.height));
+        let crop_filter = crop.map(|c| format!("{},", c.filter())).unwrap_or_default();
+        let mut child = self
+            .command()
+            .args(["-ss", &format_secs(start_ms), "-t", &format_secs(dur_ms.max(1)), "-i"])
+            .arg(video)
+            .args(["-an", "-sn", "-vf"])
+            .arg(format!("fps={fps},{crop_filter}format=rgb24"))
+            .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("starting ffmpeg")?;
+        let stdout = child.stdout.take().context("no ffmpeg stdout")?;
+        Ok(RgbFrames {
+            child,
+            stdout,
+            width,
+            height,
+            fps,
+            start_ms,
+            index: 0,
+        })
+    }
+}
+
+/// Iterator over decoded RGB frames with their timestamps.
+pub struct RgbFrames {
+    child: Child,
+    stdout: std::process::ChildStdout,
+    pub width: u32,
+    pub height: u32,
+    fps: f32,
+    start_ms: u64,
+    index: u64,
+}
+
+impl Iterator for RgbFrames {
+    type Item = (u64, image::RgbImage);
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = vec![0u8; (self.width * self.height * 3) as usize];
+        if self.stdout.read_exact(&mut buf).is_err() {
+            return None;
+        }
+        let t_ms = self.start_ms + ((self.index as f64) * 1000.0 / self.fps as f64).round() as u64;
+        self.index += 1;
+        image::RgbImage::from_raw(self.width, self.height, buf).map(|img| (t_ms, img))
+    }
+}
+
+impl Drop for RgbFrames {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 /// Iterator over decoded grayscale frames with their timestamps.
 pub struct GrayFrames {
     child: Child,

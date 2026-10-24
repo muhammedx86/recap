@@ -8,6 +8,8 @@
 
 use std::{fs, path::Path};
 
+pub mod endscreen;
+
 use anyhow::{Context, Result};
 use recap_core::games::{AutoClipDef, CaptureMode, DetectMethod, DetectorDef, GameDef, Region};
 use serde::Serialize;
@@ -244,7 +246,7 @@ fn in_match(t: f64, cues: &[Cue]) -> bool {
 }
 
 #[inline]
-fn rgb(r: i32, g: i32, b: i32) -> u32 {
+pub(crate) fn rgb(r: i32, g: i32, b: i32) -> u32 {
     let c = |v: i32| v.clamp(0, 255) as u32;
     (c(r) << 16) | (c(g) << 8) | c(b)
 }
@@ -322,9 +324,14 @@ pub fn render_frame(t: f64, buf: &mut [u32]) {
     for c in cues.iter().filter(|c| t >= c.t_s && t < c.end_s()) {
         draw_banner(buf, c.kind, frame);
     }
+
+    // End-of-match screen (covers everything).
+    for s in endscreen::end_screens().iter().filter(|s| t >= s.t_s && t < s.t_s + s.duration_s) {
+        endscreen::draw_end_screen(buf, s);
+    }
 }
 
-fn fill_rect(buf: &mut [u32], x0: i64, y0: i64, w: i64, h: i64, color: u32) {
+pub(crate) fn fill_rect(buf: &mut [u32], x0: i64, y0: i64, w: i64, h: i64, color: u32) {
     let xs = x0.max(0) as usize;
     let xe = (x0 + w).clamp(0, WIDTH as i64) as usize;
     let ys = y0.max(0) as usize;
@@ -417,6 +424,18 @@ pub fn export_fixture(dir: &Path) -> Result<std::path::PathBuf> {
             game_dir.join("detectors").join(format!("{}.json", b.detector_id())),
             serde_json::to_string_pretty(&det)?,
         )?;
+    }
+    // Screen readers for the end screen, and the character icon references.
+    fs::create_dir_all(game_dir.join("readers"))?;
+    for r in endscreen::readers() {
+        r.validate().with_context(|| format!("reader {}", r.id))?;
+        fs::write(
+            game_dir.join("readers").join(format!("{}.json", r.id)),
+            serde_json::to_string_pretty(&r)?,
+        )?;
+    }
+    for icon in [endscreen::Icon::Ring, endscreen::Icon::Cross] {
+        endscreen::icon_image(icon).save(game_dir.join("templates").join(format!("icon-{}.png", icon.name().to_lowercase())))?;
     }
     Ok(game_dir)
 }

@@ -143,6 +143,24 @@ if (-not (Test-Path $reportPath)) {
         $auto = @($m.clips | Where-Object { $_.kind -eq "auto" -and $_.exists })
         if ($auto.Count -ge 1) { Pass "auto-clips for $($m.id): $($auto.Count)" } else { Fail "no auto-clips for match $($m.id)" }
     }
+    # Match details read from the sample game's end screens (see crates/sample-game/src/endscreen.rs).
+    function ExpectDetails($m, [string] $label, [hashtable] $want) {
+        foreach ($f in $want.Keys) {
+            $got = $m.details.$f
+            $val = if ($got) { [string]$got.value } else { "" }
+            $src = if ($got) { $got.source } else { "-" }
+            if ($val -eq $want[$f]) { Pass "$label $f = $val ($src)" }
+            elseif (-not $r.ocrAvailable -and $f -ne "character") { Fail "$label $f missing: Windows OCR is not available on this machine" }
+            else { Fail "$label $f expected '$($want[$f])', got '$val' ($src)" }
+        }
+    }
+    if ($sample.Count -ge 1) {
+        ExpectDetails $sample[0] "match 1" @{ character = "Ring"; map = "Harbor"; kills = "3"; deaths = "1"; assists = "2"; result = "win"; score = "13-11" }
+    }
+    if ($sample.Count -ge 2) {
+        ExpectDetails $sample[1] "match 2" @{ character = "Cross"; map = "Canyon"; kills = "1"; deaths = "0"; assists = "4"; result = "loss"; score = "9-13" }
+    }
+
     $mont = @($r.montages | Where-Object exists)
     if ($mont.Count -ge 1) { Pass "montage written" } else { Fail "no montage file" }
 }

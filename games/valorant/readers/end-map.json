@@ -1,0 +1,33 @@
+{
+  "id": "end-map",
+  "label": "Map (end screen)",
+  "field": "map",
+  "kind": "text",
+  "region": {
+    "x": 0.0479,
+    "y": 0.0111,
+    "w": 0.0885,
+    "h": 0.0157
+  },
+  "values": [
+    "Abyss",
+    "Ascent",
+    "Bind",
+    "Breeze",
+    "Corrode",
+    "Fracture",
+    "Haven",
+    "Icebox",
+    "Lotus",
+    "Pearl",
+    "Split",
+    "Sunset",
+    "District",
+    "Kasbah",
+    "Piazza",
+    "Drift",
+    "Glitch",
+    "The Range"
+  ],
+  "notes": "Positions from Riot's published end-of-match screen (1920x1080). If yours differs, redraw the box in Detector Studio."
+}

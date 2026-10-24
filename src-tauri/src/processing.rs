@@ -9,10 +9,12 @@ use std::{
 use anyhow::{Context, Result};
 use recap_core::{
     clips::{concat, cut_clip, kinds_in_window, plan_auto_clips},
+    details::{from_events, latest_snapshot, merge, retain_manual},
     events::{builtin_event_types, is_round_kind, kind, merge_events, EventSource, EventTypeDef, GameEvent},
     games::{ApiSource, LoadedDetector, LoadedGame},
     library::{ClipKind, ClipRecord, MatchRecord, MatchStatus},
     postmatch::{run_processor, PostMatchContext},
+    readers::{read_details, ReadWindows},
     scan::{scan_video, ScanOptions},
     segments::{events_in_segment, plan_match_segments, MatchSegment, SegmentOptions},
     settings::Settings,
@@ -72,6 +74,8 @@ pub fn api_kinds(api: ApiSource) -> &'static [&'static str] {
             kind::BOMB_PLANT,
             kind::BOMB_DEFUSE,
         ],
+        // Details only (map, mode, score), no events.
+        ApiSource::RiotClient => &[],
     }
 }
 
@@ -230,14 +234,56 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
         };
         let segments = plan_match_segments(&events, m.duration_ms, &opts);
         if !segments.is_empty() {
-            return split_session(app, &st, &m, game.as_ref(), &settings, &events, &segments);
+            return split_session(app, &st, &m, game.as_ref(), &settings, &events, &segments, rescan);
         }
     }
+
+    // Match details: local API, screen readers, counted events.
+    emit_progress(app, match_id, "details", 0.0, None);
+    let events = st.library.lock().unwrap().list_events(match_id)?;
+    let first = |k: &str| events.iter().filter(|e| e.kind == k).map(|e| e.t_ms).min();
+    let last = |k: &str| events.iter().filter(|e| e.kind == k).map(|e| e.t_ms).max();
+    let window = ReadWindows::for_match(m.duration_ms, first(kind::MATCH_START), last(kind::MATCH_END), None);
+    fill_details(&st, &mut m, game.as_ref(), &video, &events, &events, &window, rescan);
+    st.library.lock().unwrap().update_match(&m)?;
 
     auto_clips(app, &st, &m, game.as_ref(), &settings)
 }
 
+/// Fill `m.details` from the newest local-API snapshot in `snapshot_events`, the game's screen
+/// readers over `window` of `video`, and finally counts of `events`. What the player typed stays;
+/// `reset` drops everything else first (rescans).
+#[allow(clippy::too_many_arguments)]
+fn fill_details(
+    st: &AppState,
+    m: &mut MatchRecord,
+    game: Option<&LoadedGame>,
+    video: &Path,
+    events: &[GameEvent],
+    snapshot_events: &[GameEvent],
+    window: &ReadWindows,
+    reset: bool,
+) {
+    let mut d = m.details.clone();
+    if reset {
+        retain_manual(&mut d);
+    }
+    merge(&mut d, &latest_snapshot(snapshot_events));
+    if let Some(g) = game {
+        if g.readers.iter().any(|r| r.def.is_ready()) {
+            let ocr = crate::ocr::text_reader();
+            match read_details(&st.ff, video, &g.readers, window, ocr.as_deref(), None) {
+                Ok(screen) => merge(&mut d, &screen),
+                Err(e) => log::warn!("{}: screen readers failed: {e:#}", m.id),
+            }
+        }
+    }
+    merge(&mut d, &from_events(events));
+    m.details = d;
+}
+
 /// Cut a session into one recording per match, finish each, then remove the session.
+#[allow(clippy::too_many_arguments)]
 fn split_session(
     app: &AppHandle,
     st: &AppState,
@@ -246,6 +292,7 @@ fn split_session(
     settings: &Settings,
     events: &[GameEvent],
     segments: &[MatchSegment],
+    rescan: bool,
 ) -> Result<()> {
     log::info!("{}: splitting session into {} matches", session.id, segments.len());
     let src = PathBuf::from(&session.path);
@@ -277,12 +324,39 @@ fn split_session(
             thumbnail: None,
             event_counts: Default::default(),
             error: None,
+            details: Default::default(),
         };
         make_thumbnail(st, &mut m);
+        // Details: read on the session recording, from just before this match to the next one.
+        let seg_events = events_in_segment(events, seg);
+        let next_start = segments.get(i + 1).map(|n| n.start_ms);
+        let until = next_start.unwrap_or(session.duration_ms);
+        let snapshots: Vec<GameEvent> = events
+            .iter()
+            .filter(|e| e.t_ms >= seg.start_ms && e.t_ms < until)
+            .cloned()
+            .collect();
+        let in_seg = |k: &str| -> Vec<u64> {
+            events
+                .iter()
+                .filter(|e| e.kind == k && e.t_ms >= seg.start_ms && e.t_ms <= seg.end_ms)
+                .map(|e| e.t_ms)
+                .collect()
+        };
+        let starts = in_seg(kind::MATCH_START);
+        let ends = in_seg(kind::MATCH_END);
+        let window = ReadWindows::for_match(
+            session.duration_ms,
+            starts.iter().min().copied(),
+            ends.iter().max().copied(),
+            next_start,
+        );
+        emit_progress(app, &session.id, "details", i as f32 / total, None);
+        fill_details(st, &mut m, game, &src, &seg_events, &snapshots, &window, rescan);
         {
             let lib = st.library.lock().unwrap();
             lib.insert_match(&m)?;
-            lib.add_events(&m.id, &events_in_segment(events, seg))?;
+            lib.add_events(&m.id, &seg_events)?;
         }
         let _ = app.emit("library-changed", serde_json::json!({ "matchId": m.id }));
         if let Err(e) = auto_clips(app, st, &m, game, settings) {

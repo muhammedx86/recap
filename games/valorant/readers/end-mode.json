@@ -1,0 +1,25 @@
+{
+  "id": "end-mode",
+  "label": "Mode (end screen)",
+  "field": "mode",
+  "kind": "text",
+  "region": {
+    "x": 0.0479,
+    "y": 0.0259,
+    "w": 0.0885,
+    "h": 0.0148
+  },
+  "values": [
+    "Competitive",
+    "Unrated",
+    "Swiftplay",
+    "Spike Rush",
+    "Deathmatch",
+    "Escalation",
+    "Replication",
+    "Team Deathmatch",
+    "Premier",
+    "Custom"
+  ],
+  "notes": "Positions from Riot's published end-of-match screen (1920x1080). If yours differs, redraw the box in Detector Studio."
+}

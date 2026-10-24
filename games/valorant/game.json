@@ -5,6 +5,7 @@
     "VALORANT-Win64-Shipping.exe"
   ],
   "capture": "game",
+  "api": "riot-client",
   "preferApi": true,
   "autoClip": {
     "events": [

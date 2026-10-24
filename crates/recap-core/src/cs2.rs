@@ -13,7 +13,10 @@ use std::{
 
 use serde_json::{json, Value};
 
-use crate::events::{kind, EventSource, GameEvent};
+use crate::{
+    details::{field, pretty_name, result_from_score, SnapshotEmitter},
+    events::{kind, EventSource, GameEvent},
+};
 
 pub const GSI_CFG_NAME: &str = "gamestate_integration_recap.cfg";
 pub const SOURCE_NAME: &str = "cs2-gsi";
@@ -128,6 +131,7 @@ pub struct Cs2Tracker {
     round_phase: Option<String>,
     bomb: Option<String>,
     map_phase: Option<String>,
+    details: SnapshotEmitter,
 }
 
 fn int(v: &Value) -> Option<i64> {
@@ -149,7 +153,36 @@ impl Cs2Tracker {
             round_phase: None,
             bomb: None,
             map_phase: None,
+            details: SnapshotEmitter::default(),
         }
+    }
+
+    /// Map, mode, my K/D/A, team score and (at game over) the result.
+    fn snapshot(&self, payload: &Value) -> std::collections::BTreeMap<String, String> {
+        let mut d = std::collections::BTreeMap::new();
+        let map = &payload["map"];
+        if let Some(n) = map["name"].as_str() {
+            d.insert(field::MAP.to_string(), pretty_name(n));
+        }
+        if let Some(m) = map["mode"].as_str() {
+            d.insert(field::MODE.to_string(), pretty_name(m));
+        }
+        if self.initialised {
+            d.insert(field::KILLS.to_string(), self.kills.to_string());
+            d.insert(field::DEATHS.to_string(), self.deaths.to_string());
+            d.insert(field::ASSISTS.to_string(), self.assists.to_string());
+        }
+        if let Some(team) = self.my_team.as_deref() {
+            let score = |t: &str| int(&map[format!("team_{}", t.to_lowercase())]["score"]);
+            let other = if team.eq_ignore_ascii_case("CT") { "T" } else { "CT" };
+            if let (Some(mine), Some(theirs)) = (score(team), score(other)) {
+                d.insert(field::SCORE.to_string(), format!("{mine}-{theirs}"));
+                if map["phase"].as_str() == Some("gameover") {
+                    d.insert(field::RESULT.to_string(), result_from_score(mine, theirs).to_string());
+                }
+            }
+        }
+        d
     }
 
     /// Feed one GSI payload received at `rec_elapsed_ms` into the recording.
@@ -242,6 +275,8 @@ impl Cs2Tracker {
             }
             self.map_phase = Some(phase.to_string());
         }
+        let snap = self.snapshot(payload);
+        out.extend(self.details.update(snap, rec_elapsed_ms, SOURCE_NAME));
         out
     }
 }
@@ -284,7 +319,27 @@ mod tests {
     }
 
     fn kinds(v: &[GameEvent]) -> Vec<&str> {
-        v.iter().map(|e| e.kind.as_str()).collect()
+        v.iter()
+            .map(|e| e.kind.as_str())
+            .filter(|k| *k != crate::details::SNAPSHOT_KIND)
+            .collect()
+    }
+
+    #[test]
+    fn details_snapshot() {
+        let mut t = Cs2Tracker::new("secret");
+        let mut p = payload(ME, "T", 20, 0, 21, 14, 5, 3, "over", None, "gameover");
+        p["map"]["mode"] = json!("competitive");
+        p["map"]["team_ct"] = json!({ "score": 10 });
+        p["map"]["team_t"] = json!({ "score": 13 });
+        let ev = t.ingest(&p, 0);
+        let d = crate::details::latest_snapshot(&ev);
+        let v = |k: &str| d.get(k).map(|v| v.value.clone()).unwrap_or_default();
+        assert_eq!(
+            (v("map"), v("mode"), v("score"), v("result")),
+            ("Dust2".into(), "Competitive".into(), "13-10".into(), "win".into())
+        );
+        assert_eq!((v("kills"), v("deaths"), v("assists")), ("21".into(), "14".into(), "5".into()));
     }
 
     #[test]
