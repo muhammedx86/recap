@@ -38,6 +38,7 @@ pub struct PreparedReader {
     /// Choice readers: (value, matcher) per option.
     options: Vec<(String, PreparedDetector)>,
     highlight: Option<([u8; 3], u8, Region)>,
+    misses: std::sync::atomic::AtomicU32,
 }
 
 impl PreparedReader {
@@ -75,6 +76,7 @@ impl PreparedReader {
             pattern,
             options,
             highlight,
+            misses: Default::default(),
         })
     }
 
@@ -134,15 +136,33 @@ impl PreparedReader {
             }
             ReaderKind::Text => {
                 let Some(ocr) = ocr else { return vec![] };
-                let text = match ocr.read_text(&prepare_for_ocr(&gray)) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        log::debug!("reader {}: OCR failed: {e:#}", self.def.id);
-                        return vec![];
+                // OCR engines have a preferred text size: try the box at two sizes.
+                let mut seen = Vec::new();
+                for target in [64.0, 36.0] {
+                    let text = match ocr.read_text(&prepare_for_ocr_at(&gray, target)) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            log::debug!("reader {}: OCR failed: {e:#}", self.def.id);
+                            continue;
+                        }
+                    };
+                    let got = self.interpret(&text);
+                    if !got.is_empty() {
+                        return got;
                     }
-                };
-                self.interpret(&text)
+                    seen.push(text);
+                }
+                self.note_miss(&seen);
+                vec![]
             }
+        }
+    }
+
+    /// Log a few unmatched readings per reader (helps tune boxes and patterns).
+    fn note_miss(&self, seen: &[String]) {
+        let n = self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if n < 3 && seen.iter().any(|t| !t.trim().is_empty()) {
+            log::info!("reader {}: no usable reading in {:?}", self.def.id, seen);
         }
     }
 
@@ -306,8 +326,13 @@ pub fn snap(reading: &str, values: &[String]) -> Option<(String, f32)> {
 
 /// Make a crop easy to read: at least 64 px tall, dark text on a light background, full contrast.
 pub fn prepare_for_ocr(gray: &GrayImage) -> GrayImage {
+    prepare_for_ocr_at(gray, 64.0)
+}
+
+/// [`prepare_for_ocr`] with the box scaled to about `target` px tall.
+pub fn prepare_for_ocr_at(gray: &GrayImage, target: f32) -> GrayImage {
     let (w, h) = gray.dimensions();
-    let scale = (64.0 / h.max(1) as f32).clamp(0.5, 4.0);
+    let scale = (target / h.max(1) as f32).clamp(0.3, 4.0);
     let mut img = if (scale - 1.0).abs() > 0.01 {
         image::imageops::resize(
             gray,
