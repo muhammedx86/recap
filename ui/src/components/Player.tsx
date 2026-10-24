@@ -141,13 +141,13 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player({ path, po
         {failed && <p className="player-error">This video file could not be opened. It may have been moved or deleted.</p>}
         {!playing && !failed && (
           <span className="player-bigplay" aria-hidden>
-            <Icon name="play" size={28} />
+            <Icon name="play" size={22} />
           </span>
         )}
       </div>
       <div className="player-bar">
         <button className="icon-btn" onClick={toggle} aria-label={playing ? "Pause (K)" : "Play (K)"}>
-          <Icon name={playing ? "pause" : "play"} />
+          <Icon name={playing ? "pause" : "play"} size={16} />
         </button>
         <span className="player-time num">
           {timecode(time)} <span className="muted">/ {timecode(total)}</span>
@@ -162,16 +162,19 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player({ path, po
           onChange={(e) => seek(Number(e.target.value))}
           aria-label="Seek"
         />
-        <div className="player-rates" role="group" aria-label="Playback speed">
-          {RATES.map((r) => (
-            <button key={r} className={`rate ${rate === r ? "on" : ""}`} onClick={() => setRate(r)} aria-pressed={rate === r}>
-              {r}×
-            </button>
-          ))}
-        </div>
+        <label className="player-rate" title="Playback speed">
+          <span className="sr-only">Playback speed</span>
+          <select value={rate} onChange={(e) => setRate(Number(e.target.value))}>
+            {RATES.map((r) => (
+              <option key={r} value={r}>
+                {r}×
+              </option>
+            ))}
+          </select>
+        </label>
         {!simulate && (
           <button className="icon-btn" onClick={() => setMuted(!muted)} aria-label={muted ? "Unmute" : "Mute"}>
-            <Icon name={muted ? "mute" : "volume"} />
+            <Icon name={muted ? "mute" : "volume"} size={16} />
           </button>
         )}
       </div>

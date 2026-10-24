@@ -19,6 +19,8 @@ interface Props {
 
 /** Kinds drawn as round dividers instead of their own lane. */
 const DIVIDER_KINDS = new Set(["round_start"]);
+/** When rounds are drawn, results show as the round wash; no separate lanes. */
+const ROUND_RESULT_KINDS = new Set(["round_win", "round_loss"]);
 
 /**
  * One lane per event kind, ticks at each event, an amber playhead across all lanes.
@@ -28,10 +30,13 @@ const DIVIDER_KINDS = new Set(["round_start"]);
 export function Timeline({ events, rounds, durationMs, timeMs, inMs, outMs, hiddenKinds, onSeek, onEventClick }: Props) {
   const track = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<{ x: number; ms: number } | null>(null);
+  const showRounds = rounds.length > 0 && !hiddenKinds.has("round_start");
   const lanes = useMemo(() => {
-    const kinds = sortKinds([...new Set(events.map((e) => e.kind))]).filter((k) => !hiddenKinds.has(k) && !DIVIDER_KINDS.has(k));
+    const kinds = sortKinds([...new Set(events.map((e) => e.kind))]).filter(
+      (k) => !hiddenKinds.has(k) && !DIVIDER_KINDS.has(k) && !(showRounds && ROUND_RESULT_KINDS.has(k)),
+    );
     return kinds.map((k) => ({ kind: k, events: events.filter((e) => e.kind === k) }));
-  }, [events, hiddenKinds]);
+  }, [events, hiddenKinds, showRounds]);
 
   const dur = Math.max(1, durationMs);
   const frac = (ms: number) => Math.max(0, Math.min(dur, ms)) / dur;
@@ -49,7 +54,6 @@ export function Timeline({ events, rounds, durationMs, timeMs, inMs, outMs, hidd
 
   // With many short rounds, label only some so numbers never collide.
   const labelEvery = rounds.length > 36 ? 5 : rounds.length > 18 ? 2 : 1;
-  const showRounds = rounds.length > 0 && !hiddenKinds.has("round_start");
 
   return (
     <div className={`timeline ${showRounds ? "has-rounds" : ""}`}>
@@ -57,14 +61,14 @@ export function Timeline({ events, rounds, durationMs, timeMs, inMs, outMs, hidd
         <div className="tl-ruler-label" />
         {showRounds && (
           <div className="tl-label tl-round-label">
-            <KindDot kind="round_start" />
-            <span>Rounds</span>
+            <KindDot kind="round_start" size={12} />
+            <span className="tl-label-text">Rounds</span>
             <span className="num muted">{rounds.length}</span>
           </div>
         )}
         {lanes.map((l) => (
           <div key={l.kind} className="tl-label">
-            <KindDot kind={l.kind} />
+            <KindDot kind={l.kind} size={12} tone="color" />
             <span className="tl-label-text">{kindStyle(l.kind).plural}</span>
             <span className="num muted">{l.events.length}</span>
           </div>
