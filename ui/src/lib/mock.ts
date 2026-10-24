@@ -865,7 +865,9 @@ const handlers: Record<string, (a: any) => unknown> = {
     return { ...status };
   },
   stop_recording: () => {
-    status = { ...status, state: "idle", matchId: null, gameId: null, gameName: null, startedUnixMs: null, bookmarks: 0 };
+    // Stopping a game recording skips that match; the game stays open, waiting for the next one.
+    const waitingFor = status.gameId && status.gameId !== "manual" ? status.gameName : null;
+    status = { ...status, state: "idle", matchId: null, gameId: null, gameName: null, startedUnixMs: null, bookmarks: 0, waitingFor };
     emit("status-changed", { ...status });
     return { ...status };
   },
