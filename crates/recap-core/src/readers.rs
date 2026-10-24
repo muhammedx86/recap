@@ -432,14 +432,14 @@ pub fn prepare_for_ocr_with(gray: &GrayImage, target: f32, margin: f32) -> GrayI
 /// ("111111" is three "11", not six "1"); otherwise the shortest repeating unit.
 fn repeated_unit(s: &str) -> Option<(&str, u32)> {
     let n = s.len();
-    if n >= 3 && n % 3 == 0 {
+    if n >= 3 && n.is_multiple_of(3) {
         let t = n / 3;
         if s[..t] == s[t..2 * t] && s[..t] == s[2 * t..] {
             return Some((&s[..t], 3));
         }
     }
     (1..=n / 2).find_map(|len| {
-        (n % len == 0 && s.as_bytes().chunks(len).all(|c| c == &s.as_bytes()[..len])).then(|| (&s[..len], (n / len) as u32))
+        (n.is_multiple_of(len) && s.as_bytes().chunks(len).all(|c| c == &s.as_bytes()[..len])).then(|| (&s[..len], (n / len) as u32))
     })
 }
 
