@@ -29,7 +29,7 @@ Copy-Item "target/$buildProfile/recap-recorder.exe" src-tauri/obs/ -Force
 $env:TAURI_FRONTEND_PATH = "ui"
 # (Passed as a file: JSON on the command line gets its quotes mangled by Windows PowerShell.)
 $config = Join-Path $env:TEMP "recap-dev.conf.json"
-Set-Content -Encoding utf8 $config '{"identifier":"com.recap.app.dev","productName":"Recap (dev)"}'
+[IO.File]::WriteAllText($config, '{"identifier":"com.recap.app.dev","productName":"Recap (dev)"}')  # no BOM
 $cliArgs = @("--yes", "@tauri-apps/cli@2", "dev", "--config", $config)
 if ($Release) { $cliArgs += "--release" }
 npx @cliArgs
