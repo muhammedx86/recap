@@ -14,15 +14,6 @@
 }
 
 @media (max-width: 1160px) {
-  :root {
-    --sidebar: 220px;
-  }
-  .match-link {
-    grid-template-columns: 200px 1fr;
-  }
-  .match-thumb {
-    width: 200px;
-  }
   .match-grid,
   .studio-grid {
     grid-template-columns: minmax(0, 1fr);

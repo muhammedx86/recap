@@ -43,7 +43,8 @@
 .match:focus-within {
   background: var(--raised);
 }
-.match-link {
+/* `.match-list` prefix: wins over the old narrow-window sizes in responsive.css. */
+.match-list .match-link {
   display: grid;
   grid-template-columns: 176px 1fr;
   gap: 16px;
@@ -53,7 +54,7 @@
   min-width: 0;
   border-radius: var(--r-sm);
 }
-.match-thumb {
+.match-list .match-thumb {
   width: 176px;
 }
 .match.is-live .match-thumb {
@@ -84,20 +85,20 @@
 .match-title .icon path {
   fill: currentColor;
 }
-.match-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+.row-meta {
   font-size: 13px;
   color: var(--muted);
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.match-meta > span + span::before {
+.row-meta > span + span::before {
   content: "·";
   margin: 0 7px;
   color: var(--line);
 }
-.match-meta .round-score {
+.row-meta .round-score {
   font-size: 13px;
 }
 .match-status {

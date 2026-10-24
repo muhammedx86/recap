@@ -7,10 +7,10 @@ import { kindStyle } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import type { ClipKind, ClipRecord } from "../lib/types";
 import { Player } from "../components/Player";
-import { Confirm, Empty, Icon, KindDot, Modal, Thumb } from "../components/ui";
+import { Confirm, Empty, Icon, Modal, Thumb } from "../components/ui";
 
 const FILTERS: Array<{ id: "all" | ClipKind; label: string }> = [
-  { id: "all", label: "All clips" },
+  { id: "all", label: "All" },
   { id: "auto", label: "Auto" },
   { id: "manual", label: "Made by you" },
   { id: "montage", label: "Montages" },
@@ -48,7 +48,6 @@ export function Clips() {
     <div className="page">
       <header className="page-head">
         <h1>Clips</h1>
-        <p className="lede">Short cuts around your plays. Select a few to stitch them into a montage.</p>
       </header>
 
       <div className="filters" role="toolbar" aria-label="Filter clips">
@@ -62,15 +61,14 @@ export function Clips() {
       {error && <p className="error-line">Could not load clips: {error}</p>}
       {!loading && !error && shown.length === 0 && (
         <Empty title={clips?.length ? "No clips of this kind" : "No clips yet"}>
-          {clips?.length
-            ? "Try another filter."
-            : "Clips are cut automatically around kills and other plays when a match ends. You can also make one from any recording with the I and O keys."}
+          {clips?.length ? "Try another filter." : "Clips are cut around your plays when a match ends, or press I and O on any recording."}
         </Empty>
       )}
 
-      <ul className="clip-grid">
+      <ul className={`clip-grid ${selected.length ? "selecting" : ""}`}>
         {shown.map((c) => {
           const sel = selected.includes(c.id);
+          const kinds = c.eventKinds.filter((k) => k !== "match_start" && k !== "match_end").slice(0, 3);
           return (
             <li key={c.id} className={`clip ${sel ? "selected" : ""}`}>
               <button className="clip-play" onClick={() => setPlaying(c)} aria-label={`Play ${c.title}`}>
@@ -84,32 +82,28 @@ export function Clips() {
                 {sel && <span className="clip-order num">{selected.indexOf(c.id) + 1}</span>}
               </label>
               <div className="clip-body">
-                <h3 className="clip-title">{c.title}</h3>
-                <p className="clip-meta muted small">
-                  {dayLabel(c.createdUnixMs)}, {bytes(c.sizeBytes)}
-                </p>
-                <p className="clip-kinds">
-                  {c.eventKinds.slice(0, 4).map((k) => (
-                    <span key={k} className="kind-chip">
-                      <KindDot kind={k} />
-                      {kindStyle(k).label}
-                    </span>
-                  ))}
-                </p>
+                <div className="clip-text">
+                  <h3 className="clip-title">{c.title}</h3>
+                  <p className="clip-meta">
+                    <span>{dayLabel(c.createdUnixMs)}</span>
+                    <span className="num">{bytes(c.sizeBytes)}</span>
+                    {kinds.length > 0 && <span>{kinds.map((k) => kindStyle(k).label).join(", ")}</span>}
+                  </p>
+                </div>
                 <div className="row-actions">
                   {c.matchId && (
-                    <Link className="icon-btn" to={`/match/${c.matchId}`} aria-label="Open the full match">
-                      <Icon name="library" />
+                    <Link className="icon-btn" to={`/match/${c.matchId}`} aria-label="Open the full match" title="Open the full match">
+                      <Icon name="library" size={16} />
                     </Link>
                   )}
-                  <button className="icon-btn" aria-label="Show in folder" onClick={() => api.openPath(c.path).catch((e) => toast.error(e))}>
-                    <Icon name="folder" />
+                  <button className="icon-btn" aria-label="Show in folder" title="Show in folder" onClick={() => api.openPath(c.path).catch((e) => toast.error(e))}>
+                    <Icon name="folder" size={16} />
                   </button>
-                  <button className="icon-btn" aria-label="Rename" onClick={() => setRenaming(c)}>
-                    <Icon name="edit" />
+                  <button className="icon-btn" aria-label="Rename" title="Rename" onClick={() => setRenaming(c)}>
+                    <Icon name="edit" size={16} />
                   </button>
-                  <button className="icon-btn" aria-label="Delete" onClick={() => setDeleting(c)}>
-                    <Icon name="trash" />
+                  <button className="icon-btn" aria-label="Delete" title="Delete" onClick={() => setDeleting(c)}>
+                    <Icon name="trash" size={16} />
                   </button>
                 </div>
               </div>
@@ -120,9 +114,8 @@ export function Clips() {
 
       {selected.length > 0 && (
         <div className="selection-bar" role="region" aria-label="Selection">
-          <span>
-            <span className="num">{selected.length}</span> {selected.length === 1 ? "clip" : "clips"} selected,{" "}
-            <span className="num">{timecode(selected.reduce((a, id) => a + (byId.get(id)?.durationMs ?? 0), 0))}</span> total
+          <span className="num">
+            {selected.length} {selected.length === 1 ? "clip" : "clips"} · {timecode(selected.reduce((a, id) => a + (byId.get(id)?.durationMs ?? 0), 0))}
           </span>
           <button className="btn btn-ghost" onClick={() => setSelected([])}>
             Clear
