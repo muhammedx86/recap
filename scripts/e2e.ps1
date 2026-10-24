@@ -30,7 +30,7 @@ function Shot([string] $name) {
 }
 
 $failures = New-Object System.Collections.Generic.List[string]
-function Fail([string] $msg) { $script:failures.Add($msg); Write-Host "FAIL: $msg" -ForegroundColor Red }
+function Fail([string] $msg) { $script:failures.Add($msg); Write-Host "FAIL: $msg" -ForegroundColor Red; Write-Host "::error title=E2E::$msg" }
 function Pass([string] $msg) { Write-Host "ok:   $msg" -ForegroundColor Green }
 
 # 1. Fixture game + isolated settings.
@@ -51,17 +51,23 @@ $env:RECAP_SELFTEST = $Out
 $app = Start-Process -FilePath (Join-Path $AppDir "recap.exe") -WorkingDirectory $AppDir -PassThru
 Write-Host "recap.exe pid $($app.Id)"
 Start-Sleep -Seconds 15
-if ($app.HasExited) { throw "recap.exe exited early with code $($app.ExitCode)" }
 Shot "00-app-started"
-
-# 3. Play the sample game; Recap should detect, record and stop on its own.
-$game = Start-Process -FilePath $GameExe -PassThru
-Write-Host "sample game pid $($game.Id)"
-Start-Sleep -Seconds 20
-Shot "01-recording-sample-game"
-if (-not $game.WaitForExit(120000)) { Fail "sample game did not exit"; Stop-Process -Id $game.Id -Force }
-Start-Sleep -Seconds 3
-Shot "02-after-game"
+if ($app.HasExited) { Fail "recap.exe exited early with code $($app.ExitCode)" }
+else {
+    # 3. Play the sample game; Recap should detect, record and stop on its own.
+    # The game window is 1280x720; on a smaller screen shrink it (16:9 kept) so Windows does not squeeze it.
+    $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    $scale = [math]::Min(1.0, [math]::Min(($wa.Width - 40) / 1280.0, ($wa.Height - 60) / 720.0))
+    $gameArgs = if ($scale -lt 1.0) { @("--window-scale", ("{0:N3}" -f $scale)) } else { @() }
+    Write-Host "screen $($wa.Width)x$($wa.Height) working area; game window scale $scale"
+    $game = if ($gameArgs.Count) { Start-Process -FilePath $GameExe -ArgumentList $gameArgs -PassThru } else { Start-Process -FilePath $GameExe -PassThru }
+    Write-Host "sample game pid $($game.Id)"
+    Start-Sleep -Seconds 20
+    Shot "01-recording-sample-game"
+    if (-not $game.WaitForExit(120000)) { Fail "sample game did not exit"; Stop-Process -Id $game.Id -Force }
+    Start-Sleep -Seconds 3
+    Shot "02-after-game"
+}
 
 # 4. Wait for processing + the self-test check suite.
 $reportPath = Join-Path $Out "report.json"
@@ -85,6 +91,12 @@ while ((Test-Path $reportPath) -and (Get-Date) -lt $tourDeadline -and -not $app.
 if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
 Get-Process recap-recorder -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-ChildItem $Data -Filter *.log -Recurse | Copy-Item -Destination $Out -Force
+# Make the key log lines visible in the CI log itself.
+foreach ($l in Get-ChildItem $Out -Filter *.log) {
+    Write-Host "----- $($l.Name) (last 60 lines) -----"
+    Get-Content $l.FullName -Tail 60 | ForEach-Object { Write-Host $_ }
+}
+Get-ChildItem $Recordings -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "recording: $($_.FullName) $($_.Length) bytes" }
 
 # 7. Assertions.
 if (-not (Test-Path $reportPath)) {

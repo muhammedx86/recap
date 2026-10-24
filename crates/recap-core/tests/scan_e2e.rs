@@ -83,6 +83,7 @@ fn finds_banner_appearances_in_a_real_video() {
         min_consecutive: 2,
         sample_fps: 6.0,
         scales: vec![],
+        rearm_drop: 0.0,
         enabled: true,
         notes: None,
     };

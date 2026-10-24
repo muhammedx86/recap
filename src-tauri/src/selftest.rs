@@ -67,7 +67,12 @@ pub fn after_processing(app: &AppHandle) {
         let report = build_report(&st, checks);
         write_json(&out.join("report.json"), &report);
         log::info!("self-test report written to {}", out.display());
-        let first = report["matches"].as_array().and_then(|m| m.first()).and_then(|m| m["id"].as_str()).unwrap_or("").to_string();
+        let first = report["matches"]
+            .as_array()
+            .and_then(|m| m.first())
+            .and_then(|m| m["id"].as_str())
+            .unwrap_or("")
+            .to_string();
         let _ = app.emit("library-changed", json!({}));
         let _ = app.emit("selftest-tour", json!({ "matchId": first }));
     });
@@ -125,7 +130,12 @@ fn run_checks(st: &AppState) -> Value {
 
     let (k, v) = check("montage", || {
         let clips = st.library.lock().unwrap().list_clips(None)?;
-        let ids: Vec<String> = clips.iter().filter(|c| c.kind != ClipKind::Montage).take(2).map(|c| c.id.clone()).collect();
+        let ids: Vec<String> = clips
+            .iter()
+            .filter(|c| c.kind != ClipKind::Montage)
+            .take(2)
+            .map(|c| c.id.clone())
+            .collect();
         anyhow::ensure!(ids.len() == 2, "need two clips, have {}", ids.len());
         let m = processing::make_montage(st, &ids, "Self-test montage")?;
         anyhow::ensure!(Path::new(&m.path).exists() && m.duration_ms > 0, "montage file missing or empty");
@@ -135,7 +145,13 @@ fn run_checks(st: &AppState) -> Value {
 
     let (k, v) = check("studioFrame", || {
         let m = first.clone().ok_or_else(|| anyhow::anyhow!("no processed sample match"))?;
-        let f = studio::load_frame(st, &FrameSource::Video { path: m.path.clone(), t_ms: 1_000 })?;
+        let f = studio::load_frame(
+            st,
+            &FrameSource::Video {
+                path: m.path.clone(),
+                t_ms: 1_000,
+            },
+        )?;
         anyhow::ensure!(f.width > 0 && f.height > 0 && f.data_url.starts_with("data:image/png"), "bad frame");
         Ok(json!({ "width": f.width, "height": f.height }))
     });
@@ -144,19 +160,35 @@ fn run_checks(st: &AppState) -> Value {
     let (k, v) = check("studioTest", || {
         let m = first.clone().ok_or_else(|| anyhow::anyhow!("no processed sample match"))?;
         let game = st.game(SAMPLE_GAME).ok_or_else(|| anyhow::anyhow!("sample game not loaded"))?;
-        let det = game.detectors.iter().find(|d| d.def.event == "kill").ok_or_else(|| anyhow::anyhow!("no kill detector"))?;
+        let det = game
+            .detectors
+            .iter()
+            .find(|d| d.def.event == "kill")
+            .ok_or_else(|| anyhow::anyhow!("no kill detector"))?;
         let res = studio::test_detector(st, SAMPLE_GAME, det.def.clone(), Path::new(&m.path))?;
-        anyhow::ensure!(!res.events.is_empty(), "kill detector found nothing ({} samples)", res.samples.len());
+        anyhow::ensure!(
+            !res.events.is_empty(),
+            "kill detector found nothing ({} samples)",
+            res.samples.len()
+        );
         Ok(json!({ "hits": res.events.iter().map(|e| e.t_ms).collect::<Vec<_>>(), "samples": res.samples.len() }))
     });
     out.insert(k, v);
 
     let (k, v) = check("eventType", || {
         let game = st.game(SAMPLE_GAME).ok_or_else(|| anyhow::anyhow!("sample game not loaded"))?;
-        let t = EventTypeDef { id: String::new(), label: "Self-test marker".into(), icon: "zap".into(), color: String::new(), builtin: false };
+        let t = EventTypeDef {
+            id: String::new(),
+            label: "Self-test marker".into(),
+            icon: "zap".into(),
+            color: String::new(),
+            builtin: false,
+        };
         upsert_event_type(&st.paths.user_games, &game.def, t)?;
         st.reload_games();
-        let g = st.game(SAMPLE_GAME).ok_or_else(|| anyhow::anyhow!("sample game vanished after reload"))?;
+        let g = st
+            .game(SAMPLE_GAME)
+            .ok_or_else(|| anyhow::anyhow!("sample game vanished after reload"))?;
         anyhow::ensure!(g.event_types().iter().any(|t| t.id == "self_test_marker"), "custom type not loaded");
         Ok(json!("self_test_marker"))
     });

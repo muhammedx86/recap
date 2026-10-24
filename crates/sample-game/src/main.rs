@@ -3,7 +3,7 @@
 //! `recap-sample-game`: run the scripted fake game, or export its fixture/frames/timeline.
 //!
 //! ```text
-//! recap-sample-game                              run the game (Windows)
+//! recap-sample-game [--window-scale <0.25..1>]   run the game (Windows); scale shrinks the window
 //! recap-sample-game --export-fixture <dir>       write <dir>/recap-sample-game/ for Recap
 //! recap-sample-game --export-frames <dir> --fps <n>
 //! recap-sample-game --timeline                   print the banner timeline as JSON
@@ -38,27 +38,38 @@ fn main() -> Result<()> {
         println!("wrote {n} frames to {}", dir.display());
         return Ok(());
     }
-    if let Some(unknown) = args.first() {
+    let scale: f64 = match value("--window-scale") {
+        Some(v) => v.parse::<f64>().context("--window-scale must be a number")?.clamp(0.25, 1.0),
+        None => 1.0,
+    };
+    if let Some(unknown) = args.iter().find(|a| a.starts_with("--") && *a != "--window-scale") {
         bail!("unknown argument {unknown:?} (try --timeline, --export-fixture <dir>, --export-frames <dir> --fps <n>)");
     }
-    run()
+    run(scale)
 }
 
 #[cfg(windows)]
-fn run() -> Result<()> {
+fn run(scale: f64) -> Result<()> {
     use minifb::{Key, Window, WindowOptions};
     use std::time::Instant;
 
-    let mut window = Window::new(game::WINDOW_TITLE, game::WIDTH, game::HEIGHT, WindowOptions::default())
-        .map_err(|e| anyhow::anyhow!("could not open the window: {e}"))?;
+    // On small screens the window is shrunk on purpose (keeping 16:9) rather than letting
+    // Windows squeeze it; detectors use fractional regions, so any size works.
+    let (w, h) = (
+        (game::WIDTH as f64 * scale).round() as usize,
+        (game::HEIGHT as f64 * scale).round() as usize,
+    );
+    let mut window =
+        Window::new(game::WINDOW_TITLE, w, h, WindowOptions::default()).map_err(|e| anyhow::anyhow!("could not open the window: {e}"))?;
     window.set_target_fps(60);
     let mut buf = game::new_frame();
+    let mut small = vec![0u32; w * h];
     let start = Instant::now();
     println!(
         "{}: window open ({}x{}), exits after {} s",
         game::WINDOW_TITLE,
-        game::WIDTH,
-        game::HEIGHT,
+        w,
+        h,
         game::EXIT_AT_S
     );
     while window.is_open() && !window.is_key_down(Key::Escape) {
@@ -67,8 +78,14 @@ fn run() -> Result<()> {
             break;
         }
         game::render_frame(t, &mut buf);
+        let out = if (w, h) == (game::WIDTH, game::HEIGHT) {
+            &buf
+        } else {
+            game::downscale(&buf, &mut small, w, h);
+            &small
+        };
         window
-            .update_with_buffer(&buf, game::WIDTH, game::HEIGHT)
+            .update_with_buffer(out, w, h)
             .map_err(|e| anyhow::anyhow!("window update failed: {e}"))?;
     }
     println!("{}: exiting after {:.1} s", game::WINDOW_TITLE, start.elapsed().as_secs_f64());
@@ -76,7 +93,7 @@ fn run() -> Result<()> {
 }
 
 #[cfg(not(windows))]
-fn run() -> Result<()> {
+fn run(_scale: f64) -> Result<()> {
     println!("The sample game window only runs on Windows. Use --timeline, --export-fixture or --export-frames here.");
     Ok(())
 }

@@ -13,7 +13,7 @@ use image::{imageops::FilterType, GrayImage};
 
 use crate::{
     events::{EventSource, GameEvent},
-    games::{DetectorDef, LoadedDetector},
+    games::{DetectMethod, DetectorDef, LoadedDetector},
 };
 
 /// Longest side of a template after downscaling for matching.
@@ -146,6 +146,11 @@ impl PreparedDetector {
                 let w = ((img.width() as f32 * f).round() as u32).max(2);
                 let h = ((img.height() as f32 * f).round() as u32).max(2);
                 let resized = image::imageops::resize(img, w, h, FilterType::Triangle);
+                let resized = if def.method == DetectMethod::Edges {
+                    edges(&resized)
+                } else {
+                    resized
+                };
                 if let Some(t) = PreparedTemplate::new(resized) {
                     templates.push(t);
                 }
@@ -181,6 +186,7 @@ impl PreparedDetector {
         } else {
             crop.clone()
         };
+        let hay = if self.def.method == DetectMethod::Edges { edges(&hay) } else { hay };
         self.templates
             .iter()
             .map(|t| best_zncc(&pad_to(&hay, t.img.width(), t.img.height()), t))
@@ -203,6 +209,23 @@ fn pad_to(img: &GrayImage, w: u32, h: u32) -> std::borrow::Cow<'_, GrayImage> {
     }))
 }
 
+/// Sobel edge strength, scaled to 0..255.
+pub fn edges(img: &GrayImage) -> GrayImage {
+    let (w, h) = img.dimensions();
+    if w < 3 || h < 3 {
+        return img.clone();
+    }
+    let p = |x: u32, y: u32| img.get_pixel(x.clamp(0, w - 1), y.clamp(0, h - 1)).0[0] as i32;
+    GrayImage::from_fn(w, h, |x, y| {
+        let (xm, xp) = (x.saturating_sub(1), (x + 1).min(w - 1));
+        let (ym, yp) = (y.saturating_sub(1), (y + 1).min(h - 1));
+        let gx = p(xp, ym) + 2 * p(xp, y) + p(xp, yp) - p(xm, ym) - 2 * p(xm, y) - p(xm, yp);
+        let gy = p(xm, yp) + 2 * p(x, yp) + p(xp, yp) - p(xm, ym) - 2 * p(x, ym) - p(xp, ym);
+        let mag = ((gx * gx + gy * gy) as f32).sqrt() / 4.0;
+        image::Luma([mag.min(255.0) as u8])
+    })
+}
+
 pub fn load_gray(path: &Path) -> Result<GrayImage> {
     Ok(image::open(path)
         .with_context(|| format!("opening template {}", path.display()))?
@@ -216,10 +239,16 @@ pub struct Trigger {
     threshold: f32,
     cooldown_ms: u64,
     min_consecutive: u32,
+    rearm_drop: f32,
     run: u32,
     run_start_ms: u64,
     run_peak: f32,
     fired_this_run: bool,
+    /// Re-arming within a run: highest score since the last fire, then the lowest score
+    /// once it has dipped by `rearm_drop`.
+    high: f32,
+    trough: f32,
+    armed: bool,
     last_fire_ms: Option<u64>,
 }
 
@@ -229,10 +258,14 @@ impl Trigger {
             threshold: def.threshold,
             cooldown_ms: def.cooldown_ms,
             min_consecutive: def.min_consecutive.max(1),
+            rearm_drop: def.rearm_drop.max(0.0),
             run: 0,
             run_start_ms: 0,
             run_peak: 0.0,
             fired_this_run: false,
+            high: 0.0,
+            trough: 0.0,
+            armed: false,
             last_fire_ms: None,
         }
     }
@@ -247,11 +280,30 @@ impl Trigger {
             }
             self.run += 1;
             self.run_peak = self.run_peak.max(score);
+            // Still on screen but it dipped and recovered: a new occurrence (e.g. another kill).
+            if self.fired_this_run && self.rearm_drop > 0.0 {
+                if !self.armed {
+                    self.high = self.high.max(score);
+                    if self.high - score >= self.rearm_drop {
+                        self.armed = true;
+                        self.trough = score;
+                    }
+                } else {
+                    self.trough = self.trough.min(score);
+                    let cooled = self.last_fire_ms.is_none_or(|l| t_ms.saturating_sub(l) >= self.cooldown_ms);
+                    if score - self.trough >= self.rearm_drop && cooled {
+                        self.last_fire_ms = Some(t_ms);
+                        self.rearm(score);
+                        return Some((t_ms, score));
+                    }
+                }
+            }
             if !self.fired_this_run && self.run >= self.min_consecutive {
                 let cooled = self
                     .last_fire_ms
                     .is_none_or(|l| self.run_start_ms.saturating_sub(l) >= self.cooldown_ms);
                 self.fired_this_run = true;
+                self.rearm(self.run_peak);
                 if cooled {
                     self.last_fire_ms = Some(self.run_start_ms);
                     return Some((self.run_start_ms, self.run_peak));
@@ -261,6 +313,12 @@ impl Trigger {
             self.run = 0;
         }
         None
+    }
+
+    fn rearm(&mut self, score: f32) {
+        self.high = score;
+        self.trough = score;
+        self.armed = false;
     }
 }
 
@@ -307,6 +365,7 @@ mod tests {
             min_consecutive: 2,
             sample_fps: 5.0,
             scales: vec![],
+            rearm_drop: 0.0,
             enabled: true,
             notes: None,
         }
@@ -403,6 +462,59 @@ mod tests {
         ];
         let fired: Vec<_> = samples.iter().filter_map(|&(ms, s)| t.push(ms, s)).map(|(ms, _)| ms).collect();
         assert_eq!(fired, vec![200, 2000]);
+    }
+
+    #[test]
+    fn rearm_refires_on_dip_and_recover_only() {
+        let mut d = def(Region {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        });
+        d.threshold = 0.7;
+        d.cooldown_ms = 300;
+        d.rearm_drop = 0.1;
+        let mut t = Trigger::new(&d);
+        let samples = [
+            (0, 0.75),
+            (100, 0.80), // fires at 0
+            (200, 0.95), // rising alone is not a new event
+            (300, 0.80), // dipped 0.15 below the high: armed
+            (400, 0.78),
+            (500, 0.90), // recovered 0.12 above the trough: fires
+            (600, 0.85),
+            (700, 0.95), // no dip since: nothing
+        ];
+        let fired: Vec<_> = samples.iter().filter_map(|&(ms, s)| t.push(ms, s)).map(|(ms, _)| ms).collect();
+        assert_eq!(fired, vec![0, 500]);
+
+        d.rearm_drop = 0.0;
+        let mut t = Trigger::new(&d);
+        assert_eq!(samples.iter().filter_map(|&(ms, s)| t.push(ms, s)).count(), 1);
+    }
+
+    #[test]
+    fn edges_match_over_a_different_background() {
+        // The same outline drawn over bright snow vs. dark ground, with inverted fill.
+        let tpl = pattern(40, 24);
+        let mut frame = GrayImage::from_pixel(640, 360, Luma([200]));
+        for (x, y, v) in tpl.enumerate_pixels() {
+            frame.put_pixel(300 + x, 250 + y, Luma([255 - v.0[0] / 2]));
+        }
+        let region = Region {
+            x: 260.0 / 640.0,
+            y: 230.0 / 360.0,
+            w: 120.0 / 640.0,
+            h: 70.0 / 360.0,
+        };
+        let mut dd = def(region);
+        dd.method = DetectMethod::Edges;
+        let d = PreparedDetector::from_images(dd, vec![tpl], 640, 360).unwrap();
+        let hit = d.score_frame(&frame);
+        let miss = d.score_frame(&noise_frame(640, 360, 11));
+        assert!(hit > 0.85, "edges hit {hit}");
+        assert!(miss < 0.5, "edges miss {miss}");
     }
 
     #[test]

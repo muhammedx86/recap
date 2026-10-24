@@ -64,7 +64,21 @@ pub fn scan_video(ff: &Ffmpeg, video: &Path, detectors: &[LoadedDetector], opts:
     }
     let info = ff.probe(video)?;
     let fps = ready.iter().map(|d| d.def.sample_fps).fold(0.5f32, f32::max);
-    let frames = ff.gray_frames(video, fps, &info, opts.analysis_height)?;
+    // Measure regions inside the game picture, not the black bars around it.
+    let crop = ff.content_rect(video, &info);
+    if let Some(c) = crop {
+        log::info!(
+            "{}: game picture is {}x{} at ({}, {}) inside {}x{}",
+            video.display(),
+            c.w,
+            c.h,
+            c.x,
+            c.y,
+            info.width,
+            info.height
+        );
+    }
+    let frames = ff.gray_frames(video, fps, &info, opts.analysis_height, crop)?;
     let (w, h) = (frames.width, frames.height);
 
     struct Slot {

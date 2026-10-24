@@ -66,9 +66,10 @@ interface DetectorDef {
   region: Region; templateBox?: Region;
   templates: string[];            // relative to game folder
   templateFrameHeight: number;
-  method: "ncc";
+  method: "ncc" | "edges";
   threshold: number; cooldownMs: number; minConsecutive: number; sampleFps: number;
-  scales: number[]; enabled: boolean; notes?: string;
+  scales: number[];
+  rearmDrop?: number; // 0/absent = off enabled: boolean; notes?: string;
 }
 
 // Event types: every event kind has a label, one of 15 icons and a colour.

@@ -125,7 +125,9 @@ pub fn slugify(label: &str) -> String {
 }
 
 /// Colours given to custom types when the user does not pick one.
-pub const AUTO_COLORS: [&str; 8] = ["#7cc3a3", "#d68b80", "#8fa7d6", "#ad9bd3", "#cfa1bd", "#7cb6be", "#c9b98a", "#d39b74"];
+pub const AUTO_COLORS: [&str; 8] = [
+    "#7cc3a3", "#d68b80", "#8fa7d6", "#ad9bd3", "#cfa1bd", "#7cb6be", "#c9b98a", "#d39b74",
+];
 
 /// Where an event came from. Purely informational: nothing downstream branches on it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

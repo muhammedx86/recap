@@ -53,6 +53,8 @@ jobs:
   windows:
     name: Windows app + installer
     runs-on: windows-latest
+    permissions:
+      contents: write # publishes E2E results to the e2e-results branch
     steps:
       - uses: actions/checkout@v4
 
@@ -165,9 +167,36 @@ jobs:
       - name: Build sample game
         run: cargo build -p recap-sample-game --release --locked
 
+      # Hosted runners default to 1024x768; games are usually 1080p. Best effort: the driver
+      # also shrinks the sample game window if the screen stays small.
+      - name: Set a 1080p display
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { Write-Host "Set-DisplayResolution unavailable: $_" }
+          Add-Type -AssemblyName System.Windows.Forms
+          Write-Host "screen: $([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)"
+
       - name: End-to-end test
         shell: pwsh
         run: ./scripts/e2e.ps1 -AppDir portable/Recap -GameExe target/release/recap-sample-game.exe -Out e2e-out
+
+      # Results also go to the e2e-results branch so they can be read with plain git.
+      - name: Publish end-to-end results to a branch
+        if: always() && github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path e2e-out)) { exit 0 }
+          $dst = Join-Path $env:RUNNER_TEMP "e2e-results"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Get-ChildItem e2e-out -File | Where-Object { $_.Extension -in ".json", ".txt", ".log" } | Copy-Item -Destination $dst
+          if (Test-Path e2e-out/screenshots) { Copy-Item e2e-out/screenshots "$dst/screenshots" -Recurse }
+          Set-Content "$dst/RUN.txt" "run ${{ github.run_id }} sha ${{ github.sha }} ref ${{ github.ref }}"
+          Set-Location $dst
+          git init -q -b e2e-results
+          git config user.name "recap-ci"; git config user.email "ci@users.noreply.github.com"
+          git add -A; git commit -q -m "E2E results for run ${{ github.run_id }}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" e2e-results
 
       - name: Upload end-to-end results
         if: always()

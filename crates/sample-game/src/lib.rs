@@ -260,6 +260,26 @@ fn noise(x: usize, y: usize, frame: u32, range: i32) -> i32 {
 }
 
 /// Draw the frame shown at `t` seconds into `buf` (WIDTH*HEIGHT, 0RGB).
+/// Area-average a full-size frame into a smaller `w`×`h` 0RGB buffer.
+pub fn downscale(src: &[u32], dst: &mut [u32], w: usize, h: usize) {
+    for dy in 0..h {
+        let (y0, y1) = (dy * HEIGHT / h, ((dy + 1) * HEIGHT / h).max(dy * HEIGHT / h + 1));
+        for dx in 0..w {
+            let (x0, x1) = (dx * WIDTH / w, ((dx + 1) * WIDTH / w).max(dx * WIDTH / w + 1));
+            let (mut r, mut g, mut b, mut n) = (0u32, 0u32, 0u32, 0u32);
+            for y in y0..y1 {
+                for &p in &src[y * WIDTH + x0..y * WIDTH + x1] {
+                    r += (p >> 16) & 0xff;
+                    g += (p >> 8) & 0xff;
+                    b += p & 0xff;
+                    n += 1;
+                }
+            }
+            dst[dy * w + dx] = ((r / n) << 16) | ((g / n) << 8) | (b / n);
+        }
+    }
+}
+
 pub fn render_frame(t: f64, buf: &mut [u32]) {
     assert_eq!(buf.len(), WIDTH * HEIGHT);
     let cues = timeline();
@@ -371,6 +391,7 @@ pub fn detector_def(b: Banner) -> DetectorDef {
         min_consecutive: 2,
         sample_fps: 6.0,
         scales: vec![],
+        rearm_drop: 0.0,
         enabled: true,
         notes: Some("Sample game fixture for Recap's end-to-end test.".into()),
     }
@@ -419,6 +440,14 @@ pub fn timeline_json() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn downscale_averages() {
+        let src = vec![0x00ff_8040u32; super::WIDTH * super::HEIGHT];
+        let mut dst = vec![0u32; 960 * 540];
+        super::downscale(&src, &mut dst, 960, 540);
+        assert!(dst.iter().all(|&p| p == 0x00ff_8040));
+    }
+
     use super::*;
 
     #[test]

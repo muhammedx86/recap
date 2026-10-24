@@ -15,9 +15,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::{
-    hotkeys,
-    processing,
-    session,
+    hotkeys, processing, session,
     state::{refresh_status, AppState, GameInfo, RecorderStatus},
     studio::{self, FrameResult, FrameSource, TestResult},
 };

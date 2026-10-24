@@ -119,8 +119,8 @@ export function Studio() {
   const shownRegion = box ? expand(box, margin) : draft.region;
   const isNew = detId === NEW;
   const hits = useMemo(
-    () => (test ? computeHits(test.samples, draft.threshold, draft.minConsecutive, draft.cooldownMs) : []),
-    [test, draft.threshold, draft.minConsecutive, draft.cooldownMs],
+    () => (test ? computeHits(test.samples, draft.threshold, draft.minConsecutive, draft.cooldownMs, draft.rearmDrop ?? 0) : []),
+    [test, draft.threshold, draft.minConsecutive, draft.cooldownMs, draft.rearmDrop],
   );
 
   const save = async () => {
@@ -397,6 +397,33 @@ export function Studio() {
                         .filter((n) => n > 0.2 && n < 5),
                     )
                   }
+                />
+              </Field>
+            </div>
+            <div className="field-row">
+              <Field label="Match on" htmlFor="st-method">
+                <select
+                  id="st-method"
+                  className="input"
+                  value={draft.method}
+                  onChange={(e) => set("method", e.target.value as DetectorDef["method"])}
+                  title="Outlines ignores what is behind the element (better for icons over gameplay). Test again after changing."
+                >
+                  <option value="ncc">Brightness</option>
+                  <option value="edges">Outlines</option>
+                </select>
+              </Field>
+              <Field label="Re-fire on pulse" htmlFor="st-rearm">
+                <input
+                  id="st-rearm"
+                  type="number"
+                  className="input"
+                  min={0}
+                  max={0.5}
+                  step={0.05}
+                  value={draft.rearmDrop ?? 0}
+                  onChange={(e) => set("rearmDrop", Math.min(0.5, Math.max(0, Number(e.target.value))))}
+                  title="If the element stays up and pulses once per event, count each pulse: the score drop that separates two events (try 0.1). 0 = off."
                 />
               </Field>
             </div>

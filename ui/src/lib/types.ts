@@ -68,12 +68,15 @@ export interface DetectorDef {
   templateBox?: Region;
   templates: string[];
   templateFrameHeight: number;
-  method: "ncc";
+  /** "ncc" compares brightness; "edges" compares outlines (ignores the scene behind a HUD element). */
+  method: "ncc" | "edges";
   threshold: number;
   cooldownMs: number;
   minConsecutive: number;
   sampleFps: number;
   scales: number[];
+  /** Fire again when the score dips by this much and recovers while still on screen. 0 = off. */
+  rearmDrop?: number;
   enabled: boolean;
   notes?: string;
 }

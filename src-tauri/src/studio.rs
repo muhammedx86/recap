@@ -40,7 +40,10 @@ pub struct TestResult {
 fn load_image(st: &AppState, source: &FrameSource) -> Result<DynamicImage> {
     match source {
         FrameSource::Video { path, t_ms } => {
-            let png = st.ff.frame_png(Path::new(path), *t_ms)?;
+            // Show (and cut templates from) the game picture only, so boxes line up with scans.
+            let video = Path::new(path);
+            let crop = st.ff.probe(video).ok().and_then(|info| st.ff.content_rect(video, &info));
+            let png = st.ff.frame_png(video, *t_ms, crop)?;
             Ok(image::load_from_memory_with_format(&png, ImageFormat::Png)?)
         }
         FrameSource::Image { path } => Ok(image::open(path).with_context(|| format!("opening {path}"))?),

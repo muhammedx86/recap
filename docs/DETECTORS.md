@@ -112,6 +112,8 @@ games/valorant/
 | `minConsecutive` | `2` | Matching samples in a row needed to fire. |
 | `sampleFps` | `6` | Samples per second. The indicator must stay on screen for at least `minConsecutive / sampleFps` seconds. |
 | `scales` | `[]` | Extra template scales to try; `1.0` is always tried. |
+| `method` | `"ncc"` | `"ncc"` compares brightness. `"edges"` compares outlines (edge strength), so an icon drawn over a changing scene (snow one round, a dark corridor the next) still matches. Prefer `edges` for HUD icons over gameplay. |
+| `rearmDrop` | `0` | For indicators that stay up and pulse once per event (e.g. a kill emblem that flashes again on each kill of a multikill): fire again when the score dips by at least this much and recovers, still respecting `cooldownMs`. Try `0.1`. `0` = off. |
 
 ### Where files live, and overrides
 

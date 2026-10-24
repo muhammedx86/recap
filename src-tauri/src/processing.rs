@@ -224,7 +224,10 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
     // One session, several matches? Split it and finish each match separately.
     if settings.split_matches && game.is_some() {
         let events = st.library.lock().unwrap().list_events(match_id)?;
-        let opts = SegmentOptions { min_len_ms: crate::selftest::min_match_len_ms(), ..SegmentOptions::default() };
+        let opts = SegmentOptions {
+            min_len_ms: crate::selftest::min_match_len_ms(),
+            ..SegmentOptions::default()
+        };
         let segments = plan_match_segments(&events, m.duration_ms, &opts);
         if !segments.is_empty() {
             return split_session(app, &st, &m, game.as_ref(), &settings, &events, &segments);
@@ -424,7 +427,11 @@ pub fn make_montage(st: &AppState, clip_ids: &[String], title: &str) -> Result<C
             .collect::<Result<_>>()?
     };
     let inputs: Vec<PathBuf> = clips.iter().map(|c| PathBuf::from(&c.path)).collect();
-    let title = if title.trim().is_empty() { "Montage".to_string() } else { title.trim().to_string() };
+    let title = if title.trim().is_empty() {
+        "Montage".to_string()
+    } else {
+        title.trim().to_string()
+    };
     let dir = clips_dir(st, "Montages");
     fs::create_dir_all(&dir)?;
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
@@ -432,8 +439,16 @@ pub fn make_montage(st: &AppState, clip_ids: &[String], title: &str) -> Result<C
     concat(&st.ff, &inputs, &out)?;
     let id = uuid::Uuid::new_v4().to_string();
     let thumb = st.paths.thumbnails.join(format!("clip-{id}.jpg"));
-    let thumbnail = st.ff.thumbnail(&out, 1000, &thumb, 360).ok().map(|_| thumb.to_string_lossy().into_owned());
-    let duration_ms = st.ff.probe(&out).map(|i| i.duration_ms).unwrap_or_else(|_| clips.iter().map(|c| c.duration_ms).sum());
+    let thumbnail = st
+        .ff
+        .thumbnail(&out, 1000, &thumb, 360)
+        .ok()
+        .map(|_| thumb.to_string_lossy().into_owned());
+    let duration_ms = st
+        .ff
+        .probe(&out)
+        .map(|i| i.duration_ms)
+        .unwrap_or_else(|_| clips.iter().map(|c| c.duration_ms).sum());
     let mut kinds: Vec<String> = clips.iter().flat_map(|c| c.event_kinds.clone()).collect();
     kinds.sort();
     kinds.dedup();

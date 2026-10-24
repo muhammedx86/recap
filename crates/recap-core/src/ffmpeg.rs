@@ -25,6 +25,40 @@ fn no_window(cmd: &mut Command) {
 #[cfg(not(windows))]
 fn no_window(_cmd: &mut Command) {}
 
+/// The part of a frame that holds the game picture, excluding black letterbox/pillarbox bars
+/// (e.g. a 16:9 game recorded on a 21:9 monitor). Detector regions are fractions of this area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContentRect {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+impl ContentRect {
+    pub fn filter(&self) -> String {
+        format!("crop={}:{}:{}:{}", self.w, self.h, self.x, self.y)
+    }
+}
+
+/// Parse the last `crop=w:h:x:y` that ffmpeg's cropdetect printed; ignore it when the bars are
+/// negligible or the result is implausible.
+pub fn parse_cropdetect(stderr: &str, width: u32, height: u32) -> Option<ContentRect> {
+    let last = stderr.rsplit("crop=").next().filter(|_| stderr.contains("crop="))?;
+    let nums: Vec<u32> = last
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|t| !t.is_empty())
+        .take(4)
+        .filter_map(|t| t.parse().ok())
+        .collect();
+    let [w, h, x, y] = nums[..] else { return None };
+    let r = ContentRect { x, y, w, h };
+    let bars = (width.saturating_sub(w)) + (height.saturating_sub(h));
+    let plausible = w >= width / 2 && h >= height / 2 && x + w <= width && y + h <= height;
+    // Only treat it as letterboxing if the bars are a real share of the frame (>= 2%).
+    (plausible && bars * 50 >= width.min(height)).then_some(r)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VideoInfo {
     pub width: u32,
@@ -111,15 +145,40 @@ impl Ffmpeg {
             .unwrap_or(false)
     }
 
-    /// Extract one frame as PNG bytes at full resolution.
-    pub fn frame_png(&self, video: &Path, t_ms: u64) -> Result<Vec<u8>> {
+    /// Find black bars around the game picture by sampling ~12 s from a third into the video.
+    pub fn content_rect(&self, video: &Path, info: &VideoInfo) -> Option<ContentRect> {
+        let start = info.duration_ms / 3;
         let out = self
             .command()
-            .arg("-ss")
-            .arg(format_secs(t_ms))
+            .args(["-loglevel", "info", "-ss"])
+            .arg(format_secs(start))
             .arg("-i")
             .arg(video)
-            .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"])
+            .args([
+                "-t",
+                "12",
+                "-an",
+                "-vf",
+                "fps=4,cropdetect=limit=24:round=2:reset=0",
+                "-f",
+                "null",
+                "-",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .ok()?;
+        parse_cropdetect(&String::from_utf8_lossy(&out.stderr), info.width, info.height)
+    }
+
+    /// Extract one frame as PNG bytes at full resolution (optionally only the game picture).
+    pub fn frame_png(&self, video: &Path, t_ms: u64, crop: Option<ContentRect>) -> Result<Vec<u8>> {
+        let mut cmd = self.command();
+        cmd.arg("-ss").arg(format_secs(t_ms)).arg("-i").arg(video).args(["-frames:v", "1"]);
+        if let Some(c) = crop {
+            cmd.arg("-vf").arg(c.filter());
+        }
+        let out = cmd
+            .args(["-f", "image2pipe", "-vcodec", "png", "-"])
             .stdin(Stdio::null())
             .output()
             .context("running ffmpeg")?;
@@ -150,16 +209,19 @@ impl Ffmpeg {
         Ok(())
     }
 
-    /// Decode a video as grayscale frames of height `height` sampled at `fps`.
-    pub fn gray_frames(&self, video: &Path, fps: f32, info: &VideoInfo, height: u32) -> Result<GrayFrames> {
-        let height = height.min(info.height).max(2) & !1;
-        let width = (((info.width as f64 * height as f64 / info.height as f64).round() as u32).max(2)) & !1;
+    /// Decode a video as grayscale frames of height `height` sampled at `fps`, cropped to the game
+    /// picture when `crop` is given.
+    pub fn gray_frames(&self, video: &Path, fps: f32, info: &VideoInfo, height: u32, crop: Option<ContentRect>) -> Result<GrayFrames> {
+        let (src_w, src_h) = crop.map(|c| (c.w, c.h)).unwrap_or((info.width, info.height));
+        let height = height.min(src_h).max(2) & !1;
+        let width = (((src_w as f64 * height as f64 / src_h as f64).round() as u32).max(2)) & !1;
+        let crop_filter = crop.map(|c| format!("{},", c.filter())).unwrap_or_default();
         let mut child = self
             .command()
             .args(["-hwaccel", "auto", "-i"])
             .arg(video)
             .args(["-an", "-sn", "-vf"])
-            .arg(format!("fps={fps},scale={width}:{height}:flags=area,format=gray"))
+            .arg(format!("fps={fps},{crop_filter}scale={width}:{height}:flags=area,format=gray"))
             .args(["-f", "rawvideo", "-pix_fmt", "gray", "-"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -215,6 +277,25 @@ pub fn format_secs(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cropdetect_parsing() {
+        let log = "[Parsed_cropdetect_1 @ 0x1] x1:0 ... crop=1920:1080:0:0\n[Parsed_cropdetect_1 @ 0x1] ... crop=1920:1080:336:0\n";
+        assert_eq!(
+            parse_cropdetect(log, 2592, 1080),
+            Some(ContentRect {
+                x: 336,
+                y: 0,
+                w: 1920,
+                h: 1080
+            })
+        );
+        // No bars worth cropping.
+        assert_eq!(parse_cropdetect("crop=1920:1076:0:2", 1920, 1080), None);
+        // Implausible (mostly black scene).
+        assert_eq!(parse_cropdetect("crop=400:300:10:10", 1920, 1080), None);
+        assert_eq!(parse_cropdetect("no crop here", 1920, 1080), None);
+    }
 
     #[test]
     fn formats_seconds() {

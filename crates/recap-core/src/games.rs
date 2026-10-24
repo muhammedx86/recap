@@ -158,9 +158,12 @@ fn yes() -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DetectMethod {
-    /// Zero-mean normalized cross-correlation against reference images.
+    /// Zero-mean normalized cross-correlation on brightness.
     #[default]
     Ncc,
+    /// The same correlation on edge strength (outlines), so a HUD element matches whatever
+    /// scene is behind it. Best for icons and banners drawn over gameplay.
+    Edges,
 }
 
 /// A detector, one per file in `detectors/`.
@@ -201,11 +204,19 @@ pub struct DetectorDef {
     /// Extra template scales to try, for HUD-scale differences (1.0 is always tried).
     #[serde(default)]
     pub scales: Vec<f32>,
+    /// Re-fire while the element stays on screen when its score dips by at least this much and
+    /// recovers (e.g. a kill banner that pulses on each of several quick kills). 0 = off.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rearm_drop: f32,
     #[serde(default = "yes")]
     pub enabled: bool,
     /// Optional notes for people sharing detector files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+}
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
 }
 
 fn default_threshold() -> f32 {
@@ -524,6 +535,7 @@ mod tests {
             min_consecutive: 2,
             sample_fps: 6.0,
             scales: vec![],
+            rearm_drop: 0.0,
             enabled: true,
             notes: None,
         }
