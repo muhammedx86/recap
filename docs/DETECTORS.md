@@ -75,6 +75,7 @@ games/valorant/
 | `api` | Optional: `league-live-client` or `cs2-gsi`. |
 | `preferApi` | When an API is available, skip vision detectors for event kinds the API already reports. |
 | `autoClip.events` | Event kinds that get turned into clips. |
+| `autoClip.timing` | Optional seconds around each kind, e.g. `{ "kill": { "before": 6, "after": 3 } }`. Overrides Recap's built-in per-kind timing; the user's own timing in Settings beats both. An event with `meta.endMs` (a multikill) is clipped from its start to its end. |
 | `postMatch` | Optional post-match processors (see below). |
 | `color` | Accent colour used in the UI. |
 

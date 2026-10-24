@@ -63,6 +63,8 @@ pub struct AutoClipSettings {
     pub events_override: Vec<String>,
     /// Re-encode clips for frame-accurate cuts (slower). Off = stream copy (instant, keyframe-aligned).
     pub precise_cuts: bool,
+    /// Your seconds before/after per kind of play, over the game's and built-in defaults.
+    pub timing: std::collections::BTreeMap<String, crate::games::ClipTiming>,
 }
 
 impl Default for AutoClipSettings {
@@ -74,6 +76,7 @@ impl Default for AutoClipSettings {
             merge_gap_seconds: 2.0,
             events_override: vec![],
             precise_cuts: false,
+            timing: Default::default(),
         }
     }
 }

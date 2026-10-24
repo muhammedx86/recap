@@ -375,6 +375,7 @@ pub fn game_def() -> GameDef {
         prefer_api: true,
         auto_clip: AutoClipDef {
             events: vec!["kill".into()],
+            timing: Default::default(),
         },
         post_match: vec![],
         color: Some("#7cc3a3".into()),

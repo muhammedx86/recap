@@ -22,4 +22,5 @@ pub mod riot_local;
 pub mod scan;
 pub mod segments;
 pub mod settings;
+pub mod valorant_log;
 pub mod vision;

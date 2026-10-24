@@ -8,11 +8,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use recap_core::{
-    clips::{concat, cut_clip, kinds_in_window, plan_auto_clips},
+    clips::{concat, cut_clip, default_timing, kinds_in_window, plan_auto_clips_timed, window_title},
     details::{from_events, latest_snapshot, merge, retain_manual},
     events::{
-        apply_exclusions, apply_round_rules, builtin_event_types, derive_multikills, is_round_kind, kind, merge_events, EventSource,
-        EventTypeDef, GameEvent, MULTIKILL_GAP_MS,
+        apply_exclusions, apply_round_rules, builtin_event_types, derive_multikills, kind, merge_events, EventSource, EventTypeDef,
+        GameEvent, MULTIKILL_GAP_MS,
     },
     games::{ApiSource, LoadedDetector, LoadedGame},
     library::{ClipKind, ClipRecord, MatchRecord, MatchStatus},
@@ -468,11 +468,22 @@ fn auto_clips(app: &AppHandle, st: &AppState, m: &MatchRecord, game: Option<&Loa
         kinds.push(kind::BOOKMARK.into());
     }
     let types = game.map(|g| g.event_types()).unwrap_or_else(builtin_event_types);
-    let windows = plan_auto_clips(
+    // Seconds around each play: yours, then the game's, then built-in, then the general setting.
+    let timing = |k: &str| -> (u64, u64) {
+        let (b, a) = settings
+            .auto_clip
+            .timing
+            .get(k)
+            .or_else(|| game.and_then(|g| g.def.auto_clip.timing.get(k)))
+            .map(|t| (t.before, t.after))
+            .or_else(|| default_timing(k))
+            .unwrap_or((settings.auto_clip.seconds_before, settings.auto_clip.seconds_after));
+        ((b.max(0.0) * 1000.0) as u64, (a.max(0.0) * 1000.0) as u64)
+    };
+    let windows = plan_auto_clips_timed(
         &events,
         &kinds,
-        (settings.auto_clip.seconds_before * 1000.0) as u64,
-        (settings.auto_clip.seconds_after * 1000.0) as u64,
+        &timing,
         (settings.auto_clip.merge_gap_seconds * 1000.0) as u64,
         m.duration_ms,
     );
@@ -480,7 +491,20 @@ fn auto_clips(app: &AppHandle, st: &AppState, m: &MatchRecord, game: Option<&Loa
     let mut made = 0;
     for (i, w) in windows.iter().enumerate() {
         emit_progress(app, &m.id, "clipping", i as f32 / total, None);
-        let title = clip_title(&w.event_kinds, w.anchor_ms, &types);
+        let label = |k: &str, plural: bool| {
+            let s = kind_style_label(k, &types);
+            if plural {
+                plural_of(&s)
+            } else {
+                s
+            }
+        };
+        let title = format!(
+            "{} @ {}:{:02}",
+            window_title(&events, w, &label),
+            w.anchor_ms / 60_000,
+            (w.anchor_ms / 1000) % 60
+        );
         match make_clip(st, m, w.start_ms, w.end_ms, &title, ClipKind::Auto, &events) {
             Ok(_) => made += 1,
             Err(e) => log::warn!("auto-clip failed: {e:#}"),
@@ -501,7 +525,31 @@ fn auto_clips(app: &AppHandle, st: &AppState, m: &MatchRecord, game: Option<&Loa
     Ok(())
 }
 
+/// A kind's display name ("Kill", "Ult used").
+fn kind_style_label(k: &str, types: &[EventTypeDef]) -> String {
+    types.iter().find(|t| t.id == k).map(|t| t.label.clone()).unwrap_or_else(|| {
+        let l = k.replace('_', " ");
+        let mut c = l.chars();
+        c.next()
+            .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+            .unwrap_or_default()
+    })
+}
+
+/// "Kill" -> "Kills", "Ult used" -> "Ults used" (first word), "Ace" -> "Aces".
+fn plural_of(label: &str) -> String {
+    let mut words: Vec<String> = label.split(' ').map(String::from).collect();
+    if let Some(w) = words.first_mut() {
+        if !w.ends_with('s') {
+            w.push('s');
+        }
+    }
+    words.join(" ")
+}
+
+#[cfg(test)]
 fn clip_title(kinds: &[String], anchor_ms: u64, types: &[EventTypeDef]) -> String {
+    use recap_core::events::is_round_kind;
     let main = kinds
         .iter()
         .find(|k| k.as_str() != kind::MATCH_END && k.as_str() != kind::MATCH_START && !is_round_kind(k))

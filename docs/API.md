@@ -141,7 +141,8 @@ interface Settings {
   encoder: "auto" | "nvenc" | "amf" | "qsv" | "x264";
   recordDesktopAudio: boolean; recordMicrophone: boolean; microphoneDevice: string | null;
   bookmarkHotkey: string; manualRecordHotkey: string;
-  autoClip: { enabled: boolean; secondsBefore: number; secondsAfter: number; mergeGapSeconds: number; eventsOverride: string[]; preciseCuts: boolean };
+  autoClip: { enabled: boolean; secondsBefore: number; secondsAfter: number; mergeGapSeconds: number; eventsOverride: string[]; preciseCuts: boolean;
+    timing: Record<string, { before: number; after: number }> /* per kind; overrides the game's and built-in timing */ };
   scanAfterMatch: boolean; analysisHeight: number;
   gamesEnabled: Record<string, boolean>;
   storageLimitGb: number | null;
