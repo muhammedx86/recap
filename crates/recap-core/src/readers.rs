@@ -182,6 +182,9 @@ impl PreparedReader {
                         if let Some((tok, n)) = counts.into_iter().max_by_key(|(_, n)| *n) {
                             let got = if n >= 2 { self.interpret(tok) } else { vec![] };
                             if !got.is_empty() {
+                                if self.fallbacks.load(std::sync::atomic::Ordering::Relaxed) < 2 {
+                                    log::info!("reader {}: tiled reading {text:?}", self.def.id);
+                                }
                                 self.note_fallback(36.0, -3.0);
                                 return got;
                             }
@@ -444,7 +447,7 @@ fn repeated_unit(s: &str) -> Option<(&str, u32)> {
 }
 
 /// Three copies of the text in a prepared (black on white) image, trimmed to the ink and joined
-/// by drawn slashes so they read as one line like a K/D/A ("13 / 13 / 13").
+/// by drawn dashes so they read as one line ("13 - 13 - 13").
 fn tile3(img: &GrayImage) -> GrayImage {
     let (w, h) = img.dimensions();
     let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
@@ -469,15 +472,12 @@ fn tile3(img: &GrayImage) -> GrayImage {
         let x = margin + i * (iw + gap);
         image::imageops::replace(&mut out, &ink, x as i64, margin as i64);
         if i < 2 {
-            // A slash in the gap, about 0.4 of the text height wide.
-            let (gx, sw) = ((x + iw) as f32 + gap as f32 * 0.3, gap as f32 * 0.4);
-            for yy in 0..ih {
-                let cx = gx + sw * (1.0 - yy as f32 / ih as f32);
-                for dx in 0..stroke {
-                    let px = cx as i64 + dx;
-                    if px >= 0 && (px as u32) < out.width() {
-                        out.put_pixel(px as u32, margin + yy, image::Luma([0]));
-                    }
+            // A dash in the middle of the gap (a slash or bar would look like a "1").
+            let (dx0, dw) = (x + iw + gap * 3 / 10, (gap * 4 / 10).max(3));
+            let dy0 = margin + ih / 2 - stroke as u32 / 2;
+            for yy in dy0..dy0 + stroke as u32 {
+                for xx in dx0..dx0 + dw {
+                    out.put_pixel(xx, yy, image::Luma([0]));
                 }
             }
         }
