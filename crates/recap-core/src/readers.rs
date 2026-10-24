@@ -692,7 +692,7 @@ mod tests {
     struct ShyOcr;
     impl TextReader for ShyOcr {
         fn read_text(&self, img: &GrayImage) -> Result<String> {
-            Ok(if img.width() > 4 * img.height() {
+            Ok(if img.width() > 2 * img.height() {
                 "13 13 L3".into()
             } else {
                 String::new()
