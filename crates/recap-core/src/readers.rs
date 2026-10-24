@@ -165,6 +165,26 @@ impl PreparedReader {
                     }
                     seen.push(text);
                 }
+                // Last resort for short numbers, which Windows OCR ignores on their own: repeat
+                // the box three times in a row and keep the reading that repeats.
+                if self.pattern.as_ref().is_some_and(|p| p.as_str().contains("\\d")) {
+                    let tiled = tile3(&prepare_for_ocr_with(&gray, 36.0, 0.5));
+                    if let Ok(text) = ocr.read_text(&tiled) {
+                        let fixed = fix_digits(&text);
+                        let mut counts: BTreeMap<&str, u32> = BTreeMap::new();
+                        for tok in fixed.split_whitespace() {
+                            *counts.entry(tok).or_default() += 1;
+                        }
+                        if let Some((tok, n)) = counts.into_iter().max_by_key(|(_, n)| *n) {
+                            let got = if n >= 2 { self.interpret(tok) } else { vec![] };
+                            if !got.is_empty() {
+                                self.note_fallback(36.0, -3.0);
+                                return got;
+                            }
+                        }
+                        seen.push(text);
+                    }
+                }
                 self.note_miss(&seen);
                 vec![]
             }
@@ -404,6 +424,16 @@ pub fn prepare_for_ocr_with(gray: &GrayImage, target: f32, margin: f32) -> GrayI
     out
 }
 
+/// Three copies of a prepared (white-background) image side by side.
+fn tile3(img: &GrayImage) -> GrayImage {
+    let (w, h) = img.dimensions();
+    let mut out = GrayImage::from_pixel(w * 3, h, image::Luma([255]));
+    for i in 0..3 {
+        image::imageops::replace(&mut out, img, (i * w) as i64, 0);
+    }
+    out
+}
+
 /// Standard deviation of the pixel values.
 fn contrast(img: &GrayImage) -> f32 {
     let n = (img.width() * img.height()).max(1) as f32;
@@ -639,6 +669,39 @@ mod tests {
         let p = prepared(reader(ReaderKind::Text, "result"));
         assert_eq!(p.interpret("VICTORY")[0].1, "win");
         assert!(p.interpret("CONTINUE").is_empty());
+    }
+
+    /// Mimics Windows OCR: nothing for a short number alone, fine once it is part of a long line.
+    struct ShyOcr;
+    impl TextReader for ShyOcr {
+        fn read_text(&self, img: &GrayImage) -> Result<String> {
+            Ok(if img.width() > 4 * img.height() {
+                "13 13 L3".into()
+            } else {
+                String::new()
+            })
+        }
+    }
+
+    #[test]
+    fn short_numbers_are_read_from_a_tiled_line() {
+        let mut d = reader(ReaderKind::Text, "team_score");
+        d.pattern = Some(r"^\s*(\d{1,2})\s*$".into());
+        d.region = Region {
+            x: 0.0,
+            y: 0.0,
+            w: 0.2,
+            h: 0.2,
+        };
+        let p = prepared(d);
+        let mut frame = RgbImage::from_pixel(640, 360, image::Rgb([20, 20, 30]));
+        for y in 10..60 {
+            for x in 10..30 {
+                frame.put_pixel(x, y, image::Rgb([200, 230, 200]));
+            }
+        }
+        let got = p.read_frame(&frame, Some(&ShyOcr));
+        assert_eq!(got.first().map(|g| g.1.as_str()), Some("13"));
     }
 
     #[test]
