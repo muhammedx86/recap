@@ -1,18 +1,28 @@
 //! Detector Studio backend: load frames, cut templates, test detectors.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex, OnceLock,
+    },
+    time::SystemTime,
+};
 
 use anyhow::{bail, Context, Result};
 use base64::Engine;
 use image::{DynamicImage, ImageFormat};
 use recap_core::{
     events::GameEvent,
+    ffmpeg::ContentRect,
     games::{
         ensure_templates_copied, save_user_detector, save_user_reader, ChoiceOption, DetectorDef, LoadedDetector, LoadedReader, ReaderDef,
         Region,
     },
     readers::{read_details, PreparedReader, ReadWindows},
     scan::{scan_video, ScanOptions},
+    vision::MatchLocation,
 };
 use serde::{Deserialize, Serialize};
 
@@ -35,10 +45,95 @@ pub struct FrameResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TestHit {
+    pub t_ms: u64,
+    #[serde(flatten)]
+    pub location: MatchLocation,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TestResult {
     pub events: Vec<GameEvent>,
     pub samples: Vec<(u64, f32)>,
     pub duration_ms: u64,
+    /// Where it matched for each detection (box as fractions of the game picture).
+    pub hits: Vec<TestHit>,
+    /// The run was cancelled; samples cover only part of the recording.
+    pub cancelled: bool,
+}
+
+/// The game picture inside a recording, in video pixels.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureRect {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// What Studio needs to show a recording: its size, length and where the game picture is.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoInfoResult {
+    pub width: u32,
+    pub height: u32,
+    pub duration_ms: u64,
+    /// The game picture when the recording has black bars around it; null when it fills the frame.
+    pub content: Option<PictureRect>,
+}
+
+struct CachedInfo {
+    stamp: (Option<SystemTime>, u64),
+    info: VideoInfoResult,
+    crop: Option<ContentRect>,
+}
+
+fn info_cache() -> &'static Mutex<HashMap<PathBuf, CachedInfo>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedInfo>>> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// Size, length and game picture of a recording. Black-bar detection runs ffmpeg for a few
+/// seconds, so results are cached per file (until the file changes).
+pub fn video_info(st: &AppState, path: &Path) -> Result<(VideoInfoResult, Option<ContentRect>)> {
+    let meta = std::fs::metadata(path).with_context(|| format!("recording not found: {}", path.display()))?;
+    let stamp = (meta.modified().ok(), meta.len());
+    if let Some(c) = info_cache().lock().unwrap().get(path) {
+        if c.stamp == stamp {
+            return Ok((c.info.clone(), c.crop));
+        }
+    }
+    let info = st.ff.probe(path)?;
+    let crop = st.ff.content_rect(path, &info);
+    let result = VideoInfoResult {
+        width: info.width,
+        height: info.height,
+        duration_ms: info.duration_ms,
+        content: crop.map(|c| PictureRect {
+            x: c.x,
+            y: c.y,
+            w: c.w,
+            h: c.h,
+        }),
+    };
+    info_cache().lock().unwrap().insert(
+        path.to_path_buf(),
+        CachedInfo {
+            stamp,
+            info: result.clone(),
+            crop,
+        },
+    );
+    Ok((result, crop))
+}
+
+/// Set by `studio_cancel`; checked by running Studio tests.
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+pub fn cancel_running() {
+    CANCEL.store(true, Ordering::Relaxed);
 }
 
 fn load_image(st: &AppState, source: &FrameSource) -> Result<DynamicImage> {
@@ -46,7 +141,7 @@ fn load_image(st: &AppState, source: &FrameSource) -> Result<DynamicImage> {
         FrameSource::Video { path, t_ms } => {
             // Show (and cut templates from) the game picture only, so boxes line up with scans.
             let video = Path::new(path);
-            let crop = st.ff.probe(video).ok().and_then(|info| st.ff.content_rect(video, &info));
+            let crop = video_info(st, video).map(|(_, c)| c).unwrap_or(None);
             let png = st.ff.frame_png(video, *t_ms, crop)?;
             Ok(image::load_from_memory_with_format(&png, ImageFormat::Png)?)
         }
@@ -129,6 +224,17 @@ fn template_base(st: &AppState, game_id: &str, det: &DetectorDef) -> PathBuf {
 
 /// Run an (unsaved) detector over a recording and return its score curve.
 pub fn test_detector(st: &AppState, game_id: &str, det: DetectorDef, match_path: &Path) -> Result<TestResult> {
+    test_detector_with_progress(st, game_id, det, match_path, &|_| {})
+}
+
+/// [`test_detector`], reporting progress 0..1; `studio_cancel` stops it early.
+pub fn test_detector_with_progress(
+    st: &AppState,
+    game_id: &str,
+    det: DetectorDef,
+    match_path: &Path,
+    progress: &(dyn Fn(f32) + Sync),
+) -> Result<TestResult> {
     det.validate()?;
     if det.templates.is_empty() {
         bail!("this detector has no reference image yet: draw a box and save first");
@@ -141,8 +247,9 @@ pub fn test_detector(st: &AppState, game_id: &str, det: DetectorDef, match_path:
         base_dir,
         user: true,
     };
-    let info = st.ff.probe(match_path)?;
+    let (info, crop) = video_info(st, match_path)?;
     let analysis_height = st.settings.read().unwrap().analysis_height;
+    CANCEL.store(false, Ordering::Relaxed);
     let res = scan_video(
         &st.ff,
         match_path,
@@ -150,14 +257,29 @@ pub fn test_detector(st: &AppState, game_id: &str, det: DetectorDef, match_path:
         ScanOptions {
             analysis_height,
             keep_traces: true,
-            cancel: None,
-            progress: None,
+            cancel: Some(&CANCEL),
+            progress: Some(progress),
+            content: Some(crop),
         },
     )?;
+    let trace = res.traces.into_iter().next();
     Ok(TestResult {
         events: res.events,
-        samples: res.traces.into_iter().next().map(|t| t.samples).unwrap_or_default(),
+        hits: trace
+            .as_ref()
+            .map(|t| {
+                t.hits
+                    .iter()
+                    .map(|(t_ms, location)| TestHit {
+                        t_ms: *t_ms,
+                        location: *location,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        samples: trace.map(|t| t.samples).unwrap_or_default(),
         duration_ms: info.duration_ms,
+        cancelled: res.cancelled,
     })
 }
 

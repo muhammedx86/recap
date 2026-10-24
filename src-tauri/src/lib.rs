@@ -236,6 +236,8 @@ pub fn run() {
             commands::studio_load_frame,
             commands::studio_save_detector,
             commands::studio_test_detector,
+            commands::studio_video_info,
+            commands::studio_cancel,
             commands::studio_delete_detector,
             commands::studio_save_reader,
             commands::studio_read_frame,

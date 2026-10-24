@@ -10,10 +10,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use image::{imageops::FilterType, GrayImage};
+use serde::Serialize;
 
 use crate::{
     events::{EventSource, GameEvent},
-    games::{DetectMethod, DetectorDef, LoadedDetector},
+    games::{DetectMethod, DetectorDef, LoadedDetector, Region},
 };
 
 /// Longest side of a template after downscaling for matching.
@@ -46,6 +47,9 @@ struct PreparedTemplate {
     norm: f32,
     /// When set, only these pixels are compared.
     mask: Option<MaskedPixels>,
+    /// Which reference image and scale this came from (for "where did it match").
+    reference: usize,
+    scale: f32,
 }
 
 impl PreparedTemplate {
@@ -88,6 +92,8 @@ impl PreparedTemplate {
             zero_mean,
             norm,
             mask: None,
+            reference: 0,
+            scale: 1.0,
         })
     }
 }
@@ -174,17 +180,17 @@ pub fn reference_mask(imgs: &[GrayImage], i: usize) -> Option<GrayImage> {
     }))
 }
 
-/// Best masked ZNCC of `t` anywhere inside `hay`.
-fn best_masked_zncc(hay: &GrayImage, t: &PreparedTemplate, m: &MaskedPixels) -> f32 {
+/// Best masked ZNCC of `t` anywhere inside `hay`, with its top-left position.
+fn best_masked_zncc(hay: &GrayImage, t: &PreparedTemplate, m: &MaskedPixels) -> (f32, u32, u32) {
     let (hw, hh) = hay.dimensions();
     let (tw, th) = t.img.dimensions();
     if tw > hw || th > hh {
-        return -1.0;
+        return (-1.0, 0, 0);
     }
     let raw = hay.as_raw();
     let offs: Vec<usize> = m.pos.iter().map(|&(x, y)| (y * hw + x) as usize).collect();
     let n = offs.len() as f32;
-    let mut best = -1f32;
+    let mut best = (-1f32, 0, 0);
     for y in 0..=(hh - th) as usize {
         for x in 0..=(hw - tw) as usize {
             let base = y * hw as usize + x;
@@ -201,23 +207,28 @@ fn best_masked_zncc(hay: &GrayImage, t: &PreparedTemplate, m: &MaskedPixels) -> 
             }
             // zvals are zero mean, so the window mean cancels out of `cross`.
             let score = cross / var.sqrt();
-            if score > best {
-                best = score;
+            if score > best.0 {
+                best = (score, x as u32, y as u32);
             }
         }
     }
-    best.min(1.0)
+    (best.0.min(1.0), best.1, best.2)
 }
 
 /// Best ZNCC score of `t` anywhere inside `hay`. Returns -1..1 (1 = identical up to brightness/contrast).
 fn best_zncc(hay: &GrayImage, t: &PreparedTemplate) -> f32 {
+    best_zncc_at(hay, t).0
+}
+
+/// [`best_zncc`] with the top-left position of the best match.
+fn best_zncc_at(hay: &GrayImage, t: &PreparedTemplate) -> (f32, u32, u32) {
     if let Some(m) = &t.mask {
         return best_masked_zncc(hay, t, m);
     }
     let (hw, hh) = hay.dimensions();
     let (tw, th) = t.img.dimensions();
     if tw > hw || th > hh {
-        return -1.0;
+        return (-1.0, 0, 0);
     }
     let n = (tw * th) as f64;
     // Integral images of the haystack for O(1) window sums.
@@ -240,7 +251,7 @@ fn best_zncc(hay: &GrayImage, t: &PreparedTemplate) -> f32 {
         a[(y + th as usize) * stride + x + tw as usize] - a[y * stride + x + tw as usize] - a[(y + th as usize) * stride + x]
             + a[y * stride + x]
     };
-    let mut best = -1f32;
+    let mut best = (-1f32, 0, 0);
     for y in 0..=(hh - th) as usize {
         for x in 0..=(hw - tw) as usize {
             let s = rect(&sum, x, y);
@@ -261,12 +272,25 @@ fn best_zncc(hay: &GrayImage, t: &PreparedTemplate) -> f32 {
                 }
             }
             let score = cross / (t.norm * (var.sqrt() as f32));
-            if score > best {
-                best = score;
+            if score > best.0 {
+                best = (score, x as u32, y as u32);
             }
         }
     }
-    best.min(1.0)
+    (best.0.min(1.0), best.1, best.2)
+}
+
+/// Where a detector matched best on a frame.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchLocation {
+    pub score: f32,
+    /// The matched box, as fractions of the frame.
+    pub region: Region,
+    /// Template scale that matched (1.0 = the size it was cut at).
+    pub scale: f32,
+    /// Index of the reference image that matched best.
+    pub reference: usize,
 }
 
 /// A detector ready to score frames of a known size.
@@ -307,7 +331,7 @@ impl PreparedDetector {
         let work_scale = (MAX_TEMPLATE_DIM as f32 / largest).min(1.0);
         let masks: Vec<Option<GrayImage>> = (0..imgs.len()).map(|i| reference_mask(&imgs, i)).collect();
         let mut templates = Vec::new();
-        for (img, mask) in imgs.iter().zip(&masks) {
+        for (ri, (img, mask)) in imgs.iter().zip(&masks).enumerate() {
             for s in &scales {
                 let f = base * s * work_scale;
                 let w = ((img.width() as f32 * f).round() as u32).max(2);
@@ -319,7 +343,9 @@ impl PreparedDetector {
                     resized
                 };
                 let mask = mask.as_ref().map(|m| image::imageops::resize(m, w, h, FilterType::Nearest));
-                if let Some(t) = PreparedTemplate::with_mask(resized, mask.as_ref()) {
+                if let Some(mut t) = PreparedTemplate::with_mask(resized, mask.as_ref()) {
+                    t.reference = ri;
+                    t.scale = *s;
                     templates.push(t);
                 }
             }
@@ -343,6 +369,57 @@ impl PreparedDetector {
         let (x, y, w, h) = self.def.region.to_pixels(frame.width(), frame.height());
         let crop = image::imageops::crop_imm(frame, x, y, w, h).to_image();
         self.score_region(&crop)
+    }
+
+    /// Where the detector matches best on a full frame (same size as at load time).
+    pub fn locate_frame(&self, frame: &GrayImage) -> Option<MatchLocation> {
+        let (fw, fh) = (frame.width() as f32, frame.height() as f32);
+        let (x0, y0, w, h) = self.def.region.to_pixels(frame.width(), frame.height());
+        let crop = image::imageops::crop_imm(frame, x0, y0, w, h).to_image();
+        let hay = self.prepare_hay(&crop);
+        // Best template, with its match position in the (unpadded) work-scale crop.
+        let mut best: Option<(f32, f32, f32, &PreparedTemplate)> = None;
+        for t in &self.templates {
+            let padded = pad_to(&hay, t.img.width(), t.img.height());
+            // pad_to centres the original inside the padded image.
+            let off_x = ((padded.width() - hay.width()) / 2) as f32;
+            let off_y = ((padded.height() - hay.height()) / 2) as f32;
+            let (s, x, y) = best_zncc_at(&padded, t);
+            if best.as_ref().is_none_or(|b| s > b.0) {
+                best = Some((s, (x as f32 - off_x).max(0.0), (y as f32 - off_y).max(0.0), t));
+            }
+        }
+        let (score, x, y, t) = best?;
+        let ws = self.work_scale.max(1e-6);
+        let px = x0 as f32 + x / ws;
+        let py = y0 as f32 + y / ws;
+        let (tw, th) = (t.img.width() as f32 / ws, t.img.height() as f32 / ws);
+        Some(MatchLocation {
+            score,
+            region: Region {
+                x: (px / fw).clamp(0.0, 1.0),
+                y: (py / fh).clamp(0.0, 1.0),
+                w: (tw / fw).min(1.0),
+                h: (th / fh).min(1.0),
+            },
+            scale: t.scale,
+            reference: t.reference,
+        })
+    }
+
+    fn prepare_hay(&self, crop: &GrayImage) -> GrayImage {
+        let hay = if self.work_scale < 0.999 {
+            let w = ((crop.width() as f32 * self.work_scale).round() as u32).max(1);
+            let h = ((crop.height() as f32 * self.work_scale).round() as u32).max(1);
+            image::imageops::resize(crop, w, h, FilterType::Triangle)
+        } else {
+            crop.clone()
+        };
+        if self.def.method == DetectMethod::Edges {
+            edges(&hay)
+        } else {
+            hay
+        }
     }
 
     /// Score an already-cropped region (at analysis resolution).
@@ -585,6 +662,26 @@ mod tests {
         let miss = d.score_frame(&noise_frame(640, 360, 9));
         assert!(hit > 0.95, "hit score {hit}");
         assert!(miss < 0.5, "miss score {miss}");
+    }
+
+    #[test]
+    fn locate_reports_where_it_matched() {
+        let tpl = pattern(40, 24);
+        let mut frame = noise_frame(640, 360, 7);
+        paste(&mut frame, &tpl, 300, 250, 1.0, 0.0);
+        let region = Region {
+            x: 260.0 / 640.0,
+            y: 230.0 / 360.0,
+            w: 120.0 / 640.0,
+            h: 70.0 / 360.0,
+        };
+        let d = PreparedDetector::from_images(def(region), vec![tpl], 640, 360).unwrap();
+        let at = d.locate_frame(&frame).unwrap();
+        assert!(at.score > 0.95, "score {}", at.score);
+        assert!((at.region.x * 640.0 - 300.0).abs() <= 2.0, "x {}", at.region.x * 640.0);
+        assert!((at.region.y * 360.0 - 250.0).abs() <= 2.0, "y {}", at.region.y * 360.0);
+        assert!((at.region.w * 640.0 - 40.0).abs() <= 2.0);
+        assert_eq!(at.reference, 0);
     }
 
     #[test]
