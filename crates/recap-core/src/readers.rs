@@ -168,7 +168,7 @@ impl PreparedReader {
                 // Last resort for short numbers, which Windows OCR ignores on their own: repeat
                 // the box three times in a row and keep the reading that repeats.
                 if self.pattern.as_ref().is_some_and(|p| p.as_str().contains("\\d")) {
-                    let tiled = tile3(&prepare_for_ocr_with(&gray, 36.0, 0.5));
+                    let tiled = tile3(&prepare_for_ocr_with(&gray, 36.0, 0.0));
                     if let Ok(text) = ocr.read_text(&tiled) {
                         let fixed = fix_digits(&text);
                         let mut counts: BTreeMap<&str, u32> = BTreeMap::new();
@@ -424,12 +424,29 @@ pub fn prepare_for_ocr_with(gray: &GrayImage, target: f32, margin: f32) -> GrayI
     out
 }
 
-/// Three copies of a prepared (white-background) image side by side.
+/// Three copies of the text in a prepared (black on white) image, trimmed to the ink and joined
+/// with normal word spacing so they read as one line ("13 13 13").
 fn tile3(img: &GrayImage) -> GrayImage {
     let (w, h) = img.dimensions();
-    let mut out = GrayImage::from_pixel(w * 3, h, image::Luma([255]));
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for (x, y, p) in img.enumerate_pixels() {
+        if p.0[0] < 128 {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+    }
+    if x1 < x0 || y1 < y0 {
+        return img.clone();
+    }
+    let ink = image::imageops::crop_imm(img, x0, y0, x1 - x0 + 1, y1 - y0 + 1).to_image();
+    let (iw, ih) = ink.dimensions();
+    let gap = (ih as f32 * 0.45) as u32 + 2;
+    let margin = (ih / 2).max(8);
+    let mut out = GrayImage::from_pixel(iw * 3 + gap * 2 + margin * 2, ih + margin * 2, image::Luma([255]));
     for i in 0..3 {
-        image::imageops::replace(&mut out, img, (i * w) as i64, 0);
+        image::imageops::replace(&mut out, &ink, (margin + i * (iw + gap)) as i64, margin as i64);
     }
     out
 }
@@ -695,8 +712,8 @@ mod tests {
         };
         let p = prepared(d);
         let mut frame = RgbImage::from_pixel(640, 360, image::Rgb([20, 20, 30]));
-        for y in 10..60 {
-            for x in 10..30 {
+        for y in 10..50 {
+            for x in 10..50 {
                 frame.put_pixel(x, y, image::Rgb([200, 230, 200]));
             }
         }
