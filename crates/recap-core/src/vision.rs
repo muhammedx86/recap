@@ -26,6 +26,9 @@ const MASK_AGREE: i32 = 24;
 const MASK_ALIGN: i32 = 6;
 /// Two references count as the same element when they correlate at least this well.
 const MASK_SAME_ELEMENT: f32 = 0.3;
+/// Windows whose pixel variance (0..255 scale) is below this are flat (no element in them)
+/// and never match: about 1.5 grey levels of spread.
+const MIN_WINDOW_VAR: f64 = 2.25;
 
 /// Template pixels that belong to the HUD element (the rest are ignored).
 #[derive(Debug, Clone)]
@@ -183,24 +186,27 @@ fn best_masked_zncc(hay: &GrayImage, t: &PreparedTemplate, m: &MaskedPixels) -> 
     }
     let raw = hay.as_raw();
     let offs: Vec<usize> = m.pos.iter().map(|&(x, y)| (y * hw + x) as usize).collect();
-    let n = offs.len() as f32;
+    let n = offs.len() as f64;
     let mut best = -1f32;
     for y in 0..=(hh - th) as usize {
         for x in 0..=(hw - tw) as usize {
             let base = y * hw as usize + x;
-            let (mut s, mut q, mut cross) = (0f32, 0f32, 0f32);
+            // f64 sums: in f32, sum(v^2) - sum(v)^2/n cancels catastrophically on flat bright
+            // areas and turns noise into perfect "matches".
+            let (mut s, mut q, mut cross) = (0f64, 0f64, 0f64);
             for (o, tv) in offs.iter().zip(&m.zvals) {
-                let v = raw[base + o] as f32;
+                let v = raw[base + o] as f64;
                 s += v;
                 q += v * v;
-                cross += v * tv;
+                cross += v * *tv as f64;
             }
             let var = q - s * s / n;
-            if var <= 1e-3 {
+            // A (nearly) flat window has no element in it, whatever the correlation says.
+            if var <= MIN_WINDOW_VAR * n {
                 continue;
             }
             // zvals are zero mean, so the window mean cancels out of `cross`.
-            let score = cross / var.sqrt();
+            let score = (cross / var.sqrt()) as f32;
             if score > best {
                 best = score;
             }
@@ -246,7 +252,7 @@ fn best_zncc(hay: &GrayImage, t: &PreparedTemplate) -> f32 {
             let s = rect(&sum, x, y);
             let q = rect(&sq, x, y);
             let var = q - s * s / n;
-            if var <= 1e-6 {
+            if var <= MIN_WINDOW_VAR * n {
                 continue;
             }
             // sum(T' * I) — T' is zero mean, so the window mean cancels out.
@@ -285,13 +291,28 @@ impl PreparedDetector {
     /// Load the detector's templates and scale them for frames of `frame_w`x`frame_h`.
     pub fn load(det: &LoadedDetector, frame_w: u32, frame_h: u32) -> Result<Self> {
         let mut imgs = Vec::new();
+        let mut given = Vec::new();
         for p in det.template_paths() {
             imgs.push(load_gray(&p)?);
+            given.push(mask_path(&p).filter(|m| m.exists()).and_then(|m| load_gray(&m).ok()));
         }
-        Self::from_images(det.def.clone(), imgs, frame_w, frame_h)
+        Self::from_images_with_masks(det.def.clone(), imgs, given, frame_w, frame_h)
     }
 
     pub fn from_images(def: DetectorDef, imgs: Vec<GrayImage>, frame_w: u32, frame_h: u32) -> Result<Self> {
+        let n = imgs.len();
+        Self::from_images_with_masks(def, imgs, vec![None; n], frame_w, frame_h)
+    }
+
+    /// Like [`Self::from_images`], with an optional hand-made mask per reference (white = part of
+    /// the HUD element). References without one get a mask learned from the others.
+    pub fn from_images_with_masks(
+        def: DetectorDef,
+        imgs: Vec<GrayImage>,
+        given: Vec<Option<GrayImage>>,
+        frame_w: u32,
+        frame_h: u32,
+    ) -> Result<Self> {
         let base = frame_h as f32 / def.template_frame_height as f32;
         let mut scales = vec![1.0f32];
         for s in &def.scales {
@@ -305,7 +326,12 @@ impl PreparedDetector {
             .map(|i| i.width().max(i.height()) as f32 * base * scales.iter().cloned().fold(1.0, f32::max))
             .fold(1.0, f32::max);
         let work_scale = (MAX_TEMPLATE_DIM as f32 / largest).min(1.0);
-        let masks: Vec<Option<GrayImage>> = (0..imgs.len()).map(|i| reference_mask(&imgs, i)).collect();
+        let masks: Vec<Option<GrayImage>> = (0..imgs.len())
+            .map(|i| match given.get(i).cloned().flatten() {
+                Some(m) if m.dimensions() == imgs[i].dimensions() => Some(m),
+                _ => reference_mask(&imgs, i),
+            })
+            .collect();
         let mut templates = Vec::new();
         for (img, mask) in imgs.iter().zip(&masks) {
             for s in &scales {
@@ -392,6 +418,15 @@ pub fn edges(img: &GrayImage) -> GrayImage {
         let mag = ((gx * gx + gy * gy) as f32).sqrt() / 4.0;
         image::Luma([mag.min(255.0) as u8])
     })
+}
+
+/// `templates/ring.png` -> `templates/ring.mask.png`: an optional hand-made mask for a reference.
+pub fn mask_path(template: &Path) -> Option<std::path::PathBuf> {
+    let stem = template.file_stem()?.to_str()?;
+    if stem.ends_with(".mask") {
+        return None;
+    }
+    Some(template.with_file_name(format!("{stem}.mask.png")))
 }
 
 pub fn load_gray(path: &Path) -> Result<GrayImage> {
