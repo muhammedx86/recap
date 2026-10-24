@@ -23,7 +23,7 @@ const DIVIDER_KINDS = new Set(["round_start"]);
 const ROUND_RESULT_KINDS = new Set(["round_win", "round_loss"]);
 
 /**
- * One lane per event kind, ticks at each event, an amber playhead across all lanes.
+ * One lane per event kind, ticks at each event, an accent playhead across all lanes.
  * Rounds are drawn as dividers across every lane (R1, R2…) with a faint win/loss wash.
  * Click empty space to seek there; click a tick to jump a few seconds before it.
  */

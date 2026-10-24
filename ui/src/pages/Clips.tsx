@@ -48,6 +48,7 @@ export function Clips() {
     <div className="page">
       <header className="page-head">
         <h1>Clips</h1>
+        <p className="lede">Your highlights and montages. Select clips to join them into a montage.</p>
       </header>
 
       <div className="filters" role="toolbar" aria-label="Filter clips">

@@ -46,3 +46,16 @@ export function dayKey(unixMs: number): string {
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** "just now", "5 minutes ago", "10 hours ago", "3 days ago", then a date. */
+export function timeAgo(unixMs: number, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - unixMs) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} ${m === 1 ? "minute" : "minutes"} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} ${h === 1 ? "hour" : "hours"} ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d} ${d === 1 ? "day" : "days"} ago`;
+  return new Date(unixMs).toLocaleDateString(undefined, { month: "short", day: "numeric", year: d > 300 ? "numeric" : undefined });
+}

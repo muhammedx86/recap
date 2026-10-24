@@ -8,6 +8,8 @@ export const DETAIL_FIELDS: Array<{ id: string; label: string; placeholder: stri
   { id: "character", label: "Character", placeholder: "Jett" },
   { id: "map", label: "Map", placeholder: "Ascent" },
   { id: "mode", label: "Mode", placeholder: "Competitive" },
+  { id: "rank", label: "Rank", placeholder: "Gold 2" },
+  { id: "player", label: "Player", placeholder: "name#tag" },
   { id: "kills", label: "Kills", placeholder: "18" },
   { id: "deaths", label: "Deaths", placeholder: "6" },
   { id: "assists", label: "Assists", placeholder: "8" },
@@ -82,4 +84,22 @@ export function kdaSource(d: Record<string, DetailValue>): DetailValue | null {
 /** Custom fields (not built-in, not internal helpers). */
 export function customFields(m: MatchRecord): string[] {
   return Object.keys(m.details ?? {}).filter((k) => !DETAIL_FIELDS.some((f) => f.id === k) && k !== "team_score" && k !== "enemy_score");
+}
+
+/** Kills+assists over deaths, e.g. "1.50" (deaths of 0 count as 1). Null without kills or deaths. */
+export function kdaRatio(d: Record<string, DetailValue>): string | null {
+  const n = (k: string) => {
+    const v = parseInt(d[k]?.value ?? "", 10);
+    return Number.isFinite(v) ? v : null;
+  };
+  const k = n("kills");
+  const de = n("deaths");
+  if (k === null || de === null) return null;
+  return ((k + (n("assists") ?? 0)) / Math.max(1, de)).toFixed(2);
+}
+
+/** "13-9" -> [13, 9]. */
+export function scoreParts(v: string | undefined): [number, number] | null {
+  const m = v?.match(/(\d+)\s*[-:–—]\s*(\d+)/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
 }

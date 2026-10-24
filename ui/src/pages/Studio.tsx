@@ -1,3 +1,4 @@
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, fileSrc, on, pickPath } from "../lib/api";
@@ -343,6 +344,7 @@ export function Studio() {
     <div className="page page-studio">
       <header className="page-head">
         <h1>Detector Studio</h1>
+        <p className="lede">Teach Recap what a play looks like: find a moment, box what appears on screen, then test it on a recording</p>
       </header>
 
       <div className="studio">
@@ -618,7 +620,7 @@ export function Studio() {
             </div>
             <Field label="Match needed" htmlFor="st-thr">
               <div className="range-row" title="How alike the screen must look to the reference. Higher: fewer false alarms, more misses.">
-                <input id="st-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} onChange={(e) => set("threshold", Number(e.target.value))} />
+                <input id="st-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} style={{ "--p": `${((draft.threshold - 0.5) / 0.49) * 100}%` } as React.CSSProperties} onChange={(e) => set("threshold", Number(e.target.value))} />
                 <span className="num range-val">{pct(draft.threshold)}</span>
               </div>
             </Field>
@@ -655,7 +657,7 @@ export function Studio() {
               <summary>More settings</summary>
               <Field label="Search area around the box" htmlFor="st-margin" hint={box ? undefined : "Draw a box to change it."}>
                 <div className="range-row" title="How far around your box to look, in case it moves a little.">
-                  <input id="st-margin" type="range" min={0} max={1} step={0.05} value={margin} onChange={(e) => setMargin(Number(e.target.value))} disabled={!box} />
+                  <input id="st-margin" type="range" min={0} max={1} step={0.05} value={margin} style={{ "--p": `${margin * 100}%` } as React.CSSProperties} onChange={(e) => setMargin(Number(e.target.value))} disabled={!box} />
                   <span className="num range-val">{pct(margin)}</span>
                 </div>
               </Field>

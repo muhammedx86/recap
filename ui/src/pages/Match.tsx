@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { bytes, clockTime, dayLabel, duration, timecode } from "../lib/format";
+import { bytes, clockTime, duration, timecode } from "../lib/format";
 import { useLibraryChanged, useLoad, useProcessing } from "../lib/hooks";
 import { kindStyle, sortKinds, sourceLabel } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import { computeRounds, type Round } from "../lib/rounds";
-import type { ClipRecord, GameEvent } from "../lib/types";
+import type { ClipRecord, GameEvent, MatchRecord } from "../lib/types";
+import { AssetImg } from "../components/AssetImg";
+import { useAssetDirs } from "../lib/assets";
+import { kdaRatio, scoreParts } from "../lib/details";
+import { roundScore } from "../lib/rounds";
+import { loadPref, savePref } from "../lib/media";
 import { Player, type PlayerHandle } from "../components/Player";
 import { Timeline } from "../components/Timeline";
 import { MatchDetailsStrip } from "../components/MatchDetails";
-import { Empty, Icon, KindDot, ProgressBar, RoundScore, Thumb } from "../components/ui";
+import { Empty, Icon, KindCounts, KindDot, ProgressBar, Thumb } from "../components/ui";
 import { matchHeading } from "./Library";
 
 const LEAD_IN_MS = 3000;
+
+type SideTab = "overview" | "plays";
 
 export function MatchPage() {
   const { id = "" } = useParams();
@@ -27,6 +34,11 @@ export function MatchPage() {
   const [clipTitle, setClipTitle] = useState("");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<SideTab>(() => loadPref<SideTab>("match.tab", "overview"));
+  const chooseTab = (t: SideTab) => {
+    setTab(t);
+    savePref("match.tab", t);
+  };
   useLibraryChanged(reload, id);
 
   // Moving between matches reuses this page: start each one fresh.
@@ -201,36 +213,46 @@ export function MatchPage() {
 
   const customTitle = !!m.title?.trim();
 
+  const d = m.details ?? {};
+  const tabs: Array<[SideTab, string]> = [
+    ["overview", "Overview"],
+    ["plays", `Plays`],
+  ];
+
   return (
-    <div className="page page-match">
-      <header className="match-top">
-        <BackLink />
-        <div className="match-head">
+    <div className="match-page">
+      <div className="match-col">
+        <header className="match-top">
+          <BackLink />
           <div className="match-head-text">
-            <h1 className="match-h1">{matchHeading(m)}</h1>
+            <h1 className="match-h1">
+              {m.title?.trim() || m.details?.map?.value || matchHeading(m)}
+              {m.favorite && (
+                <span className="fav-star" aria-label="Favourite">
+                  <Icon name="star" size={13} />
+                </span>
+              )}
+            </h1>
             <p className="match-meta">
-              {customTitle && <span>{m.gameName}</span>}
               <span>
-                {dayLabel(m.startedUnixMs)}, {clockTime(m.startedUnixMs)}
+                {[customTitle || d.map ? m.gameName : null, d.mode?.value].filter(Boolean).join(" · ")}
+                {customTitle || d.map || d.mode ? " · " : ""}Recorded {recordedDate(m.startedUnixMs)}, {clockTime(m.startedUnixMs)}
               </span>
               {m.durationMs > 0 && <span className="num">{duration(m.durationMs)}</span>}
-              {/* The details strip shows the score when one is known. */}
-              {!m.details?.score && <RoundScore counts={m.eventCounts} />}
               {m.sizeBytes > 0 && <span className="num">{bytes(m.sizeBytes)}</span>}
             </p>
-            {!live && <MatchDetailsStrip key={m.id} m={m} onSaved={(rec) => setData((d) => (d ? { ...d, match: rec } : d))} />}
           </div>
           <div className="head-actions">
             <button className="btn btn-ghost" onClick={() => api.openPath(m.path).catch((e) => toast.error(e))}>
-              <Icon name="folder" size={15} />
+              <Icon name="folder" size={14} />
               Show file
             </button>
-            <button className="btn btn-ghost" onClick={rescan} disabled={live || m.status === "processing"} title="Run this game's detectors over the recording again">
-              <Icon name="refresh" size={15} />
+            <button className="btn" onClick={rescan} disabled={live || m.status === "processing"} title="Run this game's detectors over the recording again">
+              <Icon name="refresh" size={14} />
               Rescan
             </button>
           </div>
-        </div>
+        </header>
         {m.status === "processing" && (
           <div className="banner">
             <span>Finding plays{progress !== undefined ? ` · ${Math.round(progress * 100)}%` : "…"}</span>
@@ -239,23 +261,12 @@ export function MatchPage() {
         )}
         {m.status === "error" && <p className="banner banner-err">{m.error ?? "This recording failed."}</p>}
         {live && <p className="banner">Still recording. Markers and clips appear when the match ends.</p>}
-      </header>
 
-      <div className="match-grid">
-        <div className="match-main">
+        <div className="video-card">
           <Player key={m.id} ref={player} path={m.path} poster={m.thumbnail} durationMs={m.durationMs} onTime={setTime} resume={!live} />
-          <Timeline
-            events={events}
-            rounds={rounds}
-            durationMs={m.durationMs}
-            timeMs={time}
-            inMs={inMs}
-            outMs={outMs}
-            hiddenKinds={hidden}
-            onSeek={(ms) => player.current?.seek(ms)}
-            onEventClick={jump}
-          />
-          {rounds.length > 0 && <RoundsStrip rounds={rounds} timeMs={time} onJump={(r) => player.current?.seek(Math.max(0, r.startMs - 2000))} />}
+        </div>
+
+        <section className="timeline-card" aria-label="Timeline">
           <div className="tools">
             <div className="clipper" role="group" aria-label="Make a clip">
               <button className="btn btn-small" onClick={() => (setIn(Math.round(time)), setOut(null))} title="Set in point (I)">
@@ -276,7 +287,10 @@ export function MatchPage() {
                 Marker
               </button>
               <details className="shortcuts" key={`k-${m.id}`}>
-                <summary className="btn btn-small btn-ghost">Shortcuts</summary>
+                <summary className="btn btn-small btn-ghost">
+                  <Icon name="keyboard" size={13} />
+                  Shortcuts
+                </summary>
                 <dl className="shortcuts-panel">
                   <dt>
                     <kbd>K</kbd> <kbd>Space</kbd>
@@ -318,74 +332,181 @@ export function MatchPage() {
               </details>
             </div>
           </div>
-          <MatchClips clips={data!.clips} />
+          <Timeline
+            events={events}
+            rounds={rounds}
+            durationMs={m.durationMs}
+            timeMs={time}
+            inMs={inMs}
+            outMs={outMs}
+            hiddenKinds={hidden}
+            onSeek={(ms) => player.current?.seek(ms)}
+            onEventClick={jump}
+          />
+          {rounds.length > 0 && <RoundsStrip rounds={rounds} timeMs={time} onJump={(r) => player.current?.seek(Math.max(0, r.startMs - 2000))} />}
+        </section>
+        <MatchClips clips={data!.clips} />
+      </div>
+
+      <aside className="match-side" aria-label="Match">
+        <div className="side-tabs" role="tablist">
+          {tabs.map(([k, label]) => (
+            <button key={k} role="tab" aria-selected={tab === k} className={`side-tab ${tab === k ? "on" : ""}`} onClick={() => chooseTab(k)}>
+              {label}
+              {k === "plays" && <span className="side-tab-n num">{visible.length}</span>}
+            </button>
+          ))}
         </div>
 
-        <aside className="events-panel" aria-label="Events">
-          <div className="events-head">
-            <h2>
-              Events <span className="muted num">{visible.length}</span>
-            </h2>
-            {kinds.length > 1 && (
-              <details className="ev-filter" key={`f-${m.id}`}>
-                <summary className="btn btn-small btn-ghost">
-                  <FilterGlyph />
-                  {hidden.size > 0 ? `Filter · ${kinds.length - hidden.size}/${kinds.length}` : "Filter"}
-                </summary>
-                <div className="ev-filter-panel" role="group" aria-label="Show or hide event kinds">
-                  {kinds.map((k) => (
-                    <label key={k} className="ev-filter-item">
-                      <input
-                        type="checkbox"
-                        checked={!hidden.has(k)}
-                        onChange={() =>
-                          setHidden((h) => {
-                            const n = new Set(h);
-                            if (n.has(k)) n.delete(k);
-                            else n.add(k);
-                            return n;
-                          })
-                        }
-                      />
-                      <KindDot kind={k} tone="color" size={13} />
-                      <span>{kindStyle(k).plural}</span>
-                      <span className="num muted">{events.filter((e) => e.kind === k).length}</span>
-                    </label>
-                  ))}
-                </div>
-              </details>
+        {tab === "overview" && (
+          <div className="side-body">
+            <MatchSummary m={m} />
+            {!live && (
+              <section className="side-section">
+                <h2 className="side-h">Details</h2>
+                <MatchDetailsStrip key={m.id} m={m} onSaved={(rec) => setData((x) => (x ? { ...x, match: rec } : x))} />
+              </section>
             )}
+            <section className="side-section">
+              <h2 className="side-h">Plays</h2>
+              <KindCounts counts={m.eventCounts} max={8} />
+            </section>
           </div>
-          {events.length === 0 && (
-            <p className="muted small events-empty">
-              {live ? "Events show up here after the match." : "No plays found. Press M to add a marker, or teach Recap this game in Studio."}
-            </p>
-          )}
-          <ol className="events-list">
-            {visible.map((e, i) => {
-              const src = `${sourceLabel(e.source)}${e.confidence !== undefined ? `, ${Math.round(e.confidence * 100)}% match` : ""}`;
-              return (
-                <li key={e.id ?? i} className={`ev ${current === e ? "current" : ""}`}>
-                  <button className="ev-main" onClick={() => jump(e)} title={`${kindStyle(e.kind).label} at ${timecode(e.tMs)} · ${src}`}>
-                    <span className="ev-time num">{timecode(e.tMs)}</span>
-                    <KindDot kind={e.kind} size={13} />
-                    <span className="ev-kind">
-                      {kindStyle(e.kind).label}
-                      {e.meta?.count ? ` ×${e.meta.count}` : ""}
-                    </span>
-                  </button>
-                  {e.id !== undefined && (
-                    <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(e.kind).label} at ${timecode(e.tMs)}`} onClick={() => deleteEvent(e)}>
-                      <Icon name="close" size={13} />
+        )}
+
+        {tab === "plays" && (
+          <div className="events-panel">
+            <div className="events-head">
+              <span className="muted small">
+                {visible.length} of {events.filter((e) => e.kind !== "round_start").length} shown
+              </span>
+              {kinds.length > 1 && (
+                <details className="ev-filter" key={`f-${m.id}`}>
+                  <summary className="btn btn-small btn-ghost">
+                    <Icon name="filter" size={13} />
+                    {hidden.size > 0 ? `Filter · ${kinds.length - hidden.size}/${kinds.length}` : "Filter"}
+                  </summary>
+                  <div className="ev-filter-panel" role="group" aria-label="Show or hide event kinds">
+                    {kinds.map((k) => (
+                      <label key={k} className="ev-filter-item">
+                        <input
+                          type="checkbox"
+                          checked={!hidden.has(k)}
+                          onChange={() =>
+                            setHidden((h) => {
+                              const n = new Set(h);
+                              if (n.has(k)) n.delete(k);
+                              else n.add(k);
+                              return n;
+                            })
+                          }
+                        />
+                        <KindDot kind={k} tone="color" size={13} />
+                        <span>{kindStyle(k).plural}</span>
+                        <span className="num muted">{events.filter((e) => e.kind === k).length}</span>
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+            {events.length === 0 && (
+              <p className="muted small events-empty">
+                {live ? "Events show up here after the match." : "No plays found. Press M to add a marker, or teach Recap this game in Detector Studio."}
+              </p>
+            )}
+            <ol className="events-list">
+              {visible.map((e, i) => {
+                const src = `${sourceLabel(e.source)}${e.confidence !== undefined ? `, ${Math.round(e.confidence * 100)}% match` : ""}`;
+                return (
+                  <li key={e.id ?? i} className={`ev ${current === e ? "current" : ""}`}>
+                    <button className="ev-main" onClick={() => jump(e)} title={`${kindStyle(e.kind).label} at ${timecode(e.tMs)} · ${src}`}>
+                      <span className="ev-time num">{timecode(e.tMs)}</span>
+                      <KindDot kind={e.kind} tone="color" size={13} />
+                      <span className="ev-kind">
+                        {kindStyle(e.kind).label}
+                        {e.meta?.count ? ` ×${e.meta.count}` : ""}
+                      </span>
                     </button>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </aside>
-      </div>
+                    {e.id !== undefined && (
+                      <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(e.kind).label} at ${timecode(e.tMs)}`} onClick={() => deleteEvent(e)}>
+                        <Icon name="close" size={13} />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        )}
+      </aside>
     </div>
+  );
+}
+
+function recordedDate(unixMs: number): string {
+  return new Date(unixMs).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** The headline card: result, score, map, character, K/D/A and rank. */
+function MatchSummary({ m }: { m: MatchRecord }) {
+  const dirs = useAssetDirs();
+  const dir = dirs[m.gameId] ?? null;
+  const d = m.details ?? {};
+  const res = d.result?.value.toLowerCase();
+  const evScore = roundScore(m.eventCounts);
+  const score = scoreParts(d.score?.value) ?? (evScore ? ([evScore.won, evScore.lost] as [number, number]) : null);
+  const outcome = res === "win" || res === "loss" || res === "draw" ? res : evScore ? (evScore.won > evScore.lost ? "win" : evScore.won < evScore.lost ? "loss" : "draw") : null;
+  const ratio = kdaRatio(d);
+  if (!outcome && !score && !d.map && !d.character && !d.kills) return null;
+  const [name, tag] = (d.player?.value ?? "").split("#");
+  return (
+    <section className={`summary ${outcome ?? ""}`}>
+      <div className="summary-banner">
+        <AssetImg dir={dir} kind="maps" name={d.map?.value} className="summary-map" />
+        <div className="summary-banner-text">
+          {outcome && <span className={`summary-result ${outcome}`}>{outcome === "win" ? "Victory" : outcome === "loss" ? "Defeat" : "Draw"}</span>}
+          {score && (
+            <span className="summary-score num">
+              {score[0]}
+              <span className="score-dash"> – </span>
+              {score[1]}
+            </span>
+          )}
+          <span className="summary-sub">{[d.map?.value, d.mode?.value].filter(Boolean).join(" · ")}</span>
+        </div>
+      </div>
+      <div className="summary-row">
+        {d.character && <AssetImg dir={dir} kind="agents" name={d.character.value} className="portrait" />}
+        <div className="summary-who">
+          {d.character && <span className="summary-char">{d.character.value}</span>}
+          {d.player && (
+            <span className="player-id">
+              {name}
+              {tag && <span className="player-tag">#{tag}</span>}
+            </span>
+          )}
+          {d.rank && (
+            <span className="rank">
+              <AssetImg dir={dir} kind="ranks" name={d.rank.value} />
+              {d.rank.value}
+            </span>
+          )}
+        </div>
+        {(d.kills || d.deaths) && (
+          <div className="kda summary-kda">
+            <span className="kda-line num">
+              {d.kills?.value ?? "–"}
+              <span className="kda-sep">/</span>
+              <span className="kda-d">{d.deaths?.value ?? "–"}</span>
+              <span className="kda-sep">/</span>
+              {d.assists?.value ?? "–"}
+            </span>
+            {ratio && <span className="kda-ratio num">{ratio} KDA</span>}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -420,20 +541,10 @@ function RoundsStrip({ rounds, timeMs, onJump }: { rounds: Round[]; timeMs: numb
   );
 }
 
-/** Funnel-lines glyph, drawn like the shared Icon set (1.7 stroke). */
-function FilterGlyph() {
-  return (
-    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" aria-hidden className="icon">
-      <path d="M4 6h16M7 12h10M10 18h4" />
-    </svg>
-  );
-}
-
 function BackLink() {
   return (
-    <Link to="/" className="back">
-      <Icon name="back" size={14} />
-      Library
+    <Link to="/" className="back icon-btn" aria-label="Back to the library" title="Back to the library">
+      <Icon name="back" size={17} />
     </Link>
   );
 }

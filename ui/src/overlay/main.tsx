@@ -3,7 +3,6 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Bookmark, Circle, Film, SkipForward, Check } from "lucide-react";
-import "@fontsource-variable/bricolage-grotesque/standard.css";
 import "./overlay.css";
 import type { OverlayToast } from "../lib/types";
 

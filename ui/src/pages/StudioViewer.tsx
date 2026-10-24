@@ -437,7 +437,7 @@ export const StudioViewer = forwardRef<ViewerHandle, ViewerProps>(function Studi
     const k = cv.width / span;
     const r = live ?? box;
     if (r) {
-      ctx.strokeStyle = "#f2a93b";
+      ctx.strokeStyle = "#c084fc";
       ctx.lineWidth = 1.5 * dpr;
       ctx.strokeRect((content.x + r.x * content.w - sx) * k, (content.y + r.y * content.h - sy) * k, r.w * content.w * k, r.h * content.h * k);
     }
@@ -669,7 +669,7 @@ function Timeline({
   return (
     <div
       ref={ref}
-      className={`timeline ${hasCurve ? "has-curve" : ""}`}
+      className={`st-timeline ${hasCurve ? "has-curve" : ""}`}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -692,31 +692,31 @@ function Timeline({
       aria-valuetext={timecode(t)}
     >
       {hasCurve && (
-        <svg className="tl-curve" viewBox={`0 0 ${TW} ${H}`} preserveAspectRatio="none" aria-hidden>
+        <svg className="st-tl-curve" viewBox={`0 0 ${TW} ${H}`} preserveAspectRatio="none" aria-hidden>
           {threshold !== undefined && (
             <>
-              <rect x={0} y={0} width={TW} height={y(threshold)} className="tl-zone" />
-              <line x1={0} x2={TW} y1={y(threshold)} y2={y(threshold)} className="tl-threshold" vectorEffect="non-scaling-stroke" />
+              <rect x={0} y={0} width={TW} height={y(threshold)} className="st-tl-zone" />
+              <line x1={0} x2={TW} y1={y(threshold)} y2={y(threshold)} className="st-tl-threshold" vectorEffect="non-scaling-stroke" />
             </>
           )}
-          <path d={path} className="tl-line" vectorEffect="non-scaling-stroke" />
+          <path d={path} className="st-tl-line" vectorEffect="non-scaling-stroke" />
         </svg>
       )}
-      <div className="tl-track" aria-hidden>
-        {progress !== null && <div className="tl-progress" style={{ width: pct(progress * dur) }} />}
-        <div className="tl-played" style={{ width: pct(t) }} />
+      <div className="st-tl-track" aria-hidden>
+        {progress !== null && <div className="st-tl-progress" style={{ width: pct(progress * dur) }} />}
+        <div className="st-tl-played" style={{ width: pct(t) }} />
       </div>
       {detections.map((d) => (
-        <span key={d} className="tl-hit" style={{ left: pct(d) }} aria-hidden />
+        <span key={d} className="st-tl-hit" style={{ left: pct(d) }} aria-hidden />
       ))}
-      <div className="tl-markers" aria-hidden>
+      <div className="st-tl-markers" aria-hidden>
         {markers.map((m, i) => (
-          <span key={i} className="tl-marker" style={{ left: pct(m.tMs), background: m.color }} title={`${m.title} · ${timecode(m.tMs)}`} />
+          <span key={i} className="st-tl-marker" style={{ left: pct(m.tMs), background: m.color }} title={`${m.title} · ${timecode(m.tMs)}`} />
         ))}
       </div>
-      <span className="tl-head" style={{ left: pct(t) }} aria-hidden />
+      <span className="st-tl-head" style={{ left: pct(t) }} aria-hidden />
       {hover !== null && (
-        <span className="tl-hover num" style={{ left: pct(hover) }} aria-hidden>
+        <span className="st-tl-hover num" style={{ left: pct(hover) }} aria-hidden>
           {timecode(hover)}
         </span>
       )}
