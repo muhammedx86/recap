@@ -116,7 +116,7 @@ impl Banner {
             // Three posts and a pennant.
             Banner::RoundStart => {
                 let post = (8..=40).contains(&y) && [16, 44, 72].iter().any(|&p| (p..p + 14).contains(&x));
-                let flag = x >= 100 && x <= 150 && {
+                let flag = (100..=150).contains(&x) && {
                     let t = (x - 100) as f32 / 50.0;
                     let half = 18.0 * (1.0 - t);
                     ((y - 24) as f32).abs() <= half
@@ -267,9 +267,7 @@ pub fn render_frame(t: f64, buf: &mut [u32]) {
     let frame = (t * 60.0) as u32;
 
     // Background: a drifting gradient; the match scene is warmer than the menu.
-    let col: Vec<i32> = (0..WIDTH)
-        .map(|x| (18.0 * ((x as f64 / 140.0) + t * 0.9).sin()) as i32)
-        .collect();
+    let col: Vec<i32> = (0..WIDTH).map(|x| (18.0 * ((x as f64 / 140.0) + t * 0.9).sin()) as i32).collect();
     let (base_r, base_g, base_b) = if playing { (52, 44, 40) } else { (30, 36, 54) };
     for y in 0..HEIGHT {
         let row = (14.0 * ((y as f64 / 90.0) - t * 0.6).cos()) as i32;
@@ -348,7 +346,9 @@ pub fn game_def() -> GameDef {
         capture: CaptureMode::Window,
         api: None,
         prefer_api: true,
-        auto_clip: AutoClipDef { events: vec!["kill".into()] },
+        auto_clip: AutoClipDef {
+            events: vec!["kill".into()],
+        },
         post_match: vec![],
         color: Some("#7cc3a3".into()),
         event_types: vec![],

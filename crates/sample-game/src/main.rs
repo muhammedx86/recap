@@ -1,3 +1,5 @@
+//! A console-subsystem binary on purpose: CI calls it and needs it to block and set the exit code.
+//!
 //! `recap-sample-game`: run the scripted fake game, or export its fixture/frames/timeline.
 //!
 //! ```text
@@ -28,7 +30,10 @@ fn main() -> Result<()> {
     }
     if args.iter().any(|a| a == "--export-frames") {
         let dir = PathBuf::from(value("--export-frames").context("--export-frames needs a folder")?);
-        let fps: f64 = value("--fps").unwrap_or_else(|| "10".into()).parse().context("--fps must be a number")?;
+        let fps: f64 = value("--fps")
+            .unwrap_or_else(|| "10".into())
+            .parse()
+            .context("--fps must be a number")?;
         let n = game::export_frames(&dir, fps)?;
         println!("wrote {n} frames to {}", dir.display());
         return Ok(());
@@ -49,6 +54,13 @@ fn run() -> Result<()> {
     window.set_target_fps(60);
     let mut buf = game::new_frame();
     let start = Instant::now();
+    println!(
+        "{}: window open ({}x{}), exits after {} s",
+        game::WINDOW_TITLE,
+        game::WIDTH,
+        game::HEIGHT,
+        game::EXIT_AT_S
+    );
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let t = start.elapsed().as_secs_f64();
         if t >= game::EXIT_AT_S {
@@ -59,6 +71,7 @@ fn run() -> Result<()> {
             .update_with_buffer(&buf, game::WIDTH, game::HEIGHT)
             .map_err(|e| anyhow::anyhow!("window update failed: {e}"))?;
     }
+    println!("{}: exiting after {:.1} s", game::WINDOW_TITLE, start.elapsed().as_secs_f64());
     Ok(())
 }
 
