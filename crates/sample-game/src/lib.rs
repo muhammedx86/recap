@@ -17,7 +17,7 @@ use serde::Serialize;
 pub const WIDTH: usize = 1280;
 pub const HEIGHT: usize = 720;
 /// The game exits on its own after this many seconds.
-pub const EXIT_AT_S: f64 = 61.0;
+pub const EXIT_AT_S: f64 = 64.0;
 pub const GAME_ID: &str = "recap-sample-game";
 pub const PROCESS_NAME: &str = "recap-sample-game.exe";
 pub const WINDOW_TITLE: &str = "Recap Sample Game";

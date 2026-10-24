@@ -61,7 +61,8 @@ fn run(scale: f64) -> Result<()> {
     );
     let mut window =
         Window::new(game::WINDOW_TITLE, w, h, WindowOptions::default()).map_err(|e| anyhow::anyhow!("could not open the window: {e}"))?;
-    window.set_target_fps(60);
+    // 30 fps is plenty for recording and leaves CPU for the recorder.
+    window.set_target_fps(30);
     let mut buf = game::new_frame();
     let mut small = vec![0u32; w * h];
     let start = Instant::now();

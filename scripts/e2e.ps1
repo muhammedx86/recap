@@ -41,6 +41,8 @@ $settings = @{
     recordDesktopAudio = $false; recordMicrophone = $false
     autoClip = @{ enabled = $true; secondsBefore = 3; secondsAfter = 2; mergeGapSeconds = 1; eventsOverride = @(); preciseCuts = $false }
     scanAfterMatch = $true; splitMatches = $true; analysisHeight = 720
+    # CI runners have no GPU: keep x264's load down so capture keeps up.
+    outputHeight = 720
 }
 $settings | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $Data "settings.json")
 

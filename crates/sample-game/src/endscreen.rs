@@ -74,7 +74,7 @@ pub fn end_screens() -> [EndScreen; 2] {
         },
         EndScreen {
             t_s: 58.2,
-            duration_s: 2.6,
+            duration_s: 5.0,
             map: "CANYON",
             team_score: 9,
             enemy_score: 13,

@@ -39,7 +39,11 @@ pub struct PreparedReader {
     options: Vec<(String, PreparedDetector)>,
     highlight: Option<([u8; 3], u8, Region)>,
     misses: std::sync::atomic::AtomicU32,
+    fallbacks: std::sync::atomic::AtomicU32,
 }
+
+/// (text height px, margin as a multiple of the height) tried in order.
+const OCR_ATTEMPTS: [(f32, f32); 4] = [(64.0, 0.25), (36.0, 0.25), (32.0, 1.0), (24.0, 2.0)];
 
 impl PreparedReader {
     pub fn load(r: &LoadedReader, frame_w: u32, frame_h: u32) -> Result<Self> {
@@ -77,6 +81,7 @@ impl PreparedReader {
             options,
             highlight,
             misses: Default::default(),
+            fallbacks: Default::default(),
         })
     }
 
@@ -136,10 +141,15 @@ impl PreparedReader {
             }
             ReaderKind::Text => {
                 let Some(ocr) = ocr else { return vec![] };
-                // OCR engines have a preferred text size: try the box at two sizes.
+                // Nothing written there (a flat box): skip the OCR calls.
+                if contrast(&gray) < 12.0 {
+                    return vec![];
+                }
+                // OCR engines have a preferred text size and dislike text that fills the whole
+                // image (short numbers especially): try a few sizes and margins.
                 let mut seen = Vec::new();
-                for target in [64.0, 36.0] {
-                    let text = match ocr.read_text(&prepare_for_ocr_at(&gray, target)) {
+                for (target, margin) in OCR_ATTEMPTS {
+                    let text = match ocr.read_text(&prepare_for_ocr_with(&gray, target, margin)) {
                         Ok(t) => t,
                         Err(e) => {
                             log::debug!("reader {}: OCR failed: {e:#}", self.def.id);
@@ -148,6 +158,9 @@ impl PreparedReader {
                     };
                     let got = self.interpret(&text);
                     if !got.is_empty() {
+                        if target != OCR_ATTEMPTS[0].0 {
+                            self.note_fallback(target, margin);
+                        }
                         return got;
                     }
                     seen.push(text);
@@ -158,10 +171,16 @@ impl PreparedReader {
         }
     }
 
+    fn note_fallback(&self, target: f32, margin: f32) {
+        if self.fallbacks.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 2 {
+            log::info!("reader {}: read at {target} px with margin {margin}", self.def.id);
+        }
+    }
+
     /// Log a few unmatched readings per reader (helps tune boxes and patterns).
     fn note_miss(&self, seen: &[String]) {
         let n = self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if n < 3 && seen.iter().any(|t| !t.trim().is_empty()) {
+        if n < 3 {
             log::info!("reader {}: no usable reading in {:?}", self.def.id, seen);
         }
     }
@@ -331,6 +350,11 @@ pub fn prepare_for_ocr(gray: &GrayImage) -> GrayImage {
 
 /// [`prepare_for_ocr`] with the box scaled to about `target` px tall.
 pub fn prepare_for_ocr_at(gray: &GrayImage, target: f32) -> GrayImage {
+    prepare_for_ocr_with(gray, target, 0.25)
+}
+
+/// [`prepare_for_ocr_at`] with a quiet margin of `margin` x the height on every side.
+pub fn prepare_for_ocr_with(gray: &GrayImage, target: f32, margin: f32) -> GrayImage {
     let (w, h) = gray.dimensions();
     let scale = (target / h.max(1) as f32).clamp(0.3, 4.0);
     let mut img = if (scale - 1.0).abs() > 0.01 {
@@ -374,10 +398,17 @@ pub fn prepare_for_ocr_at(gray: &GrayImage, target: f32) -> GrayImage {
         p.0[0] = if p.0[0] > t { 255 } else { 0 };
     }
     // OCR engines want a quiet margin around the text (a tight box touches the glyphs).
-    let pad = (img.height() / 4).max(8);
+    let pad = ((img.height() as f32 * margin) as u32).max(8);
     let mut out = GrayImage::from_pixel(img.width() + 2 * pad, img.height() + 2 * pad, image::Luma([255]));
     image::imageops::replace(&mut out, &img, pad as i64, pad as i64);
     out
+}
+
+/// Standard deviation of the pixel values.
+fn contrast(img: &GrayImage) -> f32 {
+    let n = (img.width() * img.height()).max(1) as f32;
+    let mean = img.pixels().map(|p| p.0[0] as f32).sum::<f32>() / n;
+    (img.pixels().map(|p| (p.0[0] as f32 - mean).powi(2)).sum::<f32>() / n).sqrt()
 }
 
 /// Otsu's threshold of a grayscale image.

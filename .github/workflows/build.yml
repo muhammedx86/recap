@@ -167,13 +167,14 @@ jobs:
       - name: Build sample game
         run: cargo build -p recap-sample-game --release --locked
 
-      # Hosted runners default to 1024x768; games are usually 1080p. Best effort: the driver
+      # Hosted runners default to 1024x768. 1600x900 fits the 1280x720 game window while keeping
+      # OBS's software rendering light (no GPU on runners). Best effort: the driver
       # also shrinks the sample game window if the screen stays small.
-      - name: Set a 1080p display
+      - name: Set a 1600x900 display
         shell: pwsh
         continue-on-error: true
         run: |
-          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction Stop } catch { Write-Host "Set-DisplayResolution unavailable: $_" }
+          try { Set-DisplayResolution -Width 1600 -Height 900 -Force -ErrorAction Stop } catch { Write-Host "Set-DisplayResolution unavailable: $_" }
           Add-Type -AssemblyName System.Windows.Forms
           Write-Host "screen: $([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)"
 

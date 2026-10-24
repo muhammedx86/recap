@@ -17,7 +17,7 @@ splitting, auto-clips, montage, Detector Studio commands and the UI all run as s
 
 Window 1280×720, title `Recap Sample Game`, process `recap-sample-game.exe`, software-rendered
 (GDI), animated background so frames are never static. It shows high-contrast synthetic banners
-at fixed times (seconds after launch), then exits at 61 s:
+at fixed times (seconds after launch), then exits at 64 s:
 
 | t (s) | Banner (shown ~1.2–2 s) | Event kind |
 |---|---|---|
@@ -36,8 +36,8 @@ at fixed times (seconds after launch), then exits at 61 s:
 | 50.0 | kill | `kill` |
 | 53.0 | round won | `round_win` |
 | 56.0 | match end | `match_end` |
-| 58.2–60.8 | end screen 2 (CANYON, 9–13 DEFEAT, you: Cross, 1 / 0 / 4) | details |
-| 61.0 | exit | – |
+| 58.2–63.2 | end screen 2 (CANYON, 9–13 DEFEAT, you: Cross, 1 / 0 / 4) | details |
+| 64.0 | exit | – |
 
 End screen 1 is shown at 31.3–37.3 s: HARBOR, 13–11 VICTORY, three player cards with your name in
 yellow (Ring, 3 / 1 / 2). Text is drawn with a system font (Segoe UI / Arial on Windows).
