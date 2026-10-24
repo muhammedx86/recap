@@ -108,6 +108,8 @@ pub fn spawn(app: AppHandle, match_id: String, rescan: bool) {
     std::thread::Builder::new()
         .name("processing".into())
         .spawn(move || {
+            // Analysis is background work: lowest CPU/disk priority for this thread.
+            recap_core::background::lower_current_thread();
             let result = run(&app, &match_id, rescan);
             let st = state(&app);
             st.processing.lock().unwrap().remove(&match_id);
@@ -138,6 +140,26 @@ pub fn spawn(app: AppHandle, match_id: String, rescan: bool) {
             crate::selftest::after_processing(&app);
         })
         .ok();
+}
+
+/// Block while a recording other than `match_id` is in progress (checked every 2 s).
+fn wait_while_recording(app: &AppHandle, match_id: &str) {
+    let busy = || {
+        state(app)
+            .session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|s| s.started.is_some() && s.match_id != match_id)
+    };
+    if !busy() {
+        return;
+    }
+    log::info!("{match_id}: a match is being recorded; finding plays after it");
+    emit_progress(app, match_id, "waiting", 0.0, None);
+    while busy() {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
 }
 
 fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
@@ -172,6 +194,10 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
             lib.delete_clip(&c.id)?;
         }
     }
+
+    // The heavy part (decoding the whole recording) waits while another match is being recorded,
+    // so it never costs frames in the game; it catches up between matches.
+    wait_while_recording(app, match_id);
 
     let game = st.game(&m.game_id);
     let settings = st.settings.read().unwrap().clone();

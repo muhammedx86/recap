@@ -282,8 +282,8 @@ export function MatchPage() {
         </header>
         {m.status === "processing" && (
           <div className="banner">
-            <span>Finding plays{progress !== undefined ? ` · ${Math.round(progress * 100)}%` : "…"}</span>
-            <ProgressBar value={progress ?? 0.05} />
+            <span>{progress !== undefined && progress < 0 ? "Plays are found once the match you are playing ends, so recording never costs frames." : `Finding plays${progress !== undefined ? ` · ${Math.round(progress * 100)}%` : "…"}`}</span>
+            <ProgressBar value={progress !== undefined && progress >= 0 ? progress : 0.05} />
           </div>
         )}
         {m.status === "error" && <p className="banner banner-err">{m.error ?? "This recording failed."}</p>}

@@ -329,7 +329,7 @@ export interface VideoInfo {
 
 export interface ProcessingProgress {
   matchId: string;
-  stage: "scanning" | "postMatch" | "details" | "splitting" | "clipping" | "done" | "error";
+  stage: "waiting" | "scanning" | "postMatch" | "details" | "splitting" | "clipping" | "done" | "error";
   progress: number;
   message?: string;
 }

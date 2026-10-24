@@ -16,11 +16,36 @@ pub struct Ffmpeg {
     pub ffprobe: PathBuf,
 }
 
+/// Set while a game is running: video decoding then stays off the GPU and uses few threads, so
+/// analysing a finished recording never competes with the game for frames.
+static GAME_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Tell the decoders whether a game is running right now.
+pub fn set_game_running(on: bool) {
+    GAME_RUNNING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn game_running() -> bool {
+    GAME_RUNNING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Decoder options for analysis: GPU decoding when nothing else needs the GPU; with a game
+/// running, software decoding on two threads.
+fn decode_args() -> &'static [&'static str] {
+    if game_running() {
+        &["-threads", "2"]
+    } else {
+        &["-hwaccel", "auto"]
+    }
+}
+
 #[cfg(windows)]
 fn no_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    // Every ffmpeg Recap starts is background work: let the game (and everything else) go first.
+    const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+    cmd.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
 }
 #[cfg(not(windows))]
 fn no_window(_cmd: &mut Command) {}
@@ -233,7 +258,8 @@ impl Ffmpeg {
         let crop_filter = crop.map(|c| format!("{},", c.filter())).unwrap_or_default();
         let mut child = self
             .command()
-            .args(["-hwaccel", "auto", "-i"])
+            .args(decode_args())
+            .arg("-i")
             .arg(video)
             .args(["-an", "-sn", "-vf"])
             .arg(format!("fps={fps},{crop_filter}scale={width}:{height}:flags=area,format=gray"))
@@ -271,6 +297,7 @@ impl Ffmpeg {
         let crop_filter = crop.map(|c| format!("{},", c.filter())).unwrap_or_default();
         let mut child = self
             .command()
+            .args(decode_args())
             .args(["-ss", &format_secs(start_ms), "-t", &format_secs(dur_ms.max(1)), "-i"])
             .arg(video)
             .args(["-an", "-sn", "-vf"])

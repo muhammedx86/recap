@@ -5,6 +5,7 @@
 //! hotkey all produce the same event type, so the timeline, auto-clips and
 //! library never care where an event came from.
 
+pub mod background;
 pub mod clips;
 pub mod cs2;
 pub mod details;
