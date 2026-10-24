@@ -5,10 +5,10 @@ import { useLoad } from "../lib/hooks";
 import { COMMON_KINDS, kindStyle } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import type { EncoderChoice, Settings } from "../lib/types";
-import { Field, ProgressBar, Toggle } from "../components/ui";
+import { ProgressBar, Toggle } from "../components/ui";
 
 const ENCODER_LABEL: Record<string, string> = {
-  auto: "Automatic (best available)",
+  auto: "Automatic",
   nvenc: "NVIDIA NVENC",
   amf: "AMD AMF",
   qsv: "Intel Quick Sync",
@@ -68,11 +68,13 @@ export function SettingsPage() {
     <div className="page page-settings">
       <header className="page-head">
         <h1>Settings</h1>
-        <p className="lede">Everything stays on this computer. Nothing is uploaded.</p>
       </header>
 
-      <Section title="Recordings" note="Where matches and clips are saved.">
-        <Field label="Folder" htmlFor="set-dir">
+      <Section title="Storage">
+        <div className="set-block">
+          <label className="set-label" htmlFor="set-dir">
+            Recordings folder
+          </label>
           <div className="input-row">
             <input id="set-dir" className="input" value={s.recordingsDir} onChange={(e) => set("recordingsDir", e.target.value)} placeholder="Videos\Recap" />
             <button
@@ -85,80 +87,78 @@ export function SettingsPage() {
               Browse
             </button>
           </div>
-        </Field>
-        {storage && (
-          <div className="storage">
-            <ProgressBar value={limitBytes ? storage.usedBytes / limitBytes : storage.usedBytes / (storage.usedBytes + storage.freeBytes)} label="Storage used" />
-            <p className="small">
-              <span className="num">{bytes(storage.usedBytes)}</span> used by {storage.matchCount} recordings and {storage.clipCount} clips
-              {limitBytes ? ` of a ${s.storageLimitGb} GB limit` : ""}. <span className="num">{bytes(storage.freeBytes)}</span> free on the drive.
-            </p>
-          </div>
-        )}
-        <Field label="Storage limit" htmlFor="set-limit" hint="When recordings pass this size, the oldest ones that are not favourites are deleted. Leave empty for no limit.">
-          <div className="input-row input-row-narrow">
+          {storage && (
+            <div className="storage">
+              <ProgressBar value={limitBytes ? storage.usedBytes / limitBytes : storage.usedBytes / (storage.usedBytes + storage.freeBytes)} label="Storage used" />
+              <p>
+                <span className="num">{bytes(storage.usedBytes)}</span> used
+                {limitBytes ? ` of ${s.storageLimitGb} GB` : ""} · {storage.matchCount} recordings, {storage.clipCount} clips · <span className="num">{bytes(storage.freeBytes)}</span> free
+              </p>
+            </div>
+          )}
+        </div>
+        <Row label="Storage limit" hint="Oldest non-favourite recordings are deleted past this size." htmlFor="set-limit">
+          <div className="input-row set-num">
             <input
               id="set-limit"
               type="number"
               className="input"
               min={1}
               value={s.storageLimitGb ?? ""}
-              placeholder="No limit"
+              placeholder="None"
               onChange={(e) => set("storageLimitGb", e.target.value ? Math.max(1, Number(e.target.value)) : null)}
             />
             <span className="unit">GB</span>
           </div>
-        </Field>
+        </Row>
       </Section>
 
-      <Section title="Video" note="Higher bitrate looks better and takes more space. 12,000 kbps at 1080p60 is about 5 GB per hour.">
-        <div className="field-row">
-          <Field label="Frame rate" htmlFor="set-fps">
-            <select id="set-fps" className="input" value={s.fps} onChange={(e) => set("fps", Number(e.target.value))}>
-              {[30, 60, 120].map((f) => (
-                <option key={f} value={f}>
-                  {f} fps
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Resolution" htmlFor="set-res">
-            <select id="set-res" className="input" value={s.outputHeight ?? ""} onChange={(e) => set("outputHeight", e.target.value ? Number(e.target.value) : null)}>
-              {HEIGHTS.map(([h, l]) => (
-                <option key={l} value={h ?? ""}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Bitrate" htmlFor="set-br">
-            <div className="input-row">
-              <input id="set-br" type="number" className="input" min={1000} max={100000} step={500} value={s.bitrateKbps} onChange={(e) => set("bitrateKbps", Number(e.target.value))} />
-              <span className="unit">kbps</span>
-            </div>
-          </Field>
-        </div>
-        <Field label="Encoder" htmlFor="set-enc" hint="Automatic picks your graphics card's encoder and falls back to the CPU.">
-          <select id="set-enc" className="input" value={s.encoder} onChange={(e) => set("encoder", e.target.value as EncoderChoice)}>
+      <Section title="Video">
+        <Row label="Frame rate" htmlFor="set-fps">
+          <select id="set-fps" className="input set-select" value={s.fps} onChange={(e) => set("fps", Number(e.target.value))}>
+            {[30, 60, 120].map((f) => (
+              <option key={f} value={f}>
+                {f} fps
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Resolution" htmlFor="set-res">
+          <select id="set-res" className="input set-select" value={s.outputHeight ?? ""} onChange={(e) => set("outputHeight", e.target.value ? Number(e.target.value) : null)}>
+            {HEIGHTS.map(([h, l]) => (
+              <option key={l} value={h ?? ""}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Bitrate" hint="12,000 kbps at 1080p60 is about 5 GB per hour." htmlFor="set-br">
+          <div className="input-row set-num">
+            <input id="set-br" type="number" className="input" min={1000} max={100000} step={500} value={s.bitrateKbps} onChange={(e) => set("bitrateKbps", Number(e.target.value))} />
+            <span className="unit">kbps</span>
+          </div>
+        </Row>
+        <Row label="Encoder" htmlFor="set-enc">
+          <select id="set-enc" className="input set-select" value={s.encoder} onChange={(e) => set("encoder", e.target.value as EncoderChoice)} title="Automatic picks your graphics card's encoder and falls back to the CPU.">
             {[...new Set(["auto", ...(encoders ?? [])])].map((e) => (
               <option key={e} value={e}>
                 {ENCODER_LABEL[e] ?? e}
               </option>
             ))}
           </select>
-        </Field>
+        </Row>
       </Section>
 
-      <Section title="Audio" note="Your microphone is saved on its own track, so you can turn it down later.">
-        <Row label="Record game and desktop sound">
+      <Section title="Audio">
+        <Row label="Game and desktop sound">
           <Toggle checked={s.recordDesktopAudio} onChange={(v) => set("recordDesktopAudio", v)} label="Record desktop audio" />
         </Row>
-        <Row label="Record microphone">
+        <Row label="Microphone" hint="Saved on its own track.">
           <Toggle checked={s.recordMicrophone} onChange={(v) => set("recordMicrophone", v)} label="Record microphone" />
         </Row>
         {s.recordMicrophone && (
-          <Field label="Microphone" htmlFor="set-mic">
-            <select id="set-mic" className="input" value={s.microphoneDevice ?? ""} onChange={(e) => set("microphoneDevice", e.target.value || null)}>
+          <Row label="Input device" htmlFor="set-mic">
+            <select id="set-mic" className="input set-select" value={s.microphoneDevice ?? ""} onChange={(e) => set("microphoneDevice", e.target.value || null)}>
               <option value="">System default</option>
               {(mics ?? [])
                 .filter((m) => m.id !== "default")
@@ -168,42 +168,44 @@ export function SettingsPage() {
                   </option>
                 ))}
             </select>
-          </Field>
+          </Row>
         )}
       </Section>
 
-      <Section title="Hotkeys" note="These work while you are in a game.">
-        <div className="field-row">
-          <Field label="Bookmark this moment" htmlFor="set-hk-b">
-            <HotkeyInput id="set-hk-b" value={s.bookmarkHotkey} onChange={(v) => set("bookmarkHotkey", v)} />
-          </Field>
-          <Field label="Start or stop a manual recording" htmlFor="set-hk-r">
-            <HotkeyInput id="set-hk-r" value={s.manualRecordHotkey} onChange={(v) => set("manualRecordHotkey", v)} />
-          </Field>
-        </div>
-        <Row label="Show a small notice in game when a bookmark is saved">
+      <Section title="Hotkeys">
+        <Row label="Bookmark this moment" htmlFor="set-hk-b">
+          <HotkeyInput id="set-hk-b" value={s.bookmarkHotkey} onChange={(v) => set("bookmarkHotkey", v)} />
+        </Row>
+        <Row label="Start or stop recording" htmlFor="set-hk-r">
+          <HotkeyInput id="set-hk-r" value={s.manualRecordHotkey} onChange={(v) => set("manualRecordHotkey", v)} />
+        </Row>
+        <Row label="Notice in game when bookmarking">
           <Toggle checked={s.notifyOnBookmark} onChange={(v) => set("notifyOnBookmark", v)} label="Bookmark notice" />
         </Row>
       </Section>
 
-      <Section title="Auto-clips" note="When a match ends, Recap cuts a short clip around each play.">
-        <Row label="Make clips automatically">
+      <Section title="Auto-clips">
+        <Row label="Make clips after each match">
           <Toggle checked={s.autoClip.enabled} onChange={(v) => setClip("enabled", v)} label="Auto-clips" />
         </Row>
-        <div className="field-row">
-          <Field label="Seconds before" htmlFor="set-cb">
-            <input id="set-cb" type="number" className="input" min={0} max={60} step={0.5} value={s.autoClip.secondsBefore} onChange={(e) => setClip("secondsBefore", Number(e.target.value))} />
-          </Field>
-          <Field label="Seconds after" htmlFor="set-ca">
-            <input id="set-ca" type="number" className="input" min={0} max={60} step={0.5} value={s.autoClip.secondsAfter} onChange={(e) => setClip("secondsAfter", Number(e.target.value))} />
-          </Field>
-          <Field label="Join plays closer than" htmlFor="set-cg" hint="Seconds. Back-to-back kills become one clip.">
+        <Row label="Seconds before / after" htmlFor="set-cb">
+          <div className="input-row set-pair">
+            <input id="set-cb" type="number" className="input" min={0} max={60} step={0.5} value={s.autoClip.secondsBefore} onChange={(e) => setClip("secondsBefore", Number(e.target.value))} aria-label="Seconds before" />
+            <input type="number" className="input" min={0} max={60} step={0.5} value={s.autoClip.secondsAfter} onChange={(e) => setClip("secondsAfter", Number(e.target.value))} aria-label="Seconds after" />
+          </div>
+        </Row>
+        <Row label="Join plays closer than" hint="Back-to-back kills become one clip." htmlFor="set-cg">
+          <div className="input-row set-num">
             <input id="set-cg" type="number" className="input" min={0} max={30} step={0.5} value={s.autoClip.mergeGapSeconds} onChange={(e) => setClip("mergeGapSeconds", Number(e.target.value))} />
-          </Field>
-        </div>
-        <div className="field">
-          <p className="field-label">Clip these plays in every game</p>
-          <p className="field-hint">Leave all unticked to use each game's own choice from the Games page.</p>
+            <span className="unit">s</span>
+          </div>
+        </Row>
+        <Row label="Frame-accurate cuts" hint="Slower; re-encodes each clip.">
+          <Toggle checked={s.autoClip.preciseCuts} onChange={(v) => setClip("preciseCuts", v)} label="Frame-accurate cuts" />
+        </Row>
+        <div className="set-block">
+          <p className="set-label">Clip these plays in every game</p>
+          <p className="field-hint">Leave empty to use each game's own choice.</p>
           <div className="check-grid">
             {COMMON_KINDS.map((k) => (
               <label key={k} className="check">
@@ -217,62 +219,61 @@ export function SettingsPage() {
             ))}
           </div>
         </div>
-        <Row label="Frame-accurate cuts" hint="Re-encodes each clip. Slower, but clips start exactly where you set them instead of at the nearest keyframe.">
-          <Toggle checked={s.autoClip.preciseCuts} onChange={(v) => setClip("preciseCuts", v)} label="Frame-accurate cuts" />
-        </Row>
       </Section>
 
-      <Section title="Finding plays" note="Detectors look for each game's on-screen signals after the match ends.">
-        <Row label="Scan each recording when the match ends">
+      <Section title="Detection">
+        <Row label="Scan recordings when a match ends">
           <Toggle checked={s.scanAfterMatch} onChange={(v) => set("scanAfterMatch", v)} label="Scan after match" />
         </Row>
-        <Row
-          label="Split game sessions into separate matches"
-          hint="Uses Match start / Match end markers. Without them (or with this off), one recording covers the whole time the game is open."
-        >
+        <Row label="Split sessions into matches" hint="Uses Match start / end markers.">
           <Toggle checked={s.splitMatches ?? true} onChange={(v) => set("splitMatches", v)} label="Split sessions into matches" />
         </Row>
-        <Field label="Analysis resolution" htmlFor="set-ah" hint="Frames are scaled to this height before matching. Lower is faster; 720p suits most HUDs.">
-          <select id="set-ah" className="input" value={s.analysisHeight} onChange={(e) => set("analysisHeight", Number(e.target.value))}>
+        <Row label="Analysis resolution" hint="Lower is faster; 720p suits most HUDs." htmlFor="set-ah">
+          <select id="set-ah" className="input set-select" value={s.analysisHeight} onChange={(e) => set("analysisHeight", Number(e.target.value))}>
             {[540, 720, 1080].map((h) => (
               <option key={h} value={h}>
                 {h}p
               </option>
             ))}
           </select>
-        </Field>
+        </Row>
       </Section>
 
+      <p className="set-foot muted small">Everything stays on this computer.</p>
+
       <div className={`save-bar ${dirty ? "show" : ""}`} aria-hidden={!dirty}>
-        <span>You have unsaved changes.</span>
+        <span>Unsaved changes</span>
         <button className="btn btn-ghost" onClick={() => base && setS(base)} tabIndex={dirty ? 0 : -1}>
           Discard
         </button>
         <button className="btn btn-primary" onClick={save} disabled={saving} tabIndex={dirty ? 0 : -1}>
-          {saving ? "Saving…" : "Save settings"}
+          {saving ? "Saving…" : "Save"}
         </button>
       </div>
     </div>
   );
 }
 
-function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="set-section">
-      <div className="set-aside">
-        <h2>{title}</h2>
-        {note && <p className="muted small">{note}</p>}
-      </div>
-      <div className="set-body">{children}</div>
+      <h2>{title}</h2>
+      {children}
     </section>
   );
 }
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Row({ label, hint, htmlFor, children }: { label: string; hint?: string; htmlFor?: string; children: ReactNode }) {
   return (
     <div className="set-row">
-      <div>
-        <p>{label}</p>
+      <div className="set-row-text">
+        {htmlFor ? (
+          <label className="set-label" htmlFor={htmlFor}>
+            {label}
+          </label>
+        ) : (
+          <p className="set-label">{label}</p>
+        )}
         {hint && <p className="field-hint">{hint}</p>}
       </div>
       {children}

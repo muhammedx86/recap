@@ -56,16 +56,15 @@ export function EventTypePicker({
   const group = (title: string, list: EventTypeDef[], hint?: string, editable = false) =>
     list.length > 0 && (
       <div className="et-group">
-        <p className="et-group-title">
+        <p className="et-group-title" title={hint}>
           {title}
-          {hint && <span className="muted"> · {hint}</span>}
         </p>
         <ul className={`et-grid ${editable ? "et-grid-wide" : ""}`}>
           {list.map((t) => (
             <li key={t.id} className={`et-item ${value === t.id ? "on" : ""}`}>
               <button type="button" className="et-option" onClick={() => pick(t.id)} aria-pressed={value === t.id}>
-                <span className="et-icon" style={{ color: t.color }}>
-                  <EventIcon icon={t.icon} size={15} />
+                <span className="et-icon" style={{ color: value === t.id ? t.color : "var(--muted)" }}>
+                  <EventIcon icon={t.icon} size={14} />
                 </span>
                 <span className="et-label">{t.label}</span>
               </button>
@@ -89,7 +88,7 @@ export function EventTypePicker({
     <div className="et-picker">
       <button type="button" className={`et-current input ${open ? "open" : ""}`} aria-expanded={open} onClick={() => (setOpen(!open), setEditing(null))}>
         <span className="et-icon" style={{ color: current.color }}>
-          <EventIcon icon={current.icon} size={16} />
+          <EventIcon icon={current.icon} size={14} />
         </span>
         <span className="et-label">{current.label}</span>
         <span className="et-chev" aria-hidden>
@@ -113,11 +112,11 @@ export function EventTypePicker({
           ) : (
             <>
               {group("Plays", builtinPlays)}
-              {group("Rounds", rounds, "shown as round dividers")}
-              {group("Match", match, "splits a session into matches")}
-              {group(`Your types for ${game.name}`, custom, undefined, true)}
-              <button type="button" className="btn btn-small et-new" onClick={() => setEditing("new")}>
-                <Icon name="plus" size={14} />
+              {group("Rounds", rounds, "Shown as round dividers on the timeline")}
+              {group("Match", match, "Splits a game session into separate matches")}
+              {group("Custom", custom, `Your event types for ${game.name}`, true)}
+              <button type="button" className="btn btn-small btn-ghost et-new" onClick={() => setEditing("new")}>
+                <Icon name="plus" size={13} />
                 New event type
               </button>
             </>
@@ -174,7 +173,7 @@ function EventTypeForm({
         save();
       }}
     >
-      <p className="et-group-title">{initial ? `Edit “${initial.label}”` : `New event type for ${game.name}`}</p>
+      <p className="et-group-title">{initial ? `Edit “${initial.label}”` : "New event type"}</p>
       <label className="field-label" htmlFor="et-name">
         Name
       </label>
@@ -193,7 +192,7 @@ function EventTypeForm({
             onClick={() => setIcon(i)}
             style={icon === i ? { color: shownColor } : undefined}
           >
-            <EventIcon icon={i} size={18} />
+            <EventIcon icon={i} size={16} />
           </button>
         ))}
       </div>
@@ -213,11 +212,10 @@ function EventTypeForm({
           <EventIcon icon={icon} size={16} />
         </span>
         <span>{label.trim() || "Your event"}</span>
-        <span className="muted small">on the timeline</span>
       </div>
 
       <div className="et-form-actions">
-        <button type="button" className="btn btn-small" onClick={onCancel}>
+        <button type="button" className="btn btn-small btn-ghost" onClick={onCancel}>
           Cancel
         </button>
         <button type="submit" className="btn btn-primary btn-small" disabled={busy}>

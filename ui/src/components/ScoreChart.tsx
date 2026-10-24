@@ -10,9 +10,9 @@ interface Props {
 }
 
 const W = 1000;
-const H = 180;
+const H = 140;
 const PAD_T = 10;
-const PAD_B = 22;
+const PAD_B = 6;
 
 /** Match score over time with the threshold line and fired events. Click anywhere to preview that moment. */
 export function ScoreChart({ samples, durationMs, threshold, hits, onPick }: Props) {
@@ -58,13 +58,13 @@ export function ScoreChart({ samples, durationMs, threshold, hits, onPick }: Pro
         <path d={path} className="chart-line" vectorEffect="non-scaling-stroke" />
         <line x1={0} x2={W} y1={y(threshold)} y2={y(threshold)} className="chart-threshold" vectorEffect="non-scaling-stroke" />
         {hits.map((t) => (
-          <line key={t} x1={x(t)} x2={x(t)} y1={y(1)} y2={H - PAD_B + 4} className="chart-hit" vectorEffect="non-scaling-stroke" />
+          <line key={t} x1={x(t)} x2={x(t)} y1={y(1)} y2={H - PAD_B} className="chart-hit" vectorEffect="non-scaling-stroke" />
         ))}
         {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={H - PAD_B} className="chart-hover" vectorEffect="non-scaling-stroke" />}
       </svg>
       <div className="chart-axis num muted small" aria-hidden>
         <span>0:00</span>
-        <span>{hover !== null ? `Preview ${timecode(hover)}` : "Click the graph to preview that moment"}</span>
+        <span>{hover !== null ? timecode(hover) : "Click to preview a moment"}</span>
         <span>{timecode(dur)}</span>
       </div>
     </div>

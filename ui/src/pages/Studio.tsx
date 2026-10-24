@@ -191,65 +191,51 @@ export function Studio() {
     <div className="page page-studio">
       <header className="page-head">
         <h1>Detector Studio</h1>
-        <p className="lede">Teach Recap what a play looks like. Find a frame where it happens, draw a box around it, then test against a whole match.</p>
       </header>
 
-      <div className="studio-pickers">
-        <Field label="Game" htmlFor="st-game">
-          <select id="st-game" className="input" value={gameId} onChange={(e) => (setGameId(e.target.value), setDetId(NEW))}>
+      <div className="studio">
+        <nav className="studio-rail" aria-label="Detectors">
+          <select id="st-game" className="input" value={gameId} onChange={(e) => (setGameId(e.target.value), setDetId(NEW))} aria-label="Game">
             {(games ?? []).map((g) => (
               <option key={g.id} value={g.id}>
                 {g.name}
               </option>
             ))}
           </select>
-        </Field>
-        {game?.api && (
-          <p className="studio-note">
-            {game.name} also reports events through its official local API. Detectors here are extra, for anything the API misses.
-          </p>
-        )}
-      </div>
-
-      <div className="det-rail" role="tablist" aria-label={`Detectors for ${game?.name ?? "this game"}`}>
-        {(game?.detectors ?? []).map((d) => (
-          <button
-            key={d.id}
-            role="tab"
-            aria-selected={detId === d.id}
-            className={`det-card ${detId === d.id ? "on" : ""}`}
-            onClick={() => setDetId(d.id)}
-          >
-            <span className="det-card-top">
-              <KindDot kind={d.event} size={15} />
-              <span className="det-card-name">{d.label || d.id}</span>
-            </span>
-            <span className="det-card-meta">
-              <span>Marks {kindStyle(d.event).label.toLowerCase()}</span>
-              <span className={d.ready ? "ok" : "todo"}>{d.ready ? "Ready" : d.enabled ? "Needs image" : "Off"}</span>
-            </span>
+          {game?.api && (
+            <p className="rail-note" title={`${game.name} also reports events through its official local API. Detectors add anything the API misses.`}>
+              Also uses the game's API
+            </p>
+          )}
+          <ul className="det-list" role="tablist" aria-label={`Detectors for ${game?.name ?? "this game"}`}>
+            {(game?.detectors ?? []).map((d) => (
+              <li key={d.id}>
+                <button role="tab" aria-selected={detId === d.id} className={`det-item ${detId === d.id ? "on" : ""}`} onClick={() => setDetId(d.id)}>
+                  <KindDot kind={d.event} size={14} />
+                  <span className="det-name">{d.label || d.id}</span>
+                  {!d.ready && (
+                    <span className={`det-state ${d.enabled ? "todo" : ""}`} title={d.enabled ? "Needs a reference image" : "Turned off"}>
+                      {d.enabled ? <span className="dot" aria-label="Needs a reference image" /> : "Off"}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button role="tab" aria-selected={isNew} className={`det-add ${isNew ? "on" : ""}`} onClick={() => setDetId(NEW)}>
+            <Icon name="plus" size={14} />
+            New detector
           </button>
-        ))}
-        <button role="tab" aria-selected={isNew} className={`det-card det-card-new ${isNew ? "on" : ""}`} onClick={() => setDetId(NEW)}>
-          <span className="det-card-top">
-            <Icon name="plus" size={15} />
-            <span className="det-card-name">New detector</span>
-          </span>
-          <span className="det-card-meta">
-            <span>One per event: kills, deaths, rounds, anything</span>
-          </span>
-        </button>
-      </div>
+        </nav>
 
-      <div className="studio-grid">
         <section className="studio-stage" aria-label="Frame">
           <div className="source-bar">
             <div className="seg" role="group" aria-label="Frame source">
               <button className={sourceKind === "video" ? "on" : ""} onClick={() => setSourceKind("video")} aria-pressed={sourceKind === "video"}>
-                From a recording
+                Recording
               </button>
               <button className={sourceKind === "image" ? "on" : ""} onClick={() => setSourceKind("image")} aria-pressed={sourceKind === "image"}>
-                From an image
+                Image
               </button>
             </div>
             {sourceKind === "video" ? (
@@ -262,7 +248,7 @@ export function Studio() {
                   ))}
                 </select>
               ) : (
-                <span className="muted small">No recordings of this game yet. Play a match or use a screenshot.</span>
+                <span className="muted small">No recordings of this game yet.</span>
               )
             ) : (
               <>
@@ -285,41 +271,49 @@ export function Studio() {
 
           <FrameCanvas frame={frame} loading={loadingFrame} box={shownBox} region={shownRegion} drafting={!!box} onBox={setBox} />
 
-          {sourceKind === "video" && match && (
-            <div className="scrub">
-              <input
-                type="range"
-                min={0}
-                max={match.durationMs}
-                step={200}
-                value={tMs}
-                onChange={(e) => setTMs(Number(e.target.value))}
-                onPointerUp={() => loadFrame({ kind: "video", path: match.path, tMs })}
-                onKeyUp={(e) => (e.key.startsWith("Arrow") ? loadFrame({ kind: "video", path: match.path, tMs }) : undefined)}
-                aria-label="Frame time"
-              />
-              <span className="num">{timecode(tMs, true)}</span>
-              <button className="icon-btn" aria-label="Back one second" onClick={() => { const t = Math.max(0, tMs - 1000); setTMs(t); loadFrame({ kind: "video", path: match.path, tMs: t }); }}>
-                <Icon name="back" size={16} />
-              </button>
-              <button className="icon-btn flip" aria-label="Forward one second" onClick={() => { const t = Math.min(match.durationMs, tMs + 1000); setTMs(t); loadFrame({ kind: "video", path: match.path, tMs: t }); }}>
-                <Icon name="back" size={16} />
-              </button>
-            </div>
-          )}
-          <p className="muted small stage-help">
-            Drag on the frame to draw a tight box around the thing that only appears for this play, like a kill banner. The outer outline is where Recap searches for it.
-          </p>
+          <div className="stage-foot">
+            {sourceKind === "video" && match ? (
+              <div className="scrub">
+                <input
+                  type="range"
+                  min={0}
+                  max={match.durationMs}
+                  step={200}
+                  value={tMs}
+                  onChange={(e) => setTMs(Number(e.target.value))}
+                  onPointerUp={() => loadFrame({ kind: "video", path: match.path, tMs })}
+                  onKeyUp={(e) => (e.key.startsWith("Arrow") ? loadFrame({ kind: "video", path: match.path, tMs }) : undefined)}
+                  aria-label="Frame time"
+                />
+                <span className="num">{timecode(tMs, true)}</span>
+                <button className="icon-btn" aria-label="Back one second" onClick={() => { const t = Math.max(0, tMs - 1000); setTMs(t); loadFrame({ kind: "video", path: match.path, tMs: t }); }}>
+                  <Icon name="back" size={15} />
+                </button>
+                <button className="icon-btn flip" aria-label="Forward one second" onClick={() => { const t = Math.min(match.durationMs, tMs + 1000); setTMs(t); loadFrame({ kind: "video", path: match.path, tMs: t }); }}>
+                  <Icon name="back" size={15} />
+                </button>
+              </div>
+            ) : null}
+            <p className="stage-help" title="The dashed outline is where Recap searches for it.">
+              Drag a tight box around what only appears for this play.
+            </p>
+          </div>
 
           <section className="test" aria-label="Test">
             <div className="test-head">
-              <h2>Test on a recording</h2>
-              <button className="btn btn-primary btn-small" disabled={!matchId || !hasTemplates || testing} onClick={runTest} title={!hasTemplates ? "Save a reference image first" : undefined}>
-                {testing ? "Scanning…" : test ? "Run again" : "Run test"}
+              <h2>Test</h2>
+              {test && (
+                <p className="test-summary">
+                  <span className="num">{hits.length}</span> {hits.length === 1 ? "detection" : "detections"}
+                  {match ? ` in ${matchTitle(match)}` : ""}
+                </p>
+              )}
+              <button className="btn btn-small" disabled={!matchId || !hasTemplates || testing} onClick={runTest} title={!hasTemplates ? "Save a reference image first" : "Run this detector over the whole recording"}>
+                {testing ? "Scanning…" : test ? "Run again" : "Run on recording"}
               </button>
             </div>
-            {!hasTemplates && <p className="muted small">Save the detector with a reference image, then test it here. Tests use saved reference images.</p>}
-            {box && hasTemplates && <p className="muted small">Your new box is not saved yet, so this test uses the saved reference images only.</p>}
+            {!hasTemplates && <p className="muted small">Save a reference image first, then test it on a whole recording.</p>}
+            {box && hasTemplates && <p className="muted small">Uses the saved reference images; your new box is not saved yet.</p>}
             {test && (
               <>
                 <ScoreChart
@@ -329,30 +323,28 @@ export function Studio() {
                   hits={hits}
                   onPick={(t) => match && (setSourceKind("video"), setTMs(t), loadFrame({ kind: "video", path: match.path, tMs: t }))}
                 />
-                <p className="test-summary">
-                  <span className="num">{hits.length}</span> {hits.length === 1 ? "detection" : "detections"} at this threshold
-                  {match ? ` in ${matchTitle(match)}` : ""}. Drag the threshold to see how the count changes.
-                </p>
-                <ul className="hits">
-                  {hits.map((t) => (
-                    <li key={t}>
-                      <button className="chip" onClick={() => match && (setTMs(t), loadFrame({ kind: "video", path: match.path, tMs: t }))}>
-                        <span className="num">{timecode(t)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                {hits.length > 0 && (
+                  <ul className="hits" aria-label="Detections">
+                    {hits.map((t) => (
+                      <li key={t}>
+                        <button className="hit" onClick={() => match && (setTMs(t), loadFrame({ kind: "video", path: match.path, tMs: t }))}>
+                          <span className="num">{timecode(t)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </>
             )}
           </section>
         </section>
 
         <aside className="studio-form" aria-label="Detector settings">
-          <Field label="Name" htmlFor="st-label" hint={isNew ? `Saved as ${draft.id || slug(draft.label) || "…"}` : `Id ${draft.id}`}>
-            <input id="st-label" className="input" value={draft.label} placeholder="Kill banner" onChange={(e) => set("label", e.target.value)} />
+          <Field label="Name" htmlFor="st-label">
+            <input id="st-label" className="input" value={draft.label} placeholder="Kill banner" onChange={(e) => set("label", e.target.value)} title={isNew ? `Saved as ${draft.id || slug(draft.label) || "…"}` : `Id ${draft.id}`} />
           </Field>
           <div className="field">
-            <p className="field-label">Event it marks</p>
+            <p className="field-label">Marks</p>
             {game && (
               <EventTypePicker
                 game={game}
@@ -361,48 +353,58 @@ export function Studio() {
                 onGameUpdated={(g) => setGames((gs) => (gs ?? []).map((x) => (x.id === g.id ? g : x)))}
               />
             )}
-            <p className="field-hint">What the timeline calls this moment. Make your own types with any name and icon.</p>
           </div>
-          <Field label={`Match threshold ${Math.round(draft.threshold * 100)}%`} htmlFor="st-thr" hint="How closely the frame must match. Higher means fewer false alarms but more misses.">
-            <input id="st-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} onChange={(e) => set("threshold", Number(e.target.value))} />
+          <Field label="Threshold" htmlFor="st-thr">
+            <div className="range-row" title="How closely the frame must match. Higher means fewer false alarms but more misses.">
+              <input id="st-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} onChange={(e) => set("threshold", Number(e.target.value))} />
+              <span className="num range-val">{Math.round(draft.threshold * 100)}%</span>
+            </div>
           </Field>
-          <Field label="Search margin" htmlFor="st-margin" hint="How far around your box to look, in case the element shifts a little.">
-            <input id="st-margin" type="range" min={0} max={1} step={0.05} value={margin} onChange={(e) => setMargin(Number(e.target.value))} disabled={!box} />
-          </Field>
-          <div className="field-row">
-            <Field label="Cooldown (ms)" htmlFor="st-cd" hint="Ignore repeats this soon after a hit.">
-              <input id="st-cd" type="number" className="input" min={0} step={100} value={draft.cooldownMs} onChange={(e) => set("cooldownMs", Math.max(0, Number(e.target.value)))} />
+
+          <details className="advanced">
+            <summary>Advanced</summary>
+            <Field label="Search margin" htmlFor="st-margin" hint={box ? undefined : "Draw a box to change it."}>
+              <div className="range-row" title="How far around your box to look, in case the element shifts a little.">
+                <input id="st-margin" type="range" min={0} max={1} step={0.05} value={margin} onChange={(e) => setMargin(Number(e.target.value))} disabled={!box} />
+                <span className="num range-val">{Math.round(margin * 100)}%</span>
+              </div>
             </Field>
-            <Field label="Frames in a row" htmlFor="st-mc" hint="Matches needed before it counts.">
-              <input id="st-mc" type="number" className="input" min={1} max={10} value={draft.minConsecutive} onChange={(e) => set("minConsecutive", Math.max(1, Number(e.target.value)))} />
-            </Field>
-          </div>
-          <div className="field-row">
-            <Field label="Checks per second" htmlFor="st-fps" hint="Higher catches short flashes.">
-              <input id="st-fps" type="number" className="input" min={1} max={30} step={1} value={draft.sampleFps} onChange={(e) => set("sampleFps", Math.min(30, Math.max(1, Number(e.target.value))))} />
-            </Field>
-            <Field label="Extra scales" htmlFor="st-sc" hint="For HUD scale settings, e.g. 0.9, 1.1">
-              <input
-                id="st-sc"
-                className="input"
-                value={draft.scales.join(", ")}
-                placeholder="none"
-                onChange={(e) =>
-                  set(
-                    "scales",
-                    e.target.value
-                      .split(/[,\s]+/)
-                      .map(Number)
-                      .filter((n) => n > 0.2 && n < 5),
-                  )
-                }
-              />
-            </Field>
-          </div>
-          <div className="field field-inline">
-            <span className="field-label">Enabled</span>
-            <Toggle checked={draft.enabled} onChange={(v) => set("enabled", v)} label="Detector enabled" />
-          </div>
+            <div className="field-row">
+              <Field label="Cooldown (ms)" htmlFor="st-cd">
+                <input id="st-cd" type="number" className="input" min={0} step={100} value={draft.cooldownMs} onChange={(e) => set("cooldownMs", Math.max(0, Number(e.target.value)))} title="Ignore repeats this soon after a hit." />
+              </Field>
+              <Field label="Frames in a row" htmlFor="st-mc">
+                <input id="st-mc" type="number" className="input" min={1} max={10} value={draft.minConsecutive} onChange={(e) => set("minConsecutive", Math.max(1, Number(e.target.value)))} title="Matching samples needed before it counts." />
+              </Field>
+            </div>
+            <div className="field-row">
+              <Field label="Checks / second" htmlFor="st-fps">
+                <input id="st-fps" type="number" className="input" min={1} max={30} step={1} value={draft.sampleFps} onChange={(e) => set("sampleFps", Math.min(30, Math.max(1, Number(e.target.value))))} title="Higher catches short flashes." />
+              </Field>
+              <Field label="Extra scales" htmlFor="st-sc">
+                <input
+                  id="st-sc"
+                  className="input"
+                  value={draft.scales.join(", ")}
+                  placeholder="0.9, 1.1"
+                  title="For HUD scale settings, e.g. 0.9, 1.1"
+                  onChange={(e) =>
+                    set(
+                      "scales",
+                      e.target.value
+                        .split(/[,\s]+/)
+                        .map(Number)
+                        .filter((n) => n > 0.2 && n < 5),
+                    )
+                  }
+                />
+              </Field>
+            </div>
+            <div className="field field-inline">
+              <span className="field-label">Enabled</span>
+              <Toggle checked={draft.enabled} onChange={(v) => set("enabled", v)} label="Detector enabled" />
+            </div>
+          </details>
 
           <div className="templates">
             <p className="field-label">Reference images</p>
@@ -415,9 +417,9 @@ export function Studio() {
                 ))}
               </ul>
             ) : (
-              <p className="muted small">None yet. Draw a box on a frame and save to add one.</p>
+              <p className="muted small">None yet. Draw a box on a frame, then save.</p>
             )}
-            {box && <p className="small accent-text">A new reference image will be cut from the box when you save.</p>}
+            {box && <p className="small accent-text">Saving adds the box as a reference image.</p>}
           </div>
 
           <div className="form-actions">

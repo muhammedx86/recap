@@ -1,48 +1,74 @@
 /* ---------- settings ---------- */
 
 .page-settings {
-  max-width: 1080px;
+  max-width: 720px;
 }
 .set-section {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 40px;
-  padding: 32px 0;
-  border-top: 1px solid var(--line-soft);
+  margin-bottom: 36px;
 }
-.set-aside h2 {
-  font-size: 22px;
-  font-weight: 680;
-  letter-spacing: -0.01em;
-  margin-bottom: 6px;
-}
-.set-aside p {
-  max-width: 30ch;
-}
-.set-body {
-  max-width: 600px;
+.set-section > h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
 }
 .set-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 10px 0;
+  min-height: 48px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
 }
-.set-row + .set-row {
-  border-top: 1px solid var(--line-soft);
+.set-row-text {
+  min-width: 0;
+}
+.set-label {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+}
+.set-row .field-hint {
+  margin-top: 1px;
+}
+.set-block {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.set-block .set-label {
+  margin-bottom: 8px;
+}
+.set-block .field-hint {
+  margin: -4px 0 10px;
+}
+.set-select {
+  width: 200px;
+  flex: none;
+}
+.set-num {
+  flex: none;
+  width: 140px;
+}
+.set-pair {
+  flex: none;
+  width: 140px;
 }
 .storage {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: -4px 0 22px;
-  color: var(--ink-2);
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
 }
 .storage .progress {
-  height: 6px;
+  height: 3px;
 }
 .hotkey {
+  flex: none;
+  width: 140px;
   text-align: left;
   cursor: pointer;
 }
@@ -50,27 +76,33 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+.set-foot {
+  margin-top: -12px;
+}
 .save-bar {
   position: fixed;
   left: calc(var(--sidebar) + var(--gutter));
-  right: var(--gutter);
-  bottom: 24px;
-  max-width: 640px;
-  margin: 0 auto;
+  bottom: 20px;
+  width: min(720px, calc(100vw - var(--sidebar) - var(--gutter) * 2));
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 12px 12px 20px;
-  border-radius: 12px;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--r);
   background: var(--raised-2);
   border: 1px solid var(--line);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-  transform: translateY(140%);
-  transition: transform 0.2s ease;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  transform: translateY(160%);
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .save-bar.show {
   transform: none;
 }
 .save-bar > span {
   flex: 1;
+  color: var(--ink-2);
+}
+.set-block .check {
+  font-size: 13px;
 }
