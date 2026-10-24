@@ -49,9 +49,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "obs/**/*": "obs/",
-      "binaries/*": "binaries/",
-      "../games/**/*": "games/"
+      "obs": "obs",
+      "binaries": "binaries",
+      "../games": "games"
     },
     "windows": {
       "nsis": {

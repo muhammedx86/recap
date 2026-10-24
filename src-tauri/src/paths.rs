@@ -103,6 +103,19 @@ pub fn sanitize(name: &str) -> String {
 mod tests {
     use super::sanitize;
 
+    /// Tauri flattens glob resources (`dir/**/*`), which broke the per-game folders and the
+    /// OBS plugin layout in the installer. Resources must be listed as whole directories.
+    #[test]
+    fn bundle_resources_keep_folder_structure() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json parses");
+        let res = conf["bundle"]["resources"].as_object().expect("resources map");
+        for key in ["obs", "binaries", "../games"] {
+            assert!(res.contains_key(key), "missing resource dir {key}");
+        }
+        assert!(res.keys().all(|k| !k.contains('*')), "glob resources get flattened: {:?}", res.keys());
+    }
+
     #[test]
     fn sanitizes() {
         assert_eq!(sanitize("League of Legends"), "League of Legends");

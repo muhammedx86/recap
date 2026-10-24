@@ -136,6 +136,20 @@ jobs:
           TAURI_FRONTEND_PATH: ui
         run: npx --yes @tauri-apps/cli@2 build --ci
 
+      # Tauri copies bundle resources next to the built exe; make sure folders kept their structure.
+      - name: Verify bundled resource layout
+        shell: pwsh
+        run: |
+          $need = @(
+            "target/release/games/valorant/game.json",
+            "target/release/games/cs2/game.json",
+            "target/release/obs/recap-recorder.exe",
+            "target/release/binaries/ffmpeg.exe"
+          )
+          $missing = $need | Where-Object { -not (Test-Path $_) }
+          if ($missing) { Write-Error "Missing bundled resources: $missing"; Get-ChildItem target/release -Depth 1 | Out-String | Write-Host; exit 1 }
+          Get-ChildItem target/release/obs -Directory | Select-Object -ExpandProperty Name | Write-Host
+
       - name: Assemble portable folder
         shell: pwsh
         run: |
