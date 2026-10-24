@@ -172,9 +172,10 @@ impl PreparedReader {
                     if let Ok(text) = ocr.read_text(&tiled) {
                         let fixed = fix_digits(&text);
                         let mut counts: BTreeMap<&str, u32> = BTreeMap::new();
-                        for tok in fixed.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()) {
-                            // Copies read without separators: "131313" -> 3 x "13".
-                            match repeated_unit(tok) {
+                        let toks: Vec<&str> = fixed.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()).collect();
+                        for tok in &toks {
+                            // Copies read with no separators at all: "131313" -> 3 x "13".
+                            match repeated_unit(tok).filter(|_| toks.len() == 1) {
                                 Some((unit, n)) => *counts.entry(unit).or_default() += n,
                                 None => *counts.entry(tok).or_default() += 1,
                             }
@@ -757,6 +758,30 @@ mod tests {
         }
         let got = p.read_frame(&frame, Some(&ShyOcr));
         assert_eq!(got.first().map(|g| g.1.as_str()), Some("13"));
+        // What Windows OCR returned for an enemy score of 11 in the E2E run.
+        let p2 = prepared({
+            let mut d = reader(ReaderKind::Text, "enemy_score");
+            d.pattern = Some(r"^\s*(\d{1,2})\s*$".into());
+            d.region = Region {
+                x: 0.0,
+                y: 0.0,
+                w: 0.2,
+                h: 0.2,
+            };
+            d
+        });
+        struct Elevens;
+        impl TextReader for Elevens {
+            fn read_text(&self, img: &GrayImage) -> Result<String> {
+                Ok(if img.width() > 2 * img.height() {
+                    "11-11-11".into()
+                } else {
+                    String::new()
+                })
+            }
+        }
+        let got = p2.read_frame(&frame, Some(&Elevens));
+        assert_eq!(got.first().map(|g| g.1.as_str()), Some("11"));
     }
 
     #[test]
