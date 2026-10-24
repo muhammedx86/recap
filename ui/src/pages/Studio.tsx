@@ -54,7 +54,8 @@ export function Studio() {
   const [gameId, setGameId] = useState<string>(params.get("game") ?? "");
   const [detId, setDetId] = useState<string>(params.get("detector") ?? NEW);
   const [draft, setDraft] = useState<DetectorDef>(blankDetector());
-  const [box, setBox] = useState<Region | null>(null);
+  const [boxDrawn, setBox] = useState<Region | null>(null);
+  const box = boxDrawn;
   const [margin, setMargin] = useState(0.25);
   const [sourceKind, setSourceKind] = useState<"video" | "image">("video");
   const [matchId, setMatchId] = useState<string>("");
@@ -123,8 +124,11 @@ export function Studio() {
     [test, draft.threshold, draft.minConsecutive, draft.cooldownMs, draft.rearmDrop],
   );
 
-  const save = async () => {
+  const save = async (sameBox = false) => {
     if (!game) return;
+    // "Add this frame": crop the detector's existing box from the current frame, so all
+    // references line up and Recap can learn which pixels are the element.
+    const box = sameBox ? (draft.templateBox ?? null) : boxDrawn;
     const id = draft.id || slug(draft.label);
     if (!id) {
       toast.error("Give the detector a name first.");
@@ -142,7 +146,7 @@ export function Studio() {
       ...draft,
       id,
       label: draft.label || kindStyle(draft.event).label,
-      region: box ? expand(box, margin) : draft.region,
+      region: box && !sameBox ? expand(box, margin) : draft.region,
       templateBox: box ?? draft.templateBox,
     };
     setSaving(true);
@@ -151,7 +155,7 @@ export function Studio() {
       setGames((gs) => (gs ?? []).map((g) => (g.id === updated.id ? updated : g)));
       setDetId(id);
       setBox(null);
-      toast.info(box ? "Detector saved with a new reference image" : "Detector saved");
+      toast.info(sameBox ? "Reference added" : box ? "Detector saved with a new reference image" : "Detector saved");
     } catch (e) {
       toast.error(e, "Could not save the detector");
     } finally {
@@ -447,10 +451,20 @@ export function Studio() {
               <p className="muted small">None yet. Draw a box on a frame, then save.</p>
             )}
             {box && <p className="small accent-text">Saving adds the box as a reference image.</p>}
+            {!isNew && !box && draft.templateBox && (
+              <>
+                <button className="btn btn-ghost btn-sm" onClick={() => save(true)} disabled={saving || !frameSource} title="Crop the same box from the frame shown now">
+                  Add this frame as a reference
+                </button>
+                <p className="muted small">
+                  Two or more references over different backgrounds let Recap ignore the scene behind the element.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="form-actions">
-            <button className="btn btn-primary" onClick={save} disabled={saving || !game}>
+            <button className="btn btn-primary" onClick={() => save()} disabled={saving || !game}>
               {saving ? "Saving…" : isNew ? "Save detector" : "Save changes"}
             </button>
             {!isNew && existing && (

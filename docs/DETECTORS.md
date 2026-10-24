@@ -105,7 +105,7 @@ games/valorant/
 | `event` | – | Event kind to emit: `kill`, `death`, `assist`, `round_win`, … or any custom string. |
 | `region` | – | Where to search, as frame fractions. Make it a little larger than the template (Studio adds a margin for you). |
 | `templateBox` | – | Where the template was cut from (display only). |
-| `templates` | `[]` | Reference PNGs, relative to the game folder. Several templates = any of them can match. A detector with no templates is listed but does not run. |
+| `templates` | `[]` | Reference PNGs, relative to the game folder. Several templates = any of them can match. A detector with no templates is listed but does not run. References of the same element (cut with the same box) also teach Recap which pixels belong to it; see below. |
 | `templateFrameHeight` | – | Height of the frame the templates were cut from. |
 | `threshold` | `0.8` | Minimum ZNCC score. Raise it if you get false hits, lower it if you miss real ones. |
 | `cooldownMs` | `1500` | Minimum time between two events from this detector. |
@@ -258,3 +258,15 @@ With *Split sessions into matches* on (Settings → Detection, default on), each
 Library entry and video file (lossless cut, 5 s before the start and 8 s after the end kept), menu time is
 dropped, and the session recording is removed. With only `match_end` detectors, each match runs from the
 previous end; with only `match_start`, until the next start. Segments shorter than a minute are ignored.
+
+## Several references: ignoring the scene behind an element
+
+HUD elements are often drawn over the game: the scene shows through around and inside them,
+so a single reference also "remembers" whatever was behind it that time. Give a detector two or
+more references of the **same element cut with the same box** over different backgrounds (in
+Studio: open the detector, scrub to another appearance, **Add this frame as a reference**).
+Recap lines the references up, keeps only the pixels they agree on, and compares just those.
+
+On real Valorant footage this lifted kill-emblem matches on unseen clips from about 0.57 to 0.98
+while non-kill frames stayed below 0.3. References that show different things (say, two
+different agent icons) are not masked against each other; each still matches on its own.

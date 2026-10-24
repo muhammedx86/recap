@@ -3,22 +3,25 @@
   "label": "Kill banner",
   "event": "kill",
   "region": {
-    "x": 0.42,
-    "y": 0.66,
-    "w": 0.16,
-    "h": 0.16
+    "x": 0.4557,
+    "y": 0.7176,
+    "w": 0.0885,
+    "h": 0.1574
   },
   "templates": [],
   "templateFrameHeight": 1080,
-  "method": "ncc",
-  "threshold": 0.8,
-  "cooldownMs": 600,
+  "method": "edges",
+  "threshold": 0.7,
+  "cooldownMs": 450,
   "minConsecutive": 2,
   "sampleFps": 8.0,
-  "scales": [
-    0.9,
-    1.1
-  ],
+  "scales": [],
   "enabled": true,
-  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this indicator is showing, drag a box around it and save. Adjust the region if your HUD differs."
+  "notes": "Tested on real 1080p footage (24/24 kills across six clips, incl. two aces). Box only the skull and the inner circle, not the outer ring: the ring gains a segment with every kill. Add two or more references from different scenes using the same box (e.g. one over a bright wall, one over a dark floor) so Recap can learn which pixels are the emblem.",
+  "templateBox": {
+    "x": 0.4714,
+    "y": 0.7454,
+    "w": 0.0573,
+    "h": 0.1019
+  }
 }

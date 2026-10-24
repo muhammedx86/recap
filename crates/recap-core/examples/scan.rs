@@ -45,6 +45,14 @@ fn main() -> anyhow::Result<()> {
             e.confidence.unwrap_or(0.0)
         );
     }
+    // RECAP_SCAN_DUMP=1 prints every sample: "<detector> <seconds> <score>".
+    if std::env::var_os("RECAP_SCAN_DUMP").is_some() {
+        for t in &res.traces {
+            for (ms, s) in &t.samples {
+                println!("trace {} {:.3} {:.3}", t.detector, *ms as f64 / 1000.0, s);
+            }
+        }
+    }
     for t in &res.traces {
         let fired: Vec<u64> = res
             .events

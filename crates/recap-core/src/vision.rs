@@ -19,6 +19,23 @@ use crate::{
 /// Longest side of a template after downscaling for matching.
 pub const MAX_TEMPLATE_DIM: u32 = 96;
 
+/// Pixels of two references that differ by less than this (0..255) count as part of the
+/// on-screen element; the rest is game scene showing through.
+const MASK_AGREE: i32 = 24;
+/// Max shift (reference pixels) searched when lining up two references of the same element.
+const MASK_ALIGN: i32 = 6;
+/// Two references count as the same element when they correlate at least this well.
+const MASK_SAME_ELEMENT: f32 = 0.3;
+
+/// Template pixels that belong to the HUD element (the rest are ignored).
+#[derive(Debug, Clone)]
+struct MaskedPixels {
+    /// (x, y) of each kept pixel.
+    pos: Vec<(u32, u32)>,
+    /// Kept pixel values, zero mean and unit norm over the kept pixels.
+    zvals: Vec<f32>,
+}
+
 /// A reference image prepared for a specific analysis frame height.
 #[derive(Debug, Clone)]
 struct PreparedTemplate {
@@ -27,9 +44,33 @@ struct PreparedTemplate {
     zero_mean: Vec<f32>,
     /// sqrt(sum((t - mean)^2))
     norm: f32,
+    /// When set, only these pixels are compared.
+    mask: Option<MaskedPixels>,
 }
 
 impl PreparedTemplate {
+    /// Like `new`, restricted to the pixels where `mask` is non-zero (same size as `img`).
+    fn with_mask(img: GrayImage, mask: Option<&GrayImage>) -> Option<Self> {
+        let mut t = Self::new(img)?;
+        if let Some(m) = mask {
+            let pos: Vec<(u32, u32)> = m
+                .enumerate_pixels()
+                .filter(|(_, _, v)| v.0[0] > 127)
+                .map(|(x, y, _)| (x, y))
+                .collect();
+            if pos.len() >= 16 {
+                let vals: Vec<f32> = pos.iter().map(|&(x, y)| t.img.get_pixel(x, y).0[0] as f32).collect();
+                let mean = vals.iter().sum::<f32>() / vals.len() as f32;
+                let norm = vals.iter().map(|v| (v - mean).powi(2)).sum::<f32>().sqrt();
+                if norm > 1e-3 {
+                    let zvals = vals.iter().map(|v| (v - mean) / norm).collect();
+                    t.mask = Some(MaskedPixels { pos, zvals });
+                }
+            }
+        }
+        Some(t)
+    }
+
     fn new(img: GrayImage) -> Option<Self> {
         let n = (img.width() * img.height()) as f32;
         if n < 4.0 {
@@ -42,12 +83,137 @@ impl PreparedTemplate {
             // A flat template matches everything; refuse it.
             return None;
         }
-        Some(Self { img, zero_mean, norm })
+        Some(Self {
+            img,
+            zero_mean,
+            norm,
+            mask: None,
+        })
     }
+}
+
+/// ZNCC of `a` against `b` shifted by (dx, dy), over their overlap.
+fn shifted_zncc(a: &GrayImage, b: &GrayImage, dx: i32, dy: i32) -> f32 {
+    let (mut sa, mut sb, mut saa, mut sbb, mut sab, mut n) = (0f64, 0f64, 0f64, 0f64, 0f64, 0f64);
+    for (x, y, p) in a.enumerate_pixels() {
+        let (bx, by) = (x as i32 + dx, y as i32 + dy);
+        if bx < 0 || by < 0 || bx >= b.width() as i32 || by >= b.height() as i32 {
+            continue;
+        }
+        let va = p.0[0] as f64;
+        let vb = b.get_pixel(bx as u32, by as u32).0[0] as f64;
+        sa += va;
+        sb += vb;
+        saa += va * va;
+        sbb += vb * vb;
+        sab += va * vb;
+        n += 1.0;
+    }
+    if n < 16.0 {
+        return -1.0;
+    }
+    let cov = sab - sa * sb / n;
+    let den = ((saa - sa * sa / n) * (sbb - sb * sb / n)).sqrt();
+    if den < 1e-6 {
+        -1.0
+    } else {
+        (cov / den) as f32
+    }
+}
+
+/// Learn which pixels of reference `i` are the HUD element: those that agree with every other
+/// reference of the same element (lined up first). Returns None when there is nothing to learn
+/// from (a single reference, or the others show something else) or the result looks unreliable.
+pub fn reference_mask(imgs: &[GrayImage], i: usize) -> Option<GrayImage> {
+    let a = &imgs[i];
+    let mut agree = vec![true; (a.width() * a.height()) as usize];
+    let mut others = 0;
+    for (j, b) in imgs.iter().enumerate() {
+        if j == i {
+            continue;
+        }
+        let mut best = (-1.0f32, 0, 0);
+        // Search shifts around the centre-aligned position (references may differ slightly in size).
+        let (cx, cy) = (
+            (b.width() as i32 - a.width() as i32) / 2,
+            (b.height() as i32 - a.height() as i32) / 2,
+        );
+        for dy in -MASK_ALIGN..=MASK_ALIGN {
+            for dx in -MASK_ALIGN..=MASK_ALIGN {
+                let s = shifted_zncc(a, b, cx + dx, cy + dy);
+                if s > best.0 {
+                    best = (s, cx + dx, cy + dy);
+                }
+            }
+        }
+        if best.0 < MASK_SAME_ELEMENT {
+            continue;
+        }
+        others += 1;
+        let (dx, dy) = (best.1, best.2);
+        for (x, y, p) in a.enumerate_pixels() {
+            let (bx, by) = (x as i32 + dx, y as i32 + dy);
+            if bx < 0 || by < 0 || bx >= b.width() as i32 || by >= b.height() as i32 {
+                continue;
+            }
+            let d = (p.0[0] as i32 - b.get_pixel(bx as u32, by as u32).0[0] as i32).abs();
+            if d >= MASK_AGREE {
+                agree[(y * a.width() + x) as usize] = false;
+            }
+        }
+    }
+    if others == 0 {
+        return None;
+    }
+    let kept = agree.iter().filter(|&&k| k).count() as f32 / agree.len() as f32;
+    if !(0.08..=0.97).contains(&kept) {
+        return None;
+    }
+    Some(GrayImage::from_fn(a.width(), a.height(), |x, y| {
+        image::Luma([if agree[(y * a.width() + x) as usize] { 255 } else { 0 }])
+    }))
+}
+
+/// Best masked ZNCC of `t` anywhere inside `hay`.
+fn best_masked_zncc(hay: &GrayImage, t: &PreparedTemplate, m: &MaskedPixels) -> f32 {
+    let (hw, hh) = hay.dimensions();
+    let (tw, th) = t.img.dimensions();
+    if tw > hw || th > hh {
+        return -1.0;
+    }
+    let raw = hay.as_raw();
+    let offs: Vec<usize> = m.pos.iter().map(|&(x, y)| (y * hw + x) as usize).collect();
+    let n = offs.len() as f32;
+    let mut best = -1f32;
+    for y in 0..=(hh - th) as usize {
+        for x in 0..=(hw - tw) as usize {
+            let base = y * hw as usize + x;
+            let (mut s, mut q, mut cross) = (0f32, 0f32, 0f32);
+            for (o, tv) in offs.iter().zip(&m.zvals) {
+                let v = raw[base + o] as f32;
+                s += v;
+                q += v * v;
+                cross += v * tv;
+            }
+            let var = q - s * s / n;
+            if var <= 1e-3 {
+                continue;
+            }
+            // zvals are zero mean, so the window mean cancels out of `cross`.
+            let score = cross / var.sqrt();
+            if score > best {
+                best = score;
+            }
+        }
+    }
+    best.min(1.0)
 }
 
 /// Best ZNCC score of `t` anywhere inside `hay`. Returns -1..1 (1 = identical up to brightness/contrast).
 fn best_zncc(hay: &GrayImage, t: &PreparedTemplate) -> f32 {
+    if let Some(m) = &t.mask {
+        return best_masked_zncc(hay, t, m);
+    }
     let (hw, hh) = hay.dimensions();
     let (tw, th) = t.img.dimensions();
     if tw > hw || th > hh {
@@ -139,8 +305,9 @@ impl PreparedDetector {
             .map(|i| i.width().max(i.height()) as f32 * base * scales.iter().cloned().fold(1.0, f32::max))
             .fold(1.0, f32::max);
         let work_scale = (MAX_TEMPLATE_DIM as f32 / largest).min(1.0);
+        let masks: Vec<Option<GrayImage>> = (0..imgs.len()).map(|i| reference_mask(&imgs, i)).collect();
         let mut templates = Vec::new();
-        for img in &imgs {
+        for (img, mask) in imgs.iter().zip(&masks) {
             for s in &scales {
                 let f = base * s * work_scale;
                 let w = ((img.width() as f32 * f).round() as u32).max(2);
@@ -151,7 +318,8 @@ impl PreparedDetector {
                 } else {
                     resized
                 };
-                if let Some(t) = PreparedTemplate::new(resized) {
+                let mask = mask.as_ref().map(|m| image::imageops::resize(m, w, h, FilterType::Nearest));
+                if let Some(t) = PreparedTemplate::with_mask(resized, mask.as_ref()) {
                     templates.push(t);
                 }
             }
@@ -515,6 +683,50 @@ mod tests {
         let miss = d.score_frame(&noise_frame(640, 360, 11));
         assert!(hit > 0.85, "edges hit {hit}");
         assert!(miss < 0.5, "edges miss {miss}");
+    }
+
+    #[test]
+    fn masks_learned_from_references_ignore_the_background() {
+        // The same element over two different backgrounds: only the element pixels agree.
+        let elem = pattern(40, 24);
+        let over = |seed: u32| {
+            let mut bg = noise_frame(40, 24, seed);
+            for (x, y, v) in elem.enumerate_pixels() {
+                if v.0[0] > 128 {
+                    bg.put_pixel(x, y, *v);
+                }
+            }
+            bg
+        };
+        let (r1, r2, r3) = (over(1), over(2), over(3));
+        let m = reference_mask(&[r1.clone(), r2.clone(), r3.clone()], 0).expect("mask");
+        // Every element pixel is kept; most of the (random) background is dropped.
+        let elem_px: Vec<(u32, u32)> = elem.enumerate_pixels().filter(|p| p.2 .0[0] > 128).map(|p| (p.0, p.1)).collect();
+        assert!(elem_px.iter().all(|&(x, y)| m.get_pixel(x, y).0[0] > 0));
+        let kept = m.pixels().filter(|p| p.0[0] > 0).count();
+        assert!(kept < elem_px.len() + (40 * 24 - elem_px.len()) / 3, "mask keeps {kept} px");
+
+        // A third scene: the element plus a busy background. Masked matching scores it high.
+        let mut frame = noise_frame(640, 360, 99);
+        for (x, y, v) in elem.enumerate_pixels() {
+            if v.0[0] > 128 {
+                frame.put_pixel(300 + x, 250 + y, *v);
+            }
+        }
+        let region = Region {
+            x: 280.0 / 640.0,
+            y: 235.0 / 360.0,
+            w: 80.0 / 640.0,
+            h: 55.0 / 360.0,
+        };
+        let masked = PreparedDetector::from_images(def(region), vec![r1.clone(), r2, r3], 640, 360).unwrap();
+        let single = PreparedDetector::from_images(def(region), vec![r1], 640, 360).unwrap();
+        let (hm, hs) = (masked.score_frame(&frame), single.score_frame(&frame));
+        assert!(hm > 0.9 && hm > hs + 0.1, "masked {hm} vs single {hs}");
+        assert!(masked.score_frame(&noise_frame(640, 360, 5)) < 0.5);
+
+        // Unrelated references are not masked against each other.
+        assert!(reference_mask(&[pattern(40, 24), noise_frame(40, 24, 3)], 0).is_none());
     }
 
     #[test]
