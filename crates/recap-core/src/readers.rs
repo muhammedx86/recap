@@ -172,8 +172,12 @@ impl PreparedReader {
                     if let Ok(text) = ocr.read_text(&tiled) {
                         let fixed = fix_digits(&text);
                         let mut counts: BTreeMap<&str, u32> = BTreeMap::new();
-                        for tok in fixed.split_whitespace() {
-                            *counts.entry(tok).or_default() += 1;
+                        for tok in fixed.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()) {
+                            // Copies read without separators: "131313" -> 3 x "13".
+                            match repeated_unit(tok) {
+                                Some((unit, n)) => *counts.entry(unit).or_default() += n,
+                                None => *counts.entry(tok).or_default() += 1,
+                            }
                         }
                         if let Some((tok, n)) = counts.into_iter().max_by_key(|(_, n)| *n) {
                             let got = if n >= 2 { self.interpret(tok) } else { vec![] };
@@ -424,8 +428,23 @@ pub fn prepare_for_ocr_with(gray: &GrayImage, target: f32, margin: f32) -> GrayI
     out
 }
 
+/// "131313" -> ("13", 3): the text read from three run-together copies. Three equal thirds win
+/// ("111111" is three "11", not six "1"); otherwise the shortest repeating unit.
+fn repeated_unit(s: &str) -> Option<(&str, u32)> {
+    let n = s.len();
+    if n >= 3 && n % 3 == 0 {
+        let t = n / 3;
+        if s[..t] == s[t..2 * t] && s[..t] == s[2 * t..] {
+            return Some((&s[..t], 3));
+        }
+    }
+    (1..=n / 2).find_map(|len| {
+        (n % len == 0 && s.as_bytes().chunks(len).all(|c| c == &s.as_bytes()[..len])).then(|| (&s[..len], (n / len) as u32))
+    })
+}
+
 /// Three copies of the text in a prepared (black on white) image, trimmed to the ink and joined
-/// with normal word spacing so they read as one line ("13 13 13").
+/// by drawn slashes so they read as one line like a K/D/A ("13 / 13 / 13").
 fn tile3(img: &GrayImage) -> GrayImage {
     let (w, h) = img.dimensions();
     let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
@@ -442,11 +461,26 @@ fn tile3(img: &GrayImage) -> GrayImage {
     }
     let ink = image::imageops::crop_imm(img, x0, y0, x1 - x0 + 1, y1 - y0 + 1).to_image();
     let (iw, ih) = ink.dimensions();
-    let gap = (ih as f32 * 0.45) as u32 + 2;
+    let gap = (ih as f32 * 0.9) as u32 + 4;
     let margin = (ih / 2).max(8);
     let mut out = GrayImage::from_pixel(iw * 3 + gap * 2 + margin * 2, ih + margin * 2, image::Luma([255]));
-    for i in 0..3 {
-        image::imageops::replace(&mut out, &ink, (margin + i * (iw + gap)) as i64, margin as i64);
+    let stroke = (ih / 9).max(2) as i64;
+    for i in 0..3u32 {
+        let x = margin + i * (iw + gap);
+        image::imageops::replace(&mut out, &ink, x as i64, margin as i64);
+        if i < 2 {
+            // A slash in the gap, about 0.4 of the text height wide.
+            let (gx, sw) = ((x + iw) as f32 + gap as f32 * 0.3, gap as f32 * 0.4);
+            for yy in 0..ih {
+                let cx = gx + sw * (1.0 - yy as f32 / ih as f32);
+                for dx in 0..stroke {
+                    let px = cx as i64 + dx;
+                    if px >= 0 && (px as u32) < out.width() {
+                        out.put_pixel(px as u32, margin + yy, image::Luma([0]));
+                    }
+                }
+            }
+        }
     }
     out
 }
@@ -682,6 +716,10 @@ mod tests {
         assert_eq!(p.interpret("1O")[0].1, "10");
         assert!(p.interpret("LOL").is_empty());
         assert_eq!(fix_digits("3/l/2 KDA"), "3/1/2 KDA");
+        assert_eq!(repeated_unit("131313"), Some(("13", 3)));
+        assert_eq!(repeated_unit("111111"), Some(("11", 3)));
+        assert_eq!(repeated_unit("9999"), Some(("9", 4)));
+        assert_eq!(repeated_unit("13"), None);
 
         let p = prepared(reader(ReaderKind::Text, "result"));
         assert_eq!(p.interpret("VICTORY")[0].1, "win");
