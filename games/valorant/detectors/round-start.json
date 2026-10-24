@@ -1,21 +1,29 @@
 {
   "id": "round-start",
-  "label": "Buy phase banner",
+  "label": "Round start (buy phase)",
   "event": "round_start",
   "region": {
-    "x": 0.38,
-    "y": 0.06,
-    "w": 0.24,
-    "h": 0.1
+    "x": 0.4265625,
+    "y": 0.14074074074074075,
+    "w": 0.14791666666666667,
+    "h": 0.08888888888888889
   },
-  "templates": [],
+  "templateBox": {
+    "x": 0.4348958333333333,
+    "y": 0.15555555555555556,
+    "w": 0.13125,
+    "h": 0.05925925925925926
+  },
+  "templates": [
+    "templates/buy-320.png",
+    "templates/buy-967.5.png",
+    "templates/buy-995.5.png"
+  ],
   "templateFrameHeight": 1080,
-  "method": "ncc",
+  "method": "edges",
   "threshold": 0.8,
-  "cooldownMs": 20000,
+  "cooldownMs": 45000,
   "minConsecutive": 2,
-  "sampleFps": 2.0,
-  "scales": [],
-  "enabled": true,
-  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this shows, drag a box around it and save."
+  "sampleFps": 4,
+  "enabled": true
 }

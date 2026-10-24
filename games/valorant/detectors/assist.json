@@ -1,0 +1,30 @@
+{
+  "id": "assist",
+  "label": "Assist",
+  "event": "assist",
+  "region": {
+    "x": 0.44583333333333336,
+    "y": 0.7648148148148148,
+    "w": 0.10833333333333334,
+    "h": 0.06666666666666667
+  },
+  "templateBox": {
+    "x": 0.45416666666666666,
+    "y": 0.7796296296296297,
+    "w": 0.09166666666666666,
+    "h": 0.037037037037037035
+  },
+  "templates": [
+    "templates/assist-tw1.png",
+    "templates/assist-tw2.png",
+    "templates/assist-clip.png"
+  ],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.75,
+  "cooldownMs": 600,
+  "minConsecutive": 2,
+  "sampleFps": 6,
+  "holdMargin": 0.35,
+  "enabled": true
+}

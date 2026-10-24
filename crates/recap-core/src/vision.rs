@@ -520,6 +520,7 @@ pub struct Trigger {
     cooldown_ms: u64,
     min_consecutive: u32,
     rearm_drop: f32,
+    hold_margin: f32,
     run: u32,
     run_start_ms: u64,
     run_peak: f32,
@@ -539,6 +540,7 @@ impl Trigger {
             cooldown_ms: def.cooldown_ms,
             min_consecutive: def.min_consecutive.max(1),
             rearm_drop: def.rearm_drop.max(0.0),
+            hold_margin: def.hold_margin.clamp(0.0, 1.0),
             run: 0,
             run_start_ms: 0,
             run_peak: 0.0,
@@ -552,7 +554,9 @@ impl Trigger {
 
     /// Feed one sample. Returns `Some((event_time_ms, peak_score))` when the detector fires.
     pub fn push(&mut self, t_ms: u64, score: f32) -> Option<(u64, f32)> {
-        if score >= self.threshold {
+        // After firing, stay "on screen" until the score drops `hold_margin` below the threshold.
+        let held = self.run > 0 && self.fired_this_run && score >= self.threshold - self.hold_margin;
+        if score >= self.threshold || held {
             if self.run == 0 {
                 self.run_start_ms = t_ms;
                 self.run_peak = score;
@@ -646,6 +650,7 @@ mod tests {
             sample_fps: 5.0,
             scales: vec![],
             rearm_drop: 0.0,
+            hold_margin: 0.0,
             enabled: true,
             notes: None,
         }
@@ -762,6 +767,32 @@ mod tests {
         ];
         let fired: Vec<_> = samples.iter().filter_map(|&(ms, s)| t.push(ms, s)).map(|(ms, _)| ms).collect();
         assert_eq!(fired, vec![200, 2000]);
+    }
+
+    #[test]
+    fn hold_margin_ignores_flicker_around_the_threshold() {
+        let mut d = def(Region {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        });
+        d.threshold = 0.6;
+        d.min_consecutive = 1;
+        d.cooldown_ms = 100;
+        let samples = [(0, 0.7), (125, 0.52), (250, 0.8), (375, 0.3), (500, 0.75)];
+        let run = |d: &DetectorDef| {
+            let mut t = Trigger::new(d);
+            samples
+                .iter()
+                .filter_map(|&(ms, s)| t.push(ms, s))
+                .map(|(ms, _)| ms)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(&d), vec![0, 250, 500]);
+        d.hold_margin = 0.15;
+        // 0.52 stays within the margin (same banner); 0.3 really left the screen.
+        assert_eq!(run(&d), vec![0, 500]);
     }
 
     #[test]

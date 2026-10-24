@@ -3,25 +3,33 @@
   "label": "Kill banner",
   "event": "kill",
   "region": {
-    "x": 0.4557,
-    "y": 0.7176,
-    "w": 0.0885,
-    "h": 0.1574
+    "x": 0.4421875,
+    "y": 0.6972222222222222,
+    "w": 0.11458333333333333,
+    "h": 0.2037037037037037
   },
-  "templates": [],
-  "templateFrameHeight": 1080,
-  "method": "edges",
-  "threshold": 0.7,
-  "cooldownMs": 450,
-  "minConsecutive": 2,
-  "sampleFps": 8.0,
-  "scales": [],
-  "enabled": true,
-  "notes": "Tested on real 1080p footage (24/24 kills across six clips, incl. two aces). Box only the skull and the inner circle, not the outer ring: the ring gains a segment with every kill. Add two or more references from different scenes using the same box (e.g. one over a bright wall, one over a dark floor) so Recap can learn which pixels are the emblem.",
   "templateBox": {
-    "x": 0.4714,
-    "y": 0.7454,
-    "w": 0.0573,
-    "h": 0.1019
-  }
+    "x": 0.4630208333333333,
+    "y": 0.7342592592592593,
+    "w": 0.07291666666666667,
+    "h": 0.12962962962962962
+  },
+  "templates": [
+    "templates/ring.png"
+  ],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.6,
+  "cooldownMs": 450,
+  "minConsecutive": 1,
+  "sampleFps": 8,
+  "scales": [
+    1.06,
+    1.12,
+    1.18,
+    1.24
+  ],
+  "holdMargin": 0.2,
+  "notes": "Matches the white ring inside every kill banner, so it works with any banner skin. The ring grows with the multi-kill frame; scales cover that.",
+  "enabled": true
 }

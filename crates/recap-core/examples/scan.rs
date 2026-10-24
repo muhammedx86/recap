@@ -36,7 +36,14 @@ fn main() -> anyhow::Result<()> {
             ..Default::default()
         },
     )?;
+    // Events after the game's round rules (dropped ones are marked "x").
+    let kept = match &game.def.rounds {
+        Some(r) => recap_core::events::apply_round_rules(res.events.clone(), r),
+        None => res.events.clone(),
+    };
     for e in &res.events {
+        let dropped = !kept.iter().any(|k| k.t_ms == e.t_ms && k.kind == e.kind && k.source == e.source);
+        print!("{}", if dropped { "x" } else { " " });
         println!(
             "{:>8.2}s  {:<12} {:<20} conf {:.3}",
             e.t_ms as f64 / 1000.0,

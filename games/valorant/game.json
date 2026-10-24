@@ -13,5 +13,10 @@
     ]
   },
   "postMatch": [],
-  "color": "#FF4655"
+  "color": "#FF4655",
+  "rounds": {
+    "oneLife": true,
+    "setupMs": 30000,
+    "maxAfterDeathMs": 145000
+  }
 }

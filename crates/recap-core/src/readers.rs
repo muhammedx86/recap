@@ -272,6 +272,7 @@ fn choice_detector(def: &ReaderDef, value: &str) -> DetectorDef {
         sample_fps: def.sample_fps,
         scales: vec![],
         rearm_drop: 0.0,
+        hold_margin: 0.0,
         enabled: true,
         notes: None,
     }

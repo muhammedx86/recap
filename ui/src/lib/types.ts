@@ -134,6 +134,7 @@ export interface DetectorDef {
   scales: number[];
   /** Fire again when the score dips by this much and recovers while still on screen. 0 = off. */
   rearmDrop?: number;
+  holdMargin?: number;
   enabled: boolean;
   notes?: string;
 }

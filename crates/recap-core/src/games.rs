@@ -160,6 +160,27 @@ pub struct GameDef {
     /// Custom event types this game's detectors can emit (built-ins are always available).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub event_types: Vec<crate::events::EventTypeDef>,
+    /// Round rules used to drop impossible screen detections (see [`crate::events::apply_round_rules`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rounds: Option<RoundRules>,
+}
+
+/// How rounds work in a round-based game.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundRules {
+    /// One life per round: after you die, kill banners on screen belong to the teammate you are
+    /// spectating, and a second death in the same round is the same death shown again.
+    #[serde(default)]
+    pub one_life: bool,
+    /// Nobody fights for this long after a round starts (buy phase / preparation). Death screens
+    /// shown then are left over from the previous round.
+    #[serde(default)]
+    pub setup_ms: u64,
+    /// The longest a round can go on after you die. Past this, a missed round start no longer
+    /// hides later detections. 0 = until the next round boundary.
+    #[serde(default)]
+    pub max_after_death_ms: u64,
 }
 
 fn yes() -> bool {
@@ -220,6 +241,10 @@ pub struct DetectorDef {
     /// recovers (e.g. a kill banner that pulses on each of several quick kills). 0 = off.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub rearm_drop: f32,
+    /// Once fired, the element counts as still on screen until its score falls this far below
+    /// the threshold (hysteresis), so a flicker around the threshold is not a second play. 0 = off.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hold_margin: f32,
     #[serde(default = "yes")]
     pub enabled: bool,
     /// Optional notes for people sharing detector files.
@@ -656,10 +681,15 @@ pub fn save_user_detector(user_root: &Path, game: &GameDef, det: &DetectorDef, n
 
 /// Copy any template files a detector references from `from_dir` into the user game folder if missing.
 pub fn ensure_templates_copied(det: &DetectorDef, from_dir: &Path, user_game_dir: &Path) -> Result<()> {
-    for t in &det.templates {
-        let dst = user_game_dir.join(t);
+    // Each reference, plus its hand-made mask when there is one.
+    let files = det.templates.iter().flat_map(|t| {
+        let mask = crate::vision::mask_path(Path::new(t)).map(|m| m.to_string_lossy().into_owned());
+        std::iter::once(t.clone()).chain(mask)
+    });
+    for t in files {
+        let dst = user_game_dir.join(&t);
         if !dst.exists() {
-            let src = from_dir.join(t);
+            let src = from_dir.join(&t);
             if src.exists() {
                 if let Some(p) = dst.parent() {
                     fs::create_dir_all(p)?;
@@ -792,6 +822,7 @@ mod tests {
             sample_fps: 6.0,
             scales: vec![],
             rearm_drop: 0.0,
+            hold_margin: 0.0,
             enabled: true,
             notes: None,
         }
@@ -809,6 +840,7 @@ mod tests {
             post_match: vec![],
             color: None,
             event_types: vec![],
+            rounds: None,
         }
     }
 

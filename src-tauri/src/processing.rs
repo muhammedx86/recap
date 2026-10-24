@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use recap_core::{
     clips::{concat, cut_clip, kinds_in_window, plan_auto_clips},
     details::{from_events, latest_snapshot, merge, retain_manual},
-    events::{builtin_event_types, is_round_kind, kind, merge_events, EventSource, EventTypeDef, GameEvent},
+    events::{apply_round_rules, builtin_event_types, is_round_kind, kind, merge_events, EventSource, EventTypeDef, GameEvent},
     games::{ApiSource, LoadedDetector, LoadedGame},
     library::{ClipKind, ClipRecord, MatchRecord, MatchStatus},
     postmatch::{run_processor, PostMatchContext},
@@ -218,7 +218,10 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
     // Merge with live events (API + manual) and store only the new ones.
     let existing = st.library.lock().unwrap().list_events(match_id)?;
     let existing_len = existing.len();
-    let merged = merge_events(existing.into_iter().chain(derived).collect(), 1500);
+    let mut merged = merge_events(existing.into_iter().chain(derived).collect(), 1500);
+    if let Some(rules) = game.as_ref().and_then(|g| g.def.rounds.as_ref()) {
+        merged = apply_round_rules(merged, rules);
+    }
     let new: Vec<GameEvent> = merged
         .into_iter()
         .filter(|e| e.id.is_none() && matches!(e.source, EventSource::Vision { .. } | EventSource::PostMatch { .. }))

@@ -379,6 +379,7 @@ pub fn game_def() -> GameDef {
         post_match: vec![],
         color: Some("#7cc3a3".into()),
         event_types: vec![],
+        rounds: None,
     }
 }
 
@@ -399,6 +400,7 @@ pub fn detector_def(b: Banner) -> DetectorDef {
         sample_fps: 6.0,
         scales: vec![],
         rearm_drop: 0.0,
+        hold_margin: 0.0,
         enabled: true,
         notes: Some("Sample game fixture for Recap's end-to-end test.".into()),
     }

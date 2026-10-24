@@ -191,8 +191,8 @@ export function Studio() {
   const kind = kindStyle(draft.event);
 
   const hits = useMemo(
-    () => (test ? computeHits(test.samples, draft.threshold, draft.minConsecutive, draft.cooldownMs, draft.rearmDrop ?? 0) : []),
-    [test, draft.threshold, draft.minConsecutive, draft.cooldownMs, draft.rearmDrop],
+    () => (test ? computeHits(test.samples, draft.threshold, draft.minConsecutive, draft.cooldownMs, draft.rearmDrop ?? 0, draft.holdMargin ?? 0) : []),
+    [test, draft.threshold, draft.minConsecutive, draft.cooldownMs, draft.rearmDrop, draft.holdMargin],
   );
   const sameKind = useMemo(() => matchEvents.filter((e) => e.kind === draft.event).map((e) => e.tMs).sort((a, b) => a - b), [matchEvents, draft.event]);
   // How many of the plays already marked in this recording the test found (within 2 s).
@@ -724,6 +724,19 @@ export function Studio() {
                     value={draft.rearmDrop ?? 0}
                     onChange={(e) => set("rearmDrop", Math.min(0.5, Math.max(0, Number(e.target.value))))}
                     title="For an element that stays up and pulses once per play: how much the match must dip between two plays (try 0.1). 0 = off."
+                  />
+                </Field>
+                <Field label="Steady margin" htmlFor="st-hold">
+                  <input
+                    id="st-hold"
+                    type="number"
+                    className="input"
+                    min={0}
+                    max={0.5}
+                    step={0.05}
+                    value={draft.holdMargin ?? 0}
+                    onChange={(e) => set("holdMargin", Math.min(0.5, Math.max(0, Number(e.target.value))))}
+                    title="Once found, keep treating the element as on screen until the match drops this far below 'Match needed', so a flickering match isn't counted twice (try 0.15). 0 = off."
                   />
                 </Field>
               </div>

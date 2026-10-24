@@ -2,7 +2,8 @@
 
 /**
  * Same trigger rule as the backend (vision.rs `Trigger`): rising edge after N matching samples,
- * with a cooldown; with `rearmDrop` > 0 a dip-and-recover while still matching fires again.
+ * with a cooldown; with `rearmDrop` > 0 a dip-and-recover while still matching fires again;
+ * with `holdMargin` > 0 a fired element stays on screen until it drops that far below the threshold.
  */
 export function computeHits(
   samples: Array<[number, number]>,
@@ -10,6 +11,7 @@ export function computeHits(
   minConsecutive: number,
   cooldownMs: number,
   rearmDrop = 0,
+  holdMargin = 0,
 ): number[] {
   const out: number[] = [];
   let run = 0;
@@ -21,7 +23,8 @@ export function computeHits(
   let trough = 0;
   let armed = false;
   for (const [t, s] of samples) {
-    if (s >= threshold) {
+    const held = run > 0 && fired && s >= threshold - holdMargin;
+    if (s >= threshold || held) {
       if (run === 0) {
         start = t;
         peak = s;

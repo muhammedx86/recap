@@ -197,6 +197,50 @@ impl GameEvent {
     }
 }
 
+/// Drop screen detections that the game's round rules make impossible. Only vision events are
+/// touched (API and manual events are trusted):
+///
+/// * deaths during the setup phase after a round starts (the death screen of the last round);
+/// * with one life per round, a second death in the same round, and kills/assists after your
+///   death (the spectated teammate's banners).
+///
+/// A round boundary is a `round_start`, `round_win` or `round_loss` from any source.
+pub fn apply_round_rules(events: Vec<GameEvent>, rules: &crate::games::RoundRules) -> Vec<GameEvent> {
+    let mut events = events;
+    events.sort_by_key(|e| e.t_ms);
+    let vision = |e: &GameEvent| matches!(e.source, EventSource::Vision { .. });
+    let mut round_start: Option<u64> = None;
+    let mut dead_at: Option<u64> = None;
+    let mut out = Vec::with_capacity(events.len());
+    for e in events {
+        match e.kind.as_str() {
+            kind::ROUND_START => {
+                round_start = Some(e.t_ms);
+                dead_at = None;
+            }
+            kind::ROUND_WIN | kind::ROUND_LOSS => {
+                round_start = None;
+                dead_at = None;
+            }
+            _ => {}
+        }
+        let dead = dead_at.is_some_and(|d| rules.max_after_death_ms == 0 || e.t_ms.saturating_sub(d) <= rules.max_after_death_ms);
+        if vision(&e) {
+            let in_setup = rules.setup_ms > 0 && round_start.is_some_and(|s| e.t_ms.saturating_sub(s) < rules.setup_ms);
+            match e.kind.as_str() {
+                kind::DEATH if in_setup || (rules.one_life && dead) => continue,
+                kind::KILL | kind::ASSIST | kind::MULTIKILL | kind::ACE if rules.one_life && dead => continue,
+                _ => {}
+            }
+        }
+        if e.kind == kind::DEATH && rules.one_life {
+            dead_at = Some(e.t_ms);
+        }
+        out.push(e);
+    }
+    out
+}
+
 /// Merge events from several sources, dropping near-duplicates of the same kind
 /// (e.g. a vision kill and an API kill for the same moment). When two events of
 /// the same kind fall within `window_ms`, the one with an exact source (no
@@ -229,6 +273,40 @@ fn is_manual(e: &GameEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn round_rules_drop_impossible_detections() {
+        let v = |k: &str, t: u64| GameEvent::new(k, t, EventSource::Vision { detector: "d".into() });
+        let rules = crate::games::RoundRules {
+            one_life: true,
+            setup_ms: 30_000,
+            max_after_death_ms: 145_000,
+        };
+        let evs = vec![
+            v(kind::ROUND_START, 0),
+            v(kind::DEATH, 10_000), // last round's death screen during the buy phase
+            v(kind::KILL, 40_000),
+            v(kind::DEATH, 50_000),
+            v(kind::DEATH, 58_000), // same death, shown again
+            v(kind::KILL, 60_000),  // spectating a teammate
+            v(kind::ROUND_START, 100_000),
+            v(kind::KILL, 140_000),
+            v(kind::DEATH, 150_000),
+            // The next round start was missed: detections come back after the longest round.
+            v(kind::KILL, 400_000),
+        ];
+        let kept: Vec<(String, u64)> = apply_round_rules(evs, &rules).into_iter().map(|e| (e.kind, e.t_ms)).collect();
+        let want = [
+            (kind::ROUND_START, 0),
+            (kind::KILL, 40_000),
+            (kind::DEATH, 50_000),
+            (kind::ROUND_START, 100_000),
+            (kind::KILL, 140_000),
+            (kind::DEATH, 150_000),
+            (kind::KILL, 400_000),
+        ];
+        assert_eq!(kept, want.iter().map(|(k, t)| (k.to_string(), *t)).collect::<Vec<_>>());
+    }
 
     #[test]
     fn merge_prefers_exact_source() {
