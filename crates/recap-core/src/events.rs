@@ -84,21 +84,21 @@ impl EventTypeDef {
 /// Built-in event types, in display order.
 pub fn builtin_event_types() -> Vec<EventTypeDef> {
     [
-        (kind::KILL, "Kill", "crosshair", "#6fd6a8"),
-        (kind::DEATH, "Death", "skull", "#f07a6a"),
-        (kind::ASSIST, "Assist", "handshake", "#7fa7ff"),
-        (kind::MULTIKILL, "Multikill", "flame", "#c99bff"),
-        (kind::ACE, "Ace", "crown", "#ff9bd2"),
-        (kind::OBJECTIVE, "Objective", "gem", "#5cc8d6"),
-        (kind::ROUND_START, "Round start", "flag", "#8d9099"),
-        (kind::ROUND_WIN, "Round won", "trophy", "#a6d86b"),
-        (kind::ROUND_LOSS, "Round lost", "circle-x", "#9a7f86"),
-        (kind::MVP, "MVP", "star", "#e9d38a"),
-        (kind::BOMB_PLANT, "Bomb planted", "bomb", "#ff9a62"),
-        (kind::BOMB_DEFUSE, "Bomb defused", "shield", "#59c3ff"),
-        (kind::BOOKMARK, "Bookmark", "bookmark", "#f5a524"),
-        (kind::MATCH_START, "Match start", "flag", "#8d9099"),
-        (kind::MATCH_END, "Match end", "flag", "#8d9099"),
+        (kind::KILL, "Kill", "crosshair", "#7cc3a3"),
+        (kind::DEATH, "Death", "skull", "#d68b80"),
+        (kind::ASSIST, "Assist", "handshake", "#8fa7d6"),
+        (kind::MULTIKILL, "Multikill", "flame", "#ad9bd3"),
+        (kind::ACE, "Ace", "crown", "#cfa1bd"),
+        (kind::OBJECTIVE, "Objective", "gem", "#7cb6be"),
+        (kind::ROUND_START, "Round start", "flag", "#7d818a"),
+        (kind::ROUND_WIN, "Round won", "trophy", "#9dbb7c"),
+        (kind::ROUND_LOSS, "Round lost", "circle-x", "#a08a90"),
+        (kind::MVP, "MVP", "star", "#c9b98a"),
+        (kind::BOMB_PLANT, "Bomb planted", "bomb", "#d39b74"),
+        (kind::BOMB_DEFUSE, "Bomb defused", "shield", "#80acc9"),
+        (kind::BOOKMARK, "Bookmark", "bookmark", "#f2a93b"),
+        (kind::MATCH_START, "Match start", "flag", "#7d818a"),
+        (kind::MATCH_END, "Match end", "flag", "#7d818a"),
     ]
     .into_iter()
     .map(|(id, label, icon, color)| EventTypeDef {
@@ -125,9 +125,7 @@ pub fn slugify(label: &str) -> String {
 }
 
 /// Colours given to custom types when the user does not pick one.
-pub const AUTO_COLORS: [&str; 8] = [
-    "#7dd3c0", "#e58fd0", "#9fb4ff", "#f2c46d", "#c3e07a", "#ff8f8f", "#b49cff", "#6cc4f2",
-];
+pub const AUTO_COLORS: [&str; 8] = ["#7cc3a3", "#d68b80", "#8fa7d6", "#ad9bd3", "#cfa1bd", "#7cb6be", "#c9b98a", "#d39b74"];
 
 /// Where an event came from. Purely informational: nothing downstream branches on it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

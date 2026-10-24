@@ -1,0 +1,120 @@
+/* ---------- clips ---------- */
+
+.clip-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 28px 22px;
+}
+.clip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.clip-play {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.clip.selected .thumb {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.clip-select {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: rgba(9, 10, 13, 0.7);
+  cursor: pointer;
+}
+.clip-select input {
+  margin: 0;
+}
+.clip.selected .clip-select {
+  background: var(--accent);
+}
+.clip.selected .clip-select input {
+  position: absolute;
+  opacity: 0;
+}
+.clip-order {
+  color: var(--accent-ink);
+  font-weight: 750;
+  font-size: 14px;
+}
+.clip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.clip-title {
+  font-size: 17px;
+  font-weight: 620;
+  line-height: 1.25;
+}
+.clip-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.clip .row-actions {
+  margin-left: -6px;
+}
+
+.selection-bar {
+  position: fixed;
+  left: calc(var(--sidebar) + var(--gutter));
+  right: var(--gutter);
+  bottom: 24px;
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 20px;
+  border-radius: 12px;
+  background: var(--raised-2);
+  border: 1px solid var(--line);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+.selection-bar > span {
+  flex: 1;
+}
+
+.montage-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.montage-list li {
+  display: grid;
+  grid-template-columns: 20px 96px 1fr auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px;
+  border-radius: var(--r-sm);
+  background: var(--raised-2);
+}
+.montage-thumb {
+  width: 96px;
+}
+.montage-title {
+  font-weight: 550;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -8,7 +8,7 @@ import { Icon } from "./ui";
 const NAV = [
   { to: "/", label: "Library", icon: "library", end: true },
   { to: "/clips", label: "Clips", icon: "clips" },
-  { to: "/studio", label: "Detector Studio", icon: "studio" },
+  { to: "/studio", label: "Studio", icon: "studio" },
   { to: "/games", label: "Games", icon: "games" },
   { to: "/settings", label: "Settings", icon: "settings" },
 ];
@@ -23,7 +23,7 @@ export function Sidebar() {
       <nav className="nav" aria-label="Main">
         {NAV.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-            <Icon name={n.icon} />
+            <Icon name={n.icon} size={16} />
             {n.label}
           </NavLink>
         ))}
@@ -42,49 +42,54 @@ function RecordingIndicator() {
 
   if (status.state === "unavailable") {
     return (
-      <div className="rec rec-off">
-        <p className="rec-title">Recorder unavailable</p>
-        <p className="rec-meta">{status.message ?? "The recording engine did not start."}</p>
+      <div className="rec">
+        <div className="rec-row">
+          <span className="rec-dot idle" aria-hidden />
+          <span className="rec-title">Recorder unavailable</span>
+        </div>
+        {status.message && <p className="rec-meta">{status.message}</p>}
       </div>
     );
   }
 
   if (!recording && status.state !== "starting" && status.state !== "stopping") {
     return (
-      <div className="rec rec-idle">
-        <p className="rec-title">Waiting for a game</p>
-        <p className="rec-meta">Recording starts on its own when an enabled game launches.</p>
-        <button
-          className="btn btn-small"
-          onClick={() => api.startManualRecording().catch((e) => toast.error(e, "Could not start recording"))}
-        >
-          <Icon name="record" size={14} />
-          Record now
-        </button>
+      <div className="rec">
+        <div className="rec-row" title="Recording starts on its own when an enabled game launches">
+          <span className="rec-dot idle" aria-hidden />
+          <span className="rec-title">Waiting for a game</span>
+        </div>
+        <div className="rec-actions">
+          <button className="btn btn-small btn-ghost" onClick={() => api.startManualRecording().catch((e) => toast.error(e, "Could not start recording"))}>
+            <Icon name="record" size={13} />
+            Record now
+          </button>
+        </div>
       </div>
     );
   }
 
   const elapsed = status.startedUnixMs ? now - status.startedUnixMs : 0;
+  const label = status.state === "recording" ? (status.gameName ?? "Recording") : status.state === "starting" ? "Starting…" : "Stopping…";
   return (
-    <div className="rec rec-live" aria-live="polite">
-      <div className="rec-head">
+    <div className="rec" aria-live="polite">
+      <div className="rec-row">
         <span className="rec-dot" aria-hidden />
-        <span className="rec-state">{status.state === "recording" ? "Recording" : status.state === "starting" ? "Starting" : "Stopping"}</span>
+        <span className="rec-title ellipsis">{label}</span>
+        <span className="rec-time num">{timecode(elapsed)}</span>
       </div>
-      <p className="rec-game">{status.gameName ?? "Recording"}</p>
-      <p className="rec-time num">{timecode(elapsed)}</p>
-      <p className="rec-meta">
-        {status.bookmarks} {status.bookmarks === 1 ? "bookmark" : "bookmarks"}
-        {status.encoder ? `, ${status.encoder}` : ""}
-      </p>
+      {status.bookmarks > 0 && (
+        <p className="rec-meta">
+          {status.bookmarks} {status.bookmarks === 1 ? "bookmark" : "bookmarks"}
+        </p>
+      )}
       <div className="rec-actions">
-        <button className="btn btn-small" onClick={() => api.addBookmark().catch((e) => toast.error(e))} title="Bookmark this moment">
-          <Icon name="marker" size={14} />
+        <button className="btn btn-small btn-ghost" onClick={() => api.addBookmark().catch((e) => toast.error(e))} title="Bookmark this moment">
+          <Icon name="marker" size={13} />
           Bookmark
         </button>
         <button className="btn btn-small btn-ghost" onClick={() => api.stopRecording().catch((e) => toast.error(e, "Could not stop"))} title="Stop recording">
-          <Icon name="stop" size={14} />
+          <Icon name="stop" size={13} />
           Stop
         </button>
       </div>

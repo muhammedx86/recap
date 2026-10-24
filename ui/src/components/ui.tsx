@@ -6,10 +6,11 @@ import { hasRoundEvents, roundScore } from "../lib/rounds";
 import { EventIcon } from "./EventIcon";
 
 /** The event kind's icon in its colour. (Named for history: it used to be a dot.) */
-export function KindDot({ kind, size = 14 }: { kind: string; size?: number }) {
+/** Event icon. Lists use the quiet muted tone; pass `tone="color"` where colour carries meaning (timeline). */
+export function KindDot({ kind, size = 14, tone = "muted" }: { kind: string; size?: number; tone?: "muted" | "color" }) {
   const st = kindStyle(kind);
   return (
-    <span className="kind-icon" style={{ color: st.color }} aria-hidden>
+    <span className="kind-icon" style={{ color: tone === "color" ? st.color : "var(--muted)" }} aria-hidden>
       <EventIcon icon={st.icon} size={size} />
     </span>
   );

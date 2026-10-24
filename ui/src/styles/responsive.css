@@ -1,0 +1,42 @@
+/* ---------- narrower windows ---------- */
+
+@media (max-width: 1280px) {
+  .match-grid,
+  .studio-grid {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+  .studio-pickers {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+  .studio-note {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1160px) {
+  :root {
+    --sidebar: 220px;
+  }
+  .match-link {
+    grid-template-columns: 200px 1fr;
+  }
+  .match-thumb {
+    width: 200px;
+  }
+  .match-grid,
+  .studio-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .events-panel,
+  .studio-form {
+    position: static;
+    max-height: none;
+  }
+  .set-section {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .game-facts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
