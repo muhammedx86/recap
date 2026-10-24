@@ -1,3 +1,4 @@
+import type React from "react";
 // Detector Studio, Details mode: screen readers that fill match details (map, character, K/D/A…).
 // Studio owns the viewer; this hook supplies the rail list, viewer overlays and markers, the test
 // panel and the settings form.
@@ -598,7 +599,7 @@ export function useReaderWorkspace(o: {
         ) : (
           <Field label="Match needed" htmlFor="rd-thr">
             <div className="range-row">
-              <input id="rd-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} onChange={(e) => set("threshold", Number(e.target.value))} />
+              <input id="rd-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} style={{ "--p": `${((draft.threshold - 0.5) / 0.49) * 100}%` } as React.CSSProperties} onChange={(e) => set("threshold", Number(e.target.value))} />
               <span className="num range-val">{Math.round(draft.threshold * 100)}%</span>
             </div>
           </Field>

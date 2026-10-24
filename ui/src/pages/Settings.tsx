@@ -5,7 +5,8 @@ import { useLoad } from "../lib/hooks";
 import { COMMON_KINDS, kindStyle } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import type { EncoderChoice, Settings } from "../lib/types";
-import { ProgressBar, Toggle } from "../components/ui";
+import { Icon, ProgressBar, Toggle } from "../components/ui";
+import { loadPref, savePref } from "../lib/media";
 
 const ENCODER_LABEL: Record<string, string> = {
   auto: "Automatic",
@@ -23,8 +24,24 @@ const HEIGHTS: Array<[number | null, string]> = [
   [720, "720p"],
 ];
 
+type Tab = "general" | "recording" | "audio" | "clipping" | "detection" | "hotkeys" | "storage";
+const TABS: Array<[Tab, string, string]> = [
+  ["general", "General", "sliders"],
+  ["recording", "Recording", "video"],
+  ["audio", "Audio", "volume"],
+  ["clipping", "Clipping", "scissors"],
+  ["detection", "Detection", "target"],
+  ["hotkeys", "Hotkeys", "keyboard"],
+  ["storage", "Storage", "storage"],
+];
+
 export function SettingsPage() {
   const toast = useToast();
+  const [tab, setTab] = useState<Tab>(() => loadPref<Tab>("settings.tab", "general"));
+  const chooseTab = (t: Tab) => {
+    setTab(t);
+    savePref("settings.tab", t);
+  };
   const { data: loaded, error } = useLoad(() => api.getSettings(), []);
   const { data: encoders } = useLoad(() => api.listEncoders(), []);
   const { data: mics } = useLoad(() => api.listAudioInputs(), []);
@@ -68,10 +85,20 @@ export function SettingsPage() {
     <div className="page page-settings">
       <header className="page-head">
         <h1>Settings</h1>
+        <p className="lede">Configure recording, clipping and storage</p>
       </header>
 
-      <Section title="Storage">
-        <div className="set-block">
+      <div className="set-tabs" role="tablist" aria-label="Settings sections">
+        {TABS.map(([id, label, icon]) => (
+          <button key={id} role="tab" aria-selected={tab === id} className={`chip ${tab === id ? "on" : ""}`} onClick={() => chooseTab(id)}>
+            <Icon name={icon} size={14} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <Section title="Storage" icon="storage" desc="Where recordings go and how much space they may use" show={tab === "storage"}>
+        <div className="set-block wide">
           <label className="set-label" htmlFor="set-dir">
             Recordings folder
           </label>
@@ -113,16 +140,16 @@ export function SettingsPage() {
         </Row>
       </Section>
 
-      <Section title="Startup">
-        <Row label="Launch with Windows">
+      <Section title="Startup" icon="power" desc="How Recap starts with Windows" show={tab === "general"}>
+        <Row on={s.launchAtStartup} label="Launch with Windows">
           <Toggle checked={s.launchAtStartup} onChange={(v) => set("launchAtStartup", v)} label="Launch with Windows" />
         </Row>
-        <Row label="Start in the tray" hint="When Windows starts Recap, keep the window closed.">
+        <Row on={s.startMinimized && s.launchAtStartup} label="Start in the tray" hint="When Windows starts Recap, keep the window closed.">
           <Toggle checked={s.startMinimized} onChange={(v) => set("startMinimized", v)} label="Start in the tray" disabled={!s.launchAtStartup} />
         </Row>
       </Section>
 
-      <Section title="Video">
+      <Section title="Video" icon="video" desc="Quality of new recordings" show={tab === "recording"}>
         <Row label="Frame rate" htmlFor="set-fps">
           <select id="set-fps" className="input set-select" value={s.fps} onChange={(e) => set("fps", Number(e.target.value))}>
             {[30, 60, 120].map((f) => (
@@ -158,11 +185,11 @@ export function SettingsPage() {
         </Row>
       </Section>
 
-      <Section title="Audio">
-        <Row label="Game and desktop sound">
+      <Section title="Audio" icon="volume" desc="What sound is recorded" show={tab === "audio"}>
+        <Row on={s.recordDesktopAudio} label="Game and desktop sound">
           <Toggle checked={s.recordDesktopAudio} onChange={(v) => set("recordDesktopAudio", v)} label="Record desktop audio" />
         </Row>
-        <Row label="Microphone" hint="Mixed in with the game sound.">
+        <Row on={s.recordMicrophone} label="Microphone" hint="Mixed in with the game sound.">
           <Toggle checked={s.recordMicrophone} onChange={(v) => set("recordMicrophone", v)} label="Record microphone" />
         </Row>
         {s.recordMicrophone && (
@@ -180,13 +207,13 @@ export function SettingsPage() {
           </Row>
         )}
         {s.recordMicrophone && (
-          <Row label="Also keep your voice on its own track" hint="Track 2, for video editors. Recap and clips play the full mix.">
+          <Row on={s.separateMicTrack} label="Also keep your voice on its own track" hint="Track 2, for video editors. Recap and clips play the full mix.">
             <Toggle checked={s.separateMicTrack} onChange={(v) => set("separateMicTrack", v)} label="Separate microphone track" />
           </Row>
         )}
       </Section>
 
-      <Section title="Hotkeys">
+      <Section title="Hotkeys" icon="keyboard" desc="Keys that work while you play" show={tab === "hotkeys"}>
         <Row label="Bookmark this moment" htmlFor="set-hk-b">
           <HotkeyInput id="set-hk-b" value={s.bookmarkHotkey} onChange={(v) => set("bookmarkHotkey", v)} />
         </Row>
@@ -195,8 +222,8 @@ export function SettingsPage() {
         </Row>
       </Section>
 
-      <Section title="Notifications">
-        <Row label="Show notifications over the game" hint="Recording started and saved, clips ready, skipped matches. Visible in borderless and windowed games, not in exclusive fullscreen.">
+      <Section title="Notifications" icon="bell" desc="Small pop-ups over the game" show={tab === "general"}>
+        <Row on={s.notifications} label="Show notifications over the game" hint="Recording started and saved, clips ready, skipped matches. Visible in borderless and windowed games, not in exclusive fullscreen.">
           <Toggle checked={s.notifications} onChange={(v) => set("notifications", v)} label="In-game notifications" />
         </Row>
         {s.notifications && (
@@ -214,15 +241,15 @@ export function SettingsPage() {
                 <option value="bottom-left">Bottom left</option>
               </select>
             </Row>
-            <Row label="Include bookmarks">
+            <Row on={s.notifyOnBookmark} label="Include bookmarks">
               <Toggle checked={s.notifyOnBookmark} onChange={(v) => set("notifyOnBookmark", v)} label="Bookmark notifications" />
             </Row>
           </>
         )}
       </Section>
 
-      <Section title="Auto-clips">
-        <Row label="Make clips after each match">
+      <Section title="Auto-clips" icon="scissors" desc="Clips made for you after each match" show={tab === "clipping"}>
+        <Row on={s.autoClip.enabled} label="Make clips after each match">
           <Toggle checked={s.autoClip.enabled} onChange={(v) => setClip("enabled", v)} label="Auto-clips" />
         </Row>
         <Row label="Seconds before / after" htmlFor="set-cb">
@@ -237,10 +264,10 @@ export function SettingsPage() {
             <span className="unit">s</span>
           </div>
         </Row>
-        <Row label="Frame-accurate cuts" hint="Slower; re-encodes each clip.">
+        <Row on={s.autoClip.preciseCuts} label="Frame-accurate cuts" hint="Slower; re-encodes each clip.">
           <Toggle checked={s.autoClip.preciseCuts} onChange={(v) => setClip("preciseCuts", v)} label="Frame-accurate cuts" />
         </Row>
-        <div className="set-block">
+        <div className="set-block wide">
           <p className="set-label">Clip these plays in every game</p>
           <p className="field-hint">Leave empty to use each game's own choice.</p>
           <div className="check-grid">
@@ -258,11 +285,11 @@ export function SettingsPage() {
         </div>
       </Section>
 
-      <Section title="Detection">
-        <Row label="Scan recordings when a match ends">
+      <Section title="Detection" icon="target" desc="Finding plays and matches in recordings" show={tab === "detection"}>
+        <Row on={s.scanAfterMatch} label="Scan recordings when a match ends">
           <Toggle checked={s.scanAfterMatch} onChange={(v) => set("scanAfterMatch", v)} label="Scan after match" />
         </Row>
-        <Row label="Split sessions into matches" hint="Uses Match start / end markers.">
+        <Row on={s.splitMatches ?? true} label="Split sessions into matches" hint="Uses Match start / end markers.">
           <Toggle checked={s.splitMatches ?? true} onChange={(v) => set("splitMatches", v)} label="Split sessions into matches" />
         </Row>
         <Row label="Analysis resolution" hint="Lower is faster; 720p suits most HUDs." htmlFor="set-ah">
@@ -276,8 +303,8 @@ export function SettingsPage() {
         </Row>
       </Section>
 
-      <Section title="Window">
-        <Row label="Keep running when the window is closed" hint="Recap stays in the tray and keeps recording games. Off: closing the window quits Recap.">
+      <Section title="Window" icon="monitor" desc="What closing the window does" show={tab === "general"}>
+        <Row on={s.closeToTray ?? true} label="Keep running when the window is closed" hint="Recap stays in the tray and keeps recording games. Off: closing the window quits Recap.">
           <Toggle checked={s.closeToTray ?? true} onChange={(v) => set("closeToTray", v)} label="Keep running in the tray" />
         </Row>
       </Section>
@@ -297,18 +324,27 @@ export function SettingsPage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, icon, desc, show, children }: { title: string; icon: string; desc: string; show: boolean; children: ReactNode }) {
+  if (!show) return null;
   return (
     <section className="set-section">
-      <h2>{title}</h2>
-      {children}
+      <header className="set-head card">
+        <span className="icon-tile">
+          <Icon name={icon} size={16} />
+        </span>
+        <div>
+          <h2>{title}</h2>
+          <p className="field-hint">{desc}</p>
+        </div>
+      </header>
+      <div className="set-grid">{children}</div>
     </section>
   );
 }
 
-function Row({ label, hint, htmlFor, children }: { label: string; hint?: string; htmlFor?: string; children: ReactNode }) {
+function Row({ label, hint, htmlFor, on, wide, children }: { label: string; hint?: string; htmlFor?: string; on?: boolean; wide?: boolean; children: ReactNode }) {
   return (
-    <div className="set-row">
+    <div className={`set-row ${on ? "on" : ""} ${wide ? "wide" : ""}`}>
       <div className="set-row-text">
         {htmlFor ? (
           <label className="set-label" htmlFor={htmlFor}>

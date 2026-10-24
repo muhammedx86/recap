@@ -5,7 +5,7 @@ import { useLoad } from "../lib/hooks";
 import { COMMON_KINDS, kindStyle } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import type { ApiSource, CaptureMode, GameInfo, GameInput, MatchDetection } from "../lib/types";
-import { Empty, Field, KindDot, Toggle } from "../components/ui";
+import { Empty, Field, Icon, KindDot, Toggle } from "../components/ui";
 import { gameColor } from "./Library";
 
 const CAPTURE_LABEL: Record<CaptureMode, string> = {
@@ -54,9 +54,13 @@ export function Games() {
   return (
     <div className="page page-games">
       <header className="page-head page-head-row">
-        <h1>Games</h1>
+        <div>
+          <h1>Games</h1>
+          <p className="lede">Which games Recap records, and how it finds their matches and plays</p>
+        </div>
         {!adding && (
           <button className="btn btn-primary" onClick={() => setAdding(true)}>
+            <Icon name="plus" size={14} />
             Add a game
           </button>
         )}

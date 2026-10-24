@@ -1,3 +1,4 @@
+import type React from "react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { api, fileSrc, isTauri } from "../lib/api";
 import { timecode } from "../lib/format";
@@ -324,6 +325,7 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
           value={time}
           onChange={(e) => seek(Number(e.target.value))}
           aria-label="Seek"
+          style={{ "--p": `${total > 0 ? Math.min(100, (time / total) * 100) : 0}%` } as React.CSSProperties}
         />
         <label className="player-rate" title="Playback speed (↑ ↓, Backspace resets)">
           <span className="sr-only">Playback speed</span>
@@ -346,6 +348,7 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
             max={1}
             step={0.05}
             value={muted ? 0 : volume}
+            style={{ "--p": `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
             onChange={(e) => {
               const v = Number(e.target.value);
               setVolume(v);

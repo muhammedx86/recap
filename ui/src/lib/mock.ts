@@ -306,10 +306,14 @@ interface MatchSeed {
 const seeds: MatchSeed[] = [
   { id: "m-live", gameId: "valorant", start: now - 23 * MIN, durMin: 23, status: "recording", kills: 0, deaths: 0, assists: 0 },
   { id: "m-val-1", gameId: "valorant", start: startOfToday + 13.5 * 60 * MIN, durMin: 41.2, status: "ready", kills: 24, deaths: 15, assists: 7, extra: [["bookmark", 2], ["ult_used", 6]], rounds: { won: 13, lost: 9, starts: true, meta: false } },
+  { id: "m-val-2", gameId: "valorant", start: startOfToday + 12.6 * 60 * MIN, durMin: 38.4, status: "ready", kills: 19, deaths: 20, assists: 11, extra: [["ult_used", 4]], rounds: { won: 14, lost: 16, starts: true, meta: false } },
+  { id: "m-val-3", gameId: "valorant", start: startOfToday + 9.2 * 60 * MIN, durMin: 33.1, status: "ready", kills: 26, deaths: 14, assists: 4, extra: [["ace", 1], ["ult_used", 5]], rounds: { won: 13, lost: 7, starts: true, meta: false } },
   { id: "m-lol-1", gameId: "league-of-legends", start: startOfToday + 11 * 60 * MIN, durMin: 31.4, status: "processing", kills: 9, deaths: 4, assists: 13, extra: [["objective", 5], ["multikill", 1]] },
   { id: "m-cs-1", gameId: "cs2", start: startOfToday - DAY + 21 * 60 * MIN, durMin: 47.8, status: "ready", kills: 27, deaths: 18, assists: 4, extra: [["mvp", 4], ["bomb_plant", 3], ["ace", 1], ["clutch", 2]], rounds: { won: 13, lost: 11, starts: true, meta: true } },
   { id: "m-mr-1", gameId: "marvel-rivals", start: startOfToday - DAY + 19 * 60 * MIN, durMin: 18.6, status: "ready", kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 3], ["team_up", 4]], rounds: { won: 2, lost: 1, starts: true, meta: false } },
   { id: "m-r6-1", gameId: "r6-siege", start: startOfToday - 2 * DAY + 20.5 * 60 * MIN, durMin: 33.5, status: "ready", kills: 11, deaths: 6, assists: 3, extra: [["ace", 1]], rounds: { won: 5, lost: 4, starts: true, meta: false } },
+  { id: "m-val-4", gameId: "valorant", start: startOfToday - 2 * DAY + 22.4 * 60 * MIN, durMin: 29.5, status: "ready", kills: 12, deaths: 17, assists: 6, rounds: { won: 6, lost: 13, starts: true, meta: false } },
+  { id: "m-val-5", gameId: "valorant", start: startOfToday - 2 * DAY + 21.6 * 60 * MIN, durMin: 44.2, status: "ready", favorite: true, kills: 31, deaths: 18, assists: 9, extra: [["clutch", 2], ["ult_used", 7]], rounds: { won: 13, lost: 11, starts: true, meta: false } },
   { id: "m-lol-2", gameId: "league-of-legends", start: startOfToday - 3 * DAY + 22 * 60 * MIN, durMin: 36.1, status: "ready", title: "Kai'Sa pentakill game", favorite: true, kills: 17, deaths: 3, assists: 9, extra: [["multikill", 3], ["objective", 7]] },
   { id: "m-man-1", gameId: "manual", start: startOfToday - 3 * DAY + 17 * 60 * MIN, durMin: 12.3, status: "ready", title: "Slay the Spire 2 run", kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 4]] },
   { id: "m-cs-2", gameId: "cs2", start: startOfToday - 4 * DAY + 20 * 60 * MIN, durMin: 2.1, status: "error", error: "The recorder stopped unexpectedly. The file may be incomplete.", kills: 1, deaths: 1, assists: 0 },
@@ -403,11 +407,60 @@ const seedDetails: Record<string, Record<string, DetailValue>> = {
     character: dv("Jett", "screen", 0.94),
     map: dv("Ascent", "api"),
     mode: dv("Competitive", "api"),
+    rank: dv("Gold 2", "api"),
+    player: dv("11lumin#1111", "api"),
     kills: dv("24", "screen", 0.9),
     deaths: dv("15", "screen", 0.9),
     assists: dv("7", "screen", 0.9),
     result: dv("win", "api"),
     score: dv("13-9", "api"),
+  },
+  "m-val-2": {
+    character: dv("Clove", "screen", 0.91),
+    map: dv("Lotus", "api"),
+    mode: dv("Competitive", "api"),
+    rank: dv("Gold 2", "api"),
+    player: dv("11lumin#1111", "api"),
+    kills: dv("19", "screen", 0.9),
+    deaths: dv("20", "screen", 0.9),
+    assists: dv("11", "screen", 0.9),
+    result: dv("loss", "api"),
+    score: dv("14-16", "api"),
+  },
+  "m-val-3": {
+    character: dv("Reyna", "screen", 0.95),
+    map: dv("Haven", "api"),
+    mode: dv("Competitive", "api"),
+    rank: dv("Gold 2", "api"),
+    player: dv("11lumin#1111", "api"),
+    kills: dv("26", "screen", 0.9),
+    deaths: dv("14", "screen", 0.9),
+    assists: dv("4", "screen", 0.9),
+    result: dv("win", "api"),
+    score: dv("13-7", "api"),
+  },
+  "m-val-4": {
+    character: dv("Omen", "screen", 0.93),
+    map: dv("Sunset", "api"),
+    mode: dv("Competitive", "api"),
+    rank: dv("Gold 1", "api"),
+    player: dv("11lumin#1111", "api"),
+    kills: dv("12", "screen", 0.9),
+    deaths: dv("17", "screen", 0.9),
+    assists: dv("6", "screen", 0.9),
+    result: dv("loss", "api"),
+    score: dv("6-13", "api"),
+  },
+  "m-val-5": {
+    character: dv("Neon", "screen", 0.92),
+    map: dv("Bind", "api"),
+    mode: dv("Unrated", "api"),
+    player: dv("11lumin#1111", "api"),
+    kills: dv("31", "screen", 0.9),
+    deaths: dv("18", "screen", 0.9),
+    assists: dv("9", "screen", 0.9),
+    result: dv("win", "api"),
+    score: dv("13-11", "api"),
   },
   "m-lol-2": {
     character: dv("Kai'Sa", "api"),
@@ -542,6 +595,8 @@ function gameFromPath(path: string): string {
 
 /** Abstract poster art for a file path (deterministic). */
 export function mediaUrl(path: string): string {
+  // Demo art served from ui/public.
+  if (path.startsWith("/demo-assets/")) return path;
   const g = gameFromPath(path);
   const c = GAME_COLORS[g] ?? "#8d9099";
   const r = rng(path.split("").reduce((a, ch) => a + ch.charCodeAt(0) * 13, 3));
@@ -648,6 +703,7 @@ function gameInfo(id: string): GameInfo {
     eventTypes: [...BUILTIN_EVENT_TYPES, ...(customTypes[id] ?? [])],
     hasRounds: g.api === "cs2-gsi" || events.some((e) => ROUND_KINDS.includes(e)),
     readers: structuredClone(readersByGame[id] ?? []),
+    assetsDir: id === "valorant" ? "/demo-assets/valorant" : null,
     matchDetection: g.api && g.api !== "riot-client" ? "api" : events.some((e) => e === "match_start" || e === "match_end") ? "detectors" : "process",
   };
 }

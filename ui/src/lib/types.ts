@@ -191,6 +191,8 @@ export interface GameInfo {
   readers: ReaderInfo[];
   /** How Recap finds where a match starts and ends inside a game session. */
   matchDetection: MatchDetection;
+  /** Absolute path of the game's bundled art (agents/, maps/, ranks/), when it has any. */
+  assetsDir?: string | null;
 }
 
 export type MatchDetection = "api" | "detectors" | "process";
