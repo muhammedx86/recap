@@ -39,6 +39,17 @@ them identically.
 Work is kept small: templates are downscaled so their longest side is at most 96 px
 before matching. A typical detector costs well under a millisecond per sample.
 
+**Two passes.** Decoding the video is the expensive part, so after a match Recap does not
+decode every frame. Its recordings have a keyframe every second, and a keyframe decodes on
+its own. Pass 1 decodes only the keyframes and notes where a detector comes close to its
+threshold (within 30%). Pass 2 decodes the seconds around those moments at the detector's
+`sampleFps` and fires exactly as above. An element must therefore stay on screen for about a
+second to be seen (every HUD element the bundled games use does). Blockers and value
+detectors are read from the keyframes. Recordings whose keyframes are more than 2 s apart
+(older files, other recorders) get the full scan. Detector Studio's test always scans every
+frame, so its score graph is complete. Screen readers that sample once a second or less also
+read keyframes only.
+
 ## File layout
 
 ```text

@@ -33,7 +33,8 @@ fn main() -> anyhow::Result<()> {
         &game.detectors,
         ScanOptions {
             analysis_height: height,
-            keep_traces: true,
+            // RECAP_FAST=1: the two-pass scan the app uses (no score traces).
+            keep_traces: std::env::var_os("RECAP_FAST").is_none(),
             ..Default::default()
         },
     )?;

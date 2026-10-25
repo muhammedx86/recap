@@ -295,7 +295,11 @@ impl ApiSource {
     pub fn detects_matches(self) -> bool {
         matches!(
             self,
-            ApiSource::LeagueLiveClient | ApiSource::Cs2Gsi | ApiSource::MarvelStateFile | ApiSource::RocketLeagueStats
+            ApiSource::LeagueLiveClient
+                | ApiSource::Cs2Gsi
+                | ApiSource::RiotClient
+                | ApiSource::MarvelStateFile
+                | ApiSource::RocketLeagueStats
         )
     }
 }
@@ -928,6 +932,33 @@ fn load_detectors(game_dir: &Path, user: bool) -> Vec<LoadedDetector> {
     out
 }
 
+/// A user's `game.json` over a bundled game. Older versions of Recap saved a full copy of the
+/// game whenever a detector was edited, which froze everything in it; so only what the player
+/// can change (name, processes, capture, colour, auto-clip choices, their own event types) comes
+/// from the user file, and the rest (API, rounds, exclusions, post-match steps) stays current
+/// with the bundled game. Processes are merged so a new executable name still records.
+fn merge_user_def(bundled: &GameDef, user: GameDef) -> GameDef {
+    let mut d = bundled.clone();
+    d.name = user.name;
+    d.capture = user.capture;
+    d.prefer_api = user.prefer_api;
+    d.color = user.color.or(d.color);
+    for p in user.processes {
+        if !d.processes.iter().any(|x| x.eq_ignore_ascii_case(&p)) {
+            d.processes.push(p);
+        }
+    }
+    d.auto_clip.events = user.auto_clip.events;
+    d.auto_clip.timing.extend(user.auto_clip.timing);
+    for t in user.event_types {
+        match d.event_types.iter_mut().find(|x| x.id == t.id) {
+            Some(x) => *x = t,
+            None => d.event_types.push(t),
+        }
+    }
+    d
+}
+
 /// Load games from several roots, later roots overriding earlier ones (bundled first, user last).
 pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
     let mut games: BTreeMap<String, LoadedGame> = BTreeMap::new();
@@ -958,15 +989,31 @@ pub fn load_games(roots: &[PathBuf]) -> Vec<LoadedGame> {
             match games.get_mut(&id) {
                 Some(existing) => {
                     if let Some(def) = def {
-                        existing.def = def;
+                        existing.def = if user { merge_user_def(&existing.def, def) } else { def };
                         existing.dir = dir.clone();
                     }
                     for d in detectors {
-                        existing.detectors.retain(|x| x.def.id != d.def.id);
+                        if let Some(i) = existing.detectors.iter().position(|x| x.def.id == d.def.id) {
+                            // A user copy saved before the game shipped reference images (or
+                            // saved without any) must not hide the built-in ones: keep the
+                            // built-in detector, with the user's on/off choice.
+                            if user && d.def.templates.is_empty() && !existing.detectors[i].def.templates.is_empty() {
+                                existing.detectors[i].def.enabled = d.def.enabled;
+                                continue;
+                            }
+                            existing.detectors.remove(i);
+                        }
                         existing.detectors.push(d);
                     }
                     for r in readers {
-                        existing.readers.retain(|x| x.def.id != r.def.id);
+                        if let Some(i) = existing.readers.iter().position(|x| x.def.id == r.def.id) {
+                            let has_refs = |r: &ReaderDef| r.options.iter().any(|o| !o.templates.is_empty());
+                            if user && r.def.kind == ReaderKind::Choice && !has_refs(&r.def) && has_refs(&existing.readers[i].def) {
+                                existing.readers[i].def.enabled = r.def.enabled;
+                                continue;
+                            }
+                            existing.readers.remove(i);
+                        }
                         existing.readers.push(r);
                     }
                     existing.user_modified |= user;
@@ -1250,6 +1297,44 @@ mod tests {
         assert!(g.user_modified);
         assert!(user.join("val/templates/k.png").exists());
         assert!(g.matches_process("VAL.EXE"));
+    }
+
+    #[test]
+    fn stale_user_copies_do_not_hide_bundled_updates() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundled = tmp.path().join("bundled");
+        let user = tmp.path().join("user");
+        // Bundled now: a kill detector with a reference image, round rules, a new process name.
+        let mut g = game("val");
+        g.rounds = Some(RoundRules::default());
+        g.processes.push("val_new.exe".into());
+        fs::create_dir_all(bundled.join("val/detectors")).unwrap();
+        fs::write(bundled.join("val/game.json"), serde_json::to_string(&g).unwrap()).unwrap();
+        let mut k = det("kill");
+        k.templates = vec!["templates/ring.png".into()];
+        k.threshold = 0.6;
+        fs::write(bundled.join("val/detectors/kill.json"), serde_json::to_string(&k).unwrap()).unwrap();
+        // The user's folder: an old full copy of the game and of the detector, without images.
+        let mut old_game = game("val");
+        old_game.color = Some("#123456".into());
+        let mut old_det = det("kill");
+        old_det.templates.clear();
+        old_det.enabled = false;
+        save_user_detector(&user, &old_game, &old_det, None).unwrap();
+
+        let games = load_games(&[bundled, user]);
+        let g = &games[0];
+        assert!(g.def.rounds.is_some(), "round rules come from the bundled game");
+        assert!(g.matches_process("val_new.exe"), "new process names still record");
+        assert_eq!(g.def.color.as_deref(), Some("#123456"), "the player's colour is kept");
+        let d = &g.detectors[0];
+        assert_eq!(
+            d.def.templates,
+            vec!["templates/ring.png".to_string()],
+            "built-in images are not hidden"
+        );
+        assert!(!d.user);
+        assert!(!d.def.enabled, "the player's on/off choice is kept");
     }
 
     #[test]

@@ -7,6 +7,8 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 #[cfg(any(windows, feature = "linux-typecheck"))]
+mod live_feed;
+#[cfg(any(windows, feature = "linux-typecheck"))]
 mod obs_backend;
 mod select;
 mod session;

@@ -35,6 +35,7 @@ pub struct ArmRequest<'a> {
     pub buffer_dir: Option<&'a str>,
     pub preroll_secs: u32,
     pub memory: Option<&'a EncoderMemory>,
+    pub live: Option<&'a recap_core::live::LiveConfig>,
 }
 
 pub struct StartRequest<'a> {
@@ -44,6 +45,7 @@ pub struct StartRequest<'a> {
     pub video: &'a VideoConfig,
     pub audio: &'a AudioConfig,
     pub memory: Option<&'a EncoderMemory>,
+    pub live: Option<&'a recap_core::live::LiveConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -66,6 +68,8 @@ pub struct StartOutcome {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StopOutcome {
     pub health: Option<RecordingHealth>,
+    /// Live detection's events for the recording (when it ran).
+    pub live: Option<recap_core::live::LiveScan>,
     /// Emitted after `Stopped`.
     pub notices: Vec<RecorderEvent>,
 }
@@ -89,8 +93,9 @@ pub trait Backend {
     /// Start recording. Long waits (e.g. for the game window) must call `abort()`
     /// regularly and return `StartError::Aborted` when it returns true.
     fn start(&mut self, req: &StartRequest, abort: &mut dyn FnMut() -> bool) -> Result<StartOutcome, StartError>;
-    /// Stop the current recording and finalize the file at the path given to `start`.
-    fn stop(&mut self) -> anyhow::Result<StopOutcome>;
+    /// Stop the current recording (it began at `started_unix_ms`) and finalize the file at the
+    /// path given to `start`.
+    fn stop(&mut self, started_unix_ms: u64) -> anyhow::Result<StopOutcome>;
     /// Periodic housekeeping; `recording` is true while a recording is active.
     fn tick(&mut self, recording: bool) -> Vec<RecorderEvent>;
     fn encoders(&mut self) -> anyhow::Result<Vec<String>>;
@@ -101,6 +106,7 @@ struct Active {
     path: String,
     since: Instant,
     preroll_ms: u64,
+    started_unix_ms: u64,
 }
 
 pub fn unix_ms() -> u64 {
@@ -119,6 +125,7 @@ fn arm_or_disarm<B: Backend>(backend: &mut B, cmd: RecorderCommand, emit: &mut d
             buffer_dir,
             preroll_secs,
             encoder_memory,
+            live,
         } => {
             let req = ArmRequest {
                 capture: &capture,
@@ -127,6 +134,7 @@ fn arm_or_disarm<B: Backend>(backend: &mut B, cmd: RecorderCommand, emit: &mut d
                 buffer_dir: buffer_dir.as_deref(),
                 preroll_secs,
                 memory: encoder_memory.as_ref(),
+                live: live.as_ref(),
             };
             for e in backend.arm(&req) {
                 emit(e);
@@ -216,6 +224,7 @@ pub fn run<B: Backend>(backend: &mut B, rx: Receiver<Incoming>, emit: &mut dyn F
                 video,
                 audio,
                 encoder_memory,
+                live,
             }) => {
                 if let Some(a) = &active {
                     emit(RecorderEvent::Error {
@@ -256,6 +265,7 @@ pub fn run<B: Backend>(backend: &mut B, rx: Receiver<Incoming>, emit: &mut dyn F
                     video: &video,
                     audio: &audio,
                     memory: encoder_memory.as_ref(),
+                    live: live.as_ref(),
                 };
                 let result = backend.start(&req, &mut abort);
                 match result {
@@ -270,10 +280,11 @@ pub fn run<B: Backend>(backend: &mut B, rx: Receiver<Incoming>, emit: &mut dyn F
                                 reason,
                             });
                         }
+                        let started_unix_ms = unix_ms().saturating_sub(out.preroll_ms);
                         emit(RecorderEvent::Started {
                             id: id.clone(),
                             path: path.clone(),
-                            started_unix_ms: unix_ms().saturating_sub(out.preroll_ms),
+                            started_unix_ms,
                             encoder: out.encoder,
                             capture: out.capture,
                             preroll_ms: out.preroll_ms,
@@ -285,6 +296,7 @@ pub fn run<B: Backend>(backend: &mut B, rx: Receiver<Incoming>, emit: &mut dyn F
                             path,
                             since: Instant::now(),
                             preroll_ms: out.preroll_ms,
+                            started_unix_ms,
                         });
                         // A stop/shutdown that raced with a successful start is honoured now.
                         if let Some(k) = abort_kind {
@@ -297,6 +309,7 @@ pub fn run<B: Backend>(backend: &mut B, rx: Receiver<Incoming>, emit: &mut dyn F
                             path,
                             duration_ms: 0,
                             health: None,
+                            live: None,
                         }),
                         Some(_) => {
                             backend.disarm();
@@ -319,13 +332,14 @@ pub fn run<B: Backend>(backend: &mut B, rx: Receiver<Incoming>, emit: &mut dyn F
 
 fn finish<B: Backend>(backend: &mut B, a: Active, emit: &mut dyn FnMut(RecorderEvent)) {
     let duration_ms = a.since.elapsed().as_millis() as u64 + a.preroll_ms;
-    match backend.stop() {
+    match backend.stop(a.started_unix_ms) {
         Ok(out) => {
             emit(RecorderEvent::Stopped {
                 id: a.id,
                 path: a.path,
                 duration_ms,
                 health: out.health,
+                live: out.live,
             });
             for e in out.notices {
                 emit(e);
@@ -342,6 +356,7 @@ fn finish<B: Backend>(backend: &mut B, a: Active, emit: &mut dyn FnMut(RecorderE
                 path: a.path,
                 duration_ms,
                 health: None,
+                live: None,
             });
         }
     }
@@ -420,7 +435,7 @@ mod tests {
                 ..Default::default()
             })
         }
-        fn stop(&mut self) -> anyhow::Result<StopOutcome> {
+        fn stop(&mut self, _started_unix_ms: u64) -> anyhow::Result<StopOutcome> {
             self.log.push("stop".into());
             Ok(StopOutcome {
                 health: Some(RecordingHealth {
@@ -428,6 +443,7 @@ mod tests {
                     encoder: "obs_x264".into(),
                     ..Default::default()
                 }),
+                live: None,
                 notices: vec![],
             })
         }

@@ -52,16 +52,22 @@ const MIN_WINDOW_VAR: f64 = 2.25;
 struct MaskedPixels {
     /// (x, y) of each kept pixel.
     pos: Vec<(u32, u32)>,
-    /// Kept pixel values, zero mean and unit norm over the kept pixels.
-    zvals: Vec<f32>,
+    /// Full-size rows: 1 for kept pixels, 0 elsewhere...
+    dense_w: Vec<u8>,
+    /// ...and the template's pixels where kept (0 elsewhere): a window is then three dense
+    /// integer dot products, which the compiler vectorises.
+    dense_t: Vec<u8>,
+    /// Mean and sqrt(sum((t - mean)^2)) over the kept pixels.
+    mean: f64,
+    norm: f64,
 }
 
 /// A reference image prepared for a specific analysis frame height.
 #[derive(Debug, Clone)]
 struct PreparedTemplate {
     img: GrayImage,
-    /// Pixel values with the mean subtracted.
-    zero_mean: Vec<f32>,
+    /// Mean pixel value (the correlation is computed on raw pixels and corrected by it).
+    mean: f32,
     /// sqrt(sum((t - mean)^2))
     norm: f32,
     /// When set, only these pixels are compared.
@@ -69,6 +75,8 @@ struct PreparedTemplate {
     /// Which reference image and scale this came from (for "where did it match").
     reference: usize,
     scale: f32,
+    /// Half-size copy for the coarse-to-fine search.
+    coarse: Option<Box<PreparedTemplate>>,
 }
 
 impl PreparedTemplate {
@@ -86,8 +94,20 @@ impl PreparedTemplate {
                 let mean = vals.iter().sum::<f32>() / vals.len() as f32;
                 let norm = vals.iter().map(|v| (v - mean).powi(2)).sum::<f32>().sqrt();
                 if norm > 1e-3 {
-                    let zvals = vals.iter().map(|v| (v - mean) / norm).collect();
-                    t.mask = Some(MaskedPixels { pos, zvals });
+                    let tw = t.img.width();
+                    let mut dense_w = vec![0u8; (tw * t.img.height()) as usize];
+                    let mut dense_t = vec![0u8; dense_w.len()];
+                    for &(x, y) in &pos {
+                        dense_w[(y * tw + x) as usize] = 1;
+                        dense_t[(y * tw + x) as usize] = t.img.get_pixel(x, y).0[0];
+                    }
+                    t.mask = Some(MaskedPixels {
+                        pos,
+                        dense_w,
+                        dense_t,
+                        mean: mean as f64,
+                        norm: norm as f64,
+                    });
                 }
             }
         }
@@ -100,19 +120,19 @@ impl PreparedTemplate {
             return None;
         }
         let mean = img.as_raw().iter().map(|&v| v as f32).sum::<f32>() / n;
-        let zero_mean: Vec<f32> = img.as_raw().iter().map(|&v| v as f32 - mean).collect();
-        let norm = zero_mean.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let norm = img.as_raw().iter().map(|&v| (v as f32 - mean).powi(2)).sum::<f32>().sqrt();
         if norm < 1e-3 {
             // A flat template matches everything; refuse it.
             return None;
         }
         Some(Self {
             img,
-            zero_mean,
+            mean,
             norm,
             mask: None,
             reference: 0,
             scale: 1.0,
+            coarse: None,
         })
     }
 }
@@ -199,42 +219,23 @@ pub fn reference_mask(imgs: &[GrayImage], i: usize) -> Option<GrayImage> {
     }))
 }
 
-/// Best masked ZNCC of `t` anywhere inside `hay`, with its top-left position.
-fn best_masked_zncc(hay: &GrayImage, t: &PreparedTemplate, m: &MaskedPixels) -> (f32, u32, u32) {
-    let (hw, hh) = hay.dimensions();
-    let (tw, th) = t.img.dimensions();
-    if tw > hw || th > hh {
-        return (-1.0, 0, 0);
+/// Sum and sum of squares of `v` where `w` is 1 (integer, so the compiler vectorises it).
+#[inline]
+fn masked_sums(v: &[u8], w: &[u8]) -> (u32, u32) {
+    let mut s = 0u32;
+    let mut q = 0u32;
+    for (&a, &b) in v.iter().zip(w) {
+        let a = a as u32 * b as u32;
+        s += a;
+        q += a * a;
     }
-    let raw = hay.as_raw();
-    let offs: Vec<usize> = m.pos.iter().map(|&(x, y)| (y * hw + x) as usize).collect();
-    let n = offs.len() as f64;
-    let mut best = (-1f32, 0, 0);
-    for y in 0..=(hh - th) as usize {
-        for x in 0..=(hw - tw) as usize {
-            let base = y * hw as usize + x;
-            // f64 sums: in f32, sum(v^2) - sum(v)^2/n cancels catastrophically on flat bright
-            // areas and turns noise into perfect "matches".
-            let (mut s, mut q, mut cross) = (0f64, 0f64, 0f64);
-            for (o, tv) in offs.iter().zip(&m.zvals) {
-                let v = raw[base + o] as f64;
-                s += v;
-                q += v * v;
-                cross += v * *tv as f64;
-            }
-            let var = q - s * s / n;
-            // A (nearly) flat window has no element in it, whatever the correlation says.
-            if var <= MIN_WINDOW_VAR * n {
-                continue;
-            }
-            // zvals are zero mean, so the window mean cancels out of `cross`.
-            let score = (cross / var.sqrt()) as f32;
-            if score > best.0 {
-                best = (score, x as u32, y as u32);
-            }
-        }
-    }
-    (best.0.min(1.0), best.1, best.2)
+    (s, q)
+}
+
+/// Integer dot product of two pixel rows (vectorised by the compiler; 255*255*9216 fits).
+#[inline]
+fn dot_u8(a: &[u8], b: &[u8]) -> u32 {
+    a.iter().zip(b).map(|(&x, &y)| x as u32 * y as u32).sum()
 }
 
 /// Best ZNCC score of `t` anywhere inside `hay`. Returns -1..1 (1 = identical up to brightness/contrast).
@@ -242,64 +243,212 @@ fn best_zncc(hay: &GrayImage, t: &PreparedTemplate) -> f32 {
     best_zncc_at(hay, t).0
 }
 
-/// [`best_zncc`] with the top-left position of the best match.
-fn best_zncc_at(hay: &GrayImage, t: &PreparedTemplate) -> (f32, u32, u32) {
-    if let Some(m) = &t.mask {
-        return best_masked_zncc(hay, t, m);
-    }
-    let (hw, hh) = hay.dimensions();
-    let (tw, th) = t.img.dimensions();
-    if tw > hw || th > hh {
-        return (-1.0, 0, 0);
-    }
-    let n = (tw * th) as f64;
-    // Integral images of the haystack for O(1) window sums.
-    let stride = (hw + 1) as usize;
-    let mut sum = vec![0f64; stride * (hh as usize + 1)];
-    let mut sq = vec![0f64; stride * (hh as usize + 1)];
-    let raw = hay.as_raw();
-    for y in 0..hh as usize {
-        let mut rs = 0f64;
-        let mut rq = 0f64;
-        for x in 0..hw as usize {
-            let v = raw[y * hw as usize + x] as f64;
-            rs += v;
-            rq += v * v;
-            sum[(y + 1) * stride + x + 1] = sum[y * stride + x + 1] + rs;
-            sq[(y + 1) * stride + x + 1] = sq[y * stride + x + 1] + rq;
+/// Every window position of one template over one haystack, scored on demand.
+struct Windows<'a> {
+    hay: &'a GrayImage,
+    t: &'a PreparedTemplate,
+    /// Integral images (sum, sum of squares) for unmasked templates, row stride.
+    integral: Option<(Vec<f64>, Vec<f64>, usize)>,
+    nx: usize,
+    ny: usize,
+}
+
+impl<'a> Windows<'a> {
+    fn new(hay: &'a GrayImage, t: &'a PreparedTemplate) -> Option<Self> {
+        let (hw, hh) = hay.dimensions();
+        let (tw, th) = t.img.dimensions();
+        if tw > hw || th > hh {
+            return None;
         }
-    }
-    let rect = |a: &Vec<f64>, x: usize, y: usize| {
-        a[(y + th as usize) * stride + x + tw as usize] - a[y * stride + x + tw as usize] - a[(y + th as usize) * stride + x]
-            + a[y * stride + x]
-    };
-    let mut best = (-1f32, 0, 0);
-    for y in 0..=(hh - th) as usize {
-        for x in 0..=(hw - tw) as usize {
-            let s = rect(&sum, x, y);
-            let q = rect(&sq, x, y);
-            let var = q - s * s / n;
-            if var <= MIN_WINDOW_VAR * n {
-                continue;
-            }
-            // sum(T' * I) — T' is zero mean, so the window mean cancels out.
-            let mut cross = 0f32;
-            for ty in 0..th as usize {
-                let row = (y + ty) * hw as usize + x;
-                let trow = ty * tw as usize;
-                let hrow = &raw[row..row + tw as usize];
-                let trowv = &t.zero_mean[trow..trow + tw as usize];
-                for (h, tv) in hrow.iter().zip(trowv) {
-                    cross += *h as f32 * tv;
+        let integral = t.mask.is_none().then(|| {
+            let stride = (hw + 1) as usize;
+            let mut sum = vec![0f64; stride * (hh as usize + 1)];
+            let mut sq = vec![0f64; stride * (hh as usize + 1)];
+            let raw = hay.as_raw();
+            for y in 0..hh as usize {
+                let (mut rs, mut rq) = (0f64, 0f64);
+                for x in 0..hw as usize {
+                    let v = raw[y * hw as usize + x] as f64;
+                    rs += v;
+                    rq += v * v;
+                    sum[(y + 1) * stride + x + 1] = sum[y * stride + x + 1] + rs;
+                    sq[(y + 1) * stride + x + 1] = sq[y * stride + x + 1] + rq;
                 }
             }
-            let score = cross / (t.norm * (var.sqrt() as f32));
-            if score > best.0 {
-                best = (score, x as u32, y as u32);
+            (sum, sq, stride)
+        });
+        Some(Self {
+            hay,
+            t,
+            integral,
+            nx: (hw - tw) as usize + 1,
+            ny: (hh - th) as usize + 1,
+        })
+    }
+
+    /// ZNCC of the window with its top-left at (x, y); None for a flat window (no element in
+    /// it, whatever the correlation says).
+    fn at(&self, x: usize, y: usize) -> Option<f32> {
+        let raw = self.hay.as_raw();
+        let hw = self.hay.width() as usize;
+        let (tw, th) = (self.t.img.width() as usize, self.t.img.height() as usize);
+        match (&self.t.mask, &self.integral) {
+            (Some(m), _) => {
+                // Sums over the kept pixels in exact integers (floats would cancel on flat
+                // bright areas and turn noise into perfect "matches").
+                let n = m.pos.len() as f64;
+                let (mut s, mut q, mut ti) = (0u32, 0u32, 0u32);
+                for ty in 0..th {
+                    let row = &raw[(y + ty) * hw + x..][..tw];
+                    let (rs, rq) = masked_sums(row, &m.dense_w[ty * tw..][..tw]);
+                    s += rs;
+                    q += rq;
+                    ti += dot_u8(row, &m.dense_t[ty * tw..][..tw]);
+                }
+                let (s, q) = (s as f64, q as f64);
+                let var = q - s * s / n;
+                if var <= MIN_WINDOW_VAR * n {
+                    return None;
+                }
+                // sum((t - mean_t) * i) over the kept pixels.
+                Some(((ti as f64 - m.mean * s) / (m.norm * var.sqrt())) as f32)
+            }
+            (None, Some((sum, sq, stride))) => {
+                let n = (tw * th) as f64;
+                let rect =
+                    |a: &Vec<f64>| a[(y + th) * stride + x + tw] - a[y * stride + x + tw] - a[(y + th) * stride + x] + a[y * stride + x];
+                let (s, q) = (rect(sum), rect(sq));
+                let var = q - s * s / n;
+                if var <= MIN_WINDOW_VAR * n {
+                    return None;
+                }
+                // sum((T - mean_T) * I) = sum(T * I) - mean_T * sum(I).
+                let traw = self.t.img.as_raw();
+                let mut ti = 0u32;
+                for ty in 0..th {
+                    ti += dot_u8(&raw[(y + ty) * hw + x..][..tw], &traw[ty * tw..][..tw]);
+                }
+                Some(((ti as f64 - self.t.mean as f64 * s) / (self.t.norm as f64 * var.sqrt())) as f32)
+            }
+            (None, None) => None,
+        }
+    }
+
+    /// Best score over every position.
+    fn best(&self) -> (f32, u32, u32) {
+        let mut best = (-1f32, 0, 0);
+        for y in 0..self.ny {
+            for x in 0..self.nx {
+                if let Some(sc) = self.at(x, y) {
+                    if sc > best.0 {
+                        best = (sc, x as u32, y as u32);
+                    }
+                }
+            }
+        }
+        best
+    }
+}
+
+/// Below this many window positions the plain search is cheap enough.
+const C2F_MIN_POSITIONS: usize = 600;
+/// Coarse peaks refined at full size.
+const C2F_PEAKS: usize = 4;
+
+/// [`best_zncc`] with the top-left position of the best match.
+///
+/// Large searches go coarse to fine: every position is scored at half size (a sixteenth of the
+/// work), and the full-size score is then computed around the few best half-size peaks. The
+/// result is the real full-size score of the best window, found without trying them all.
+fn best_zncc_at(hay: &GrayImage, t: &PreparedTemplate) -> (f32, u32, u32) {
+    let Some(full) = Windows::new(hay, t) else {
+        return (-1.0, 0, 0);
+    };
+    let coarse = t.coarse.as_deref().filter(|_| full.nx * full.ny >= C2F_MIN_POSITIONS);
+    let Some(ct) = coarse else {
+        let b = full.best();
+        return (b.0.min(1.0), b.1, b.2);
+    };
+    let half = half_size(hay);
+    let Some(cw) = Windows::new(&half, ct) else {
+        let b = full.best();
+        return (b.0.min(1.0), b.1, b.2);
+    };
+    let mut map = vec![f32::NEG_INFINITY; cw.nx * cw.ny];
+    for y in 0..cw.ny {
+        for x in 0..cw.nx {
+            if let Some(sc) = cw.at(x, y) {
+                map[y * cw.nx + x] = sc;
+            }
+        }
+    }
+    // Local maxima of the half-size scores, best first.
+    let mut peaks: Vec<(f32, usize, usize)> = Vec::new();
+    for y in 0..cw.ny {
+        for x in 0..cw.nx {
+            let v = map[y * cw.nx + x];
+            if v == f32::NEG_INFINITY {
+                continue;
+            }
+            let is_max = (y.saturating_sub(1)..=(y + 1).min(cw.ny - 1))
+                .all(|yy| (x.saturating_sub(1)..=(x + 1).min(cw.nx - 1)).all(|xx| map[yy * cw.nx + xx] <= v));
+            if is_max {
+                peaks.push((v, x, y));
+            }
+        }
+    }
+    peaks.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut best = (-1f32, 0u32, 0u32);
+    let mut seen = std::collections::HashSet::new();
+    for &(_, cx, cy) in peaks.iter().take(C2F_PEAKS) {
+        for y in (2 * cy).saturating_sub(2)..=(2 * cy + 3).min(full.ny - 1) {
+            for x in (2 * cx).saturating_sub(2)..=(2 * cx + 3).min(full.nx - 1) {
+                if !seen.insert((x, y)) {
+                    continue;
+                }
+                if let Some(sc) = full.at(x, y) {
+                    if sc > best.0 {
+                        best = (sc, x as u32, y as u32);
+                    }
+                }
             }
         }
     }
     (best.0.min(1.0), best.1, best.2)
+}
+
+/// Half-size copy by averaging 2x2 blocks (templates and haystacks shrink the same way).
+fn half_size(img: &GrayImage) -> GrayImage {
+    let (w, h) = ((img.width() / 2).max(1), (img.height() / 2).max(1));
+    let raw = img.as_raw();
+    let iw = img.width() as usize;
+    GrayImage::from_fn(w, h, |x, y| {
+        let (x, y) = (2 * x as usize, 2 * y as usize);
+        let p = |dx: usize, dy: usize| raw[(y + dy).min(img.height() as usize - 1) * iw + (x + dx).min(iw - 1)] as u32;
+        image::Luma([((p(0, 0) + p(1, 0) + p(0, 1) + p(1, 1) + 2) / 4) as u8])
+    })
+}
+
+/// The half-size template for the coarse search (None when it would be too small to be useful).
+fn coarse_template(img: &GrayImage, mask: Option<&GrayImage>) -> Option<Box<PreparedTemplate>> {
+    if img.width() < 16 || img.height() < 16 {
+        return None;
+    }
+    let half = half_size(img);
+    // A half-size pixel is kept when at least two of its four pixels were.
+    let hmask = mask.map(|m| {
+        let raw = m.as_raw();
+        let mw = m.width() as usize;
+        GrayImage::from_fn(half.width(), half.height(), |x, y| {
+            let (x, y) = (2 * x as usize, 2 * y as usize);
+            let kept = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                .iter()
+                .filter(|(dx, dy)| raw.get((y + dy) * mw + x + dx).is_some_and(|v| *v > 127))
+                .count();
+            image::Luma([if kept >= 2 { 255 } else { 0 }])
+        })
+    });
+    PreparedTemplate::with_mask(half, hmask.as_ref()).map(Box::new)
 }
 
 /// Where a detector matched best on a frame.
@@ -395,9 +544,11 @@ impl PreparedDetector {
                     resized
                 };
                 let mask = mask.as_ref().map(|m| image::imageops::resize(m, w, h, FilterType::Nearest));
+                let coarse = coarse_template(&resized, mask.as_ref());
                 if let Some(mut t) = PreparedTemplate::with_mask(resized, mask.as_ref()) {
                     t.reference = ri;
                     t.scale = *s;
+                    t.coarse = coarse;
                     templates.push(t);
                 }
             }
@@ -660,6 +811,13 @@ impl Trigger {
             self.run = 0;
         }
         None
+    }
+
+    /// The samples stop here and resume later (two-pass scan windows): what is on screen after
+    /// the gap starts a new run; the cooldown still counts from the last event.
+    pub fn gap(&mut self) {
+        self.run = 0;
+        self.fired_this_run = false;
     }
 
     fn rearm(&mut self, score: f32) {

@@ -96,6 +96,29 @@ pub fn save_memory(st: &AppState, m: &EncoderMemory) {
     }
 }
 
+/// The detectors the recorder runs live for `game`: the same ones the post-match scan would
+/// (detectors for kinds the game's API reports are skipped), at the same analysis height.
+pub fn live_config(g: &LoadedGame, settings: &recap_core::settings::Settings) -> Option<recap_core::live::LiveConfig> {
+    if !settings.scan_after_match {
+        return None;
+    }
+    let detectors: Vec<recap_core::live::LiveDetector> = crate::processing::detectors_to_run(g)
+        .into_iter()
+        .filter(|d| recap_core::live::live_capable(&d.def))
+        .map(|d| recap_core::live::LiveDetector {
+            def: d.def.clone(),
+            base_dir: d.base_dir.to_string_lossy().into_owned(),
+        })
+        .collect();
+    if detectors.is_empty() {
+        return None;
+    }
+    Some(recap_core::live::LiveConfig {
+        detectors,
+        analysis_height: settings.analysis_height,
+    })
+}
+
 /// Arm the recorder for `game` (its pid and exe name), or disarm it (None). Sends only changes.
 pub fn sync(app: &AppHandle, game: Option<(&LoadedGame, u32, String)>) {
     let st = state(app);
@@ -113,6 +136,7 @@ pub fn sync(app: &AppHandle, game: Option<(&LoadedGame, u32, String)>) {
                 buffer_dir: (settings.preroll_secs > 0).then(|| buffer.to_string_lossy().into_owned()),
                 preroll_secs: settings.preroll_secs,
                 encoder_memory: None,
+                live: live_config(g, &settings),
             })
         }
         None => None,
@@ -136,9 +160,14 @@ pub fn sync(app: &AppHandle, game: Option<(&LoadedGame, u32, String)>) {
             audio,
             buffer_dir,
             preroll_secs,
+            live,
             ..
         }) => {
-            log::info!("arming the recorder for {:?} (pre-roll {preroll_secs} s)", capture.process);
+            log::info!(
+                "arming the recorder for {:?} (pre-roll {preroll_secs} s, {} live detectors)",
+                capture.process,
+                live.as_ref().map_or(0, |l| l.detectors.len())
+            );
             RecorderCommand::Arm {
                 capture,
                 video,
@@ -146,6 +175,7 @@ pub fn sync(app: &AppHandle, game: Option<(&LoadedGame, u32, String)>) {
                 buffer_dir,
                 preroll_secs,
                 encoder_memory: load_memory(&st),
+                live,
             }
         }
         _ => {

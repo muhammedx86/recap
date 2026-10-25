@@ -8,3 +8,4 @@ src-tauri/obs/*
 !src-tauri/obs/.gitkeep
 *.log
 .DS_Store
+/target-*

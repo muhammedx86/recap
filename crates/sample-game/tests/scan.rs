@@ -88,6 +88,11 @@ fn scanner_finds_every_banner_once() {
             "veryfast",
             "-crf",
             "23",
+            // Keyframes every second, like Recap's recorder (the two-pass scan relies on it).
+            "-g",
+            &FPS.round().to_string(),
+            "-sc_threshold",
+            "0",
             "-pix_fmt",
             "yuv420p",
         ])
@@ -172,6 +177,29 @@ fn scanner_finds_every_banner_once() {
             counts("match_end")
         ),
         (4, 3, 2, 1, 2, 2)
+    );
+
+    // The two-pass scan (keyframes, then the seconds around candidates) finds the same events.
+    let fast = scan_video(
+        &ff,
+        &video,
+        &dets,
+        ScanOptions {
+            analysis_height: HEIGHT as u32,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let fast_found: Vec<(String, u64)> = fast.events.iter().map(|e| (e.kind.clone(), e.t_ms)).collect();
+    assert_eq!(fast_found.len(), found.len(), "full: {found:?}\nfast: {fast_found:?}");
+    for ((k1, t1), (k2, t2)) in found.iter().zip(&fast_found) {
+        assert!(k1 == k2 && t1.abs_diff(*t2) <= 150, "full: {found:?}\nfast: {fast_found:?}");
+    }
+    assert!(
+        fast.frames_decoded < res.frames_decoded,
+        "fast decoded {} frames, full {}",
+        fast.frames_decoded,
+        res.frames_decoded
     );
 
     // The session splits into the two matches.

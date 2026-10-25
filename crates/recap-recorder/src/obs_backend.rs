@@ -25,6 +25,7 @@ use std::{
     fmt::Display,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -326,6 +327,11 @@ pub struct ObsBackend {
     names: u64,
     /// The game exited during the recording: do not restart the buffer after it.
     disarm_pending: bool,
+    /// Live detection: the game's detectors, their state, and the small picture feeding them.
+    live_cfg: Option<recap_core::live::LiveConfig>,
+    live_scanner: Option<Arc<Mutex<recap_core::live::LiveScanner>>>,
+    live_feed: Option<crate::live_feed::LiveFeed>,
+    live_failed_at: Option<Instant>,
 }
 
 fn same_setup(a: &ArmState, capture: &CaptureTarget, video: &VideoConfig, audio: &AudioConfig) -> bool {
@@ -360,6 +366,10 @@ impl ObsBackend {
                 memory: None,
                 names: 0,
                 disarm_pending: false,
+                live_cfg: None,
+                live_scanner: None,
+                live_feed: None,
+                live_failed_at: None,
             },
             version,
         ))
@@ -371,6 +381,8 @@ impl ObsBackend {
         if self.video == Some((fps, w, h)) {
             return Ok(());
         }
+        // Resetting video frees every mix, the live view's too: close it first.
+        self.live_feed = None;
         let ovi = ObsVideoInfoBuilder::new()
             .fps_num(fps)
             .fps_den(1)
@@ -516,7 +528,64 @@ impl ObsBackend {
             });
             a.last_monitor_check = Instant::now();
         }
+        self.ensure_live();
         Ok(true)
+    }
+
+    /// Use these detectors from now on (a new game, or edited detectors). Unchanged settings keep
+    /// what was seen so far.
+    fn set_live(&mut self, cfg: Option<&recap_core::live::LiveConfig>) {
+        if self.live_cfg.as_ref() == cfg {
+            return;
+        }
+        self.live_feed = None;
+        self.live_cfg = cfg.cloned();
+        self.live_scanner = cfg
+            .map(recap_core::live::LiveScanner::from_config)
+            .filter(|s| !s.is_empty())
+            .map(|s| Arc::new(Mutex::new(s)));
+        self.live_failed_at = None;
+    }
+
+    /// Open the live view when there is something to detect and a picture to look at.
+    fn ensure_live(&mut self) {
+        if self.live_feed.is_some() {
+            return;
+        }
+        let (Some(cfg), Some(scanner)) = (self.live_cfg.as_ref(), self.live_scanner.as_ref()) else {
+            return;
+        };
+        let Some((fps, w, h)) = self.video else { return };
+        if !self.arm.as_ref().is_some_and(|a| a.attached.is_some()) {
+            return;
+        }
+        if self.live_failed_at.is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
+            return;
+        }
+        let src = match self.scene.get_scene_source_ptr() {
+            Ok(p) => p,
+            Err(e) => {
+                log(format!("live detection: no scene source: {e:?}"));
+                self.live_failed_at = Some(Instant::now());
+                return;
+            }
+        };
+        // The OBS runtime handle, from any object made by this context.
+        let runtime = match self.ctx.data() {
+            Ok(d) => libobs_wrapper::data::ObsDataPointers::runtime(&d).clone(),
+            Err(e) => {
+                log(format!("live detection: {e:?}"));
+                self.live_failed_at = Some(Instant::now());
+                return;
+            }
+        };
+        match crate::live_feed::LiveFeed::start(runtime, src, (w, h), fps, cfg.analysis_height, cfg.sample_fps(), scanner.clone()) {
+            Ok(f) => self.live_feed = Some(f),
+            Err(e) => {
+                log(format!("live detection unavailable: {e:#}"));
+                self.live_failed_at = Some(Instant::now());
+            }
+        }
     }
 
     /// Drop the capture (the scene is rebuilt by the next `try_attach`).
@@ -926,6 +995,7 @@ impl ObsBackend {
 
     fn disarm_inner(&mut self) {
         self.disarm_pending = false;
+        self.live_feed = None;
         if let Err(e) = self.stop_output() {
             log(format!("{e:#}"));
         }
@@ -1376,7 +1446,11 @@ impl ObsBackend {
             notices.extend(self.start_buffer());
         }
         notices.extend(self.armed_event());
-        result.map(|()| StopOutcome { health, notices })
+        result.map(|()| StopOutcome {
+            health,
+            notices,
+            live: None,
+        })
     }
 }
 
@@ -1417,6 +1491,7 @@ impl Backend for ObsBackend {
             preroll_secs: req.preroll_secs,
         };
         self.saved = Some(setup.clone());
+        self.set_live(req.live);
         self.arm_with(&setup, req.memory, false);
         self.settle_arm()
     }
@@ -1433,7 +1508,13 @@ impl Backend for ObsBackend {
     }
 
     fn start(&mut self, req: &StartRequest, abort: &mut dyn FnMut() -> bool) -> Result<StartOutcome, StartError> {
+        if req.live.is_some() {
+            self.set_live(req.live);
+        }
         let r = self.start_inner(req, abort);
+        if r.is_ok() {
+            self.ensure_live();
+        }
         if r.is_err() {
             self.rec = None;
             if self.arm.as_ref().is_some_and(|a| a.temporary) {
@@ -1447,8 +1528,24 @@ impl Backend for ObsBackend {
         r
     }
 
-    fn stop(&mut self) -> anyhow::Result<StopOutcome> {
-        self.stop_inner()
+    fn stop(&mut self, started_unix_ms: u64) -> anyhow::Result<StopOutcome> {
+        // The recording's events, up to now (the last frames are still being looked at: give
+        // the worker a moment to finish them).
+        let live = self.live_scanner.clone().map(|s| {
+            thread::sleep(Duration::from_millis(200));
+            let to = crate::session::unix_ms();
+            let scan = s.lock().map(|mut s| s.take(started_unix_ms, to)).unwrap_or_default();
+            log(format!(
+                "live detection: {} events from {} frames ({:.0}% of the recording)",
+                scan.events.len(),
+                scan.frames,
+                scan.coverage * 100.0
+            ));
+            scan
+        });
+        let mut out = self.stop_inner()?;
+        out.live = live;
+        Ok(out)
     }
 
     fn tick(&mut self, _recording: bool) -> Vec<RecorderEvent> {
@@ -1461,6 +1558,7 @@ impl Backend for ObsBackend {
         out.extend(self.watch_encoder());
         out.extend(self.tick_buffer());
         out.extend(self.watch_monitor());
+        self.ensure_live();
         out
     }
 

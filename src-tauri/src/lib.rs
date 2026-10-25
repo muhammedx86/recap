@@ -109,6 +109,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         gates: Default::default(),
         resume_pids: Default::default(),
         arming: Default::default(),
+        live_scans: Default::default(),
     });
 
     // A crash mid-match leaves the recording in the pre-roll buffer: move it where it belongs.

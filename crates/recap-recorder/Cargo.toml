@@ -18,6 +18,7 @@ linux-typecheck = ["dep:libobs-wrapper", "dep:libobs-simple"]
 recap-core = { path = "../recap-core" }
 anyhow.workspace = true
 serde_json.workspace = true
+image.workspace = true
 
 # The real backend is Windows-only.
 [target.'cfg(windows)'.dependencies]

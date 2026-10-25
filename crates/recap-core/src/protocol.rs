@@ -141,6 +141,10 @@ pub enum RecorderCommand {
         preroll_secs: u32,
         #[serde(default)]
         encoder_memory: Option<EncoderMemory>,
+        /// Run these detectors on a small copy of the picture while the game runs; each
+        /// recording's events come back with `Stopped`.
+        #[serde(default)]
+        live: Option<crate::live::LiveConfig>,
     },
     /// Release the capture and audio sources (the game exited). Replies with `Disarmed`.
     Disarm,
@@ -155,6 +159,8 @@ pub enum RecorderCommand {
         audio: AudioConfig,
         #[serde(default)]
         encoder_memory: Option<EncoderMemory>,
+        #[serde(default)]
+        live: Option<crate::live::LiveConfig>,
     },
     /// Stop the current recording; replies with `Stopped`.
     Stop { id: String },
@@ -215,6 +221,9 @@ pub enum RecorderEvent {
         duration_ms: u64,
         #[serde(default)]
         health: Option<RecordingHealth>,
+        /// What live detection found in this recording.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        live: Option<crate::live::LiveScan>,
     },
     /// Something the player may want to know that does not stop the recording
     /// (`code`: "cpuEncoder", "captureRestarted", "encoderRestarted", "encoderSlow").
@@ -272,6 +281,7 @@ mod tests {
                 separate_mic_track: true,
             },
             encoder_memory: None,
+            live: None,
         };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains(r#""rateControl":"quality","quality":"high""#), "{json}");

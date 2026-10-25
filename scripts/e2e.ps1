@@ -141,6 +141,15 @@ if (-not (Test-Path $reportPath)) {
         else { Fail "recording $($s.matchId) wrote no frames ($($h | ConvertTo-Json -Compress))" }
     }
 
+    # The markers came from live detection while recording (no video scan after the match).
+    $recapLog = Join-Path $Out "recap.log"
+    $liveUsed = @(Select-String -Path $recapLog -Pattern "events from live detection" -ErrorAction SilentlyContinue)
+    if ($liveUsed.Count -ge 1) { Pass "live detection supplied the markers: $($liveUsed[0].Line.Trim())" }
+    else {
+        $why = @(Get-ChildItem $Out -Filter *.log | Select-String -Pattern "live detection" -ErrorAction SilentlyContinue | Select-Object -First 6 | ForEach-Object { $_.Line.Trim() })
+        Fail "live detection never replaced the video scan: $($why -join ' | ')"
+    }
+
     $sample = @($r.matches | Where-Object { $_.gameId -eq "recap-sample-game" })
     if ($sample.Count -ne 2) { Fail "expected 2 sample matches after splitting, got $($sample.Count)" } else { Pass "session split into 2 matches" }
     foreach ($m in $r.matches) {

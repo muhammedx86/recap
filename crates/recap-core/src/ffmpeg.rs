@@ -39,6 +39,17 @@ fn decode_args() -> &'static [&'static str] {
     }
 }
 
+/// Decoder options when only keyframes are wanted: the decoder skips every other frame, which
+/// is far cheaper than decoding the whole stream (software decoding, since GPU decoders ignore
+/// the skip).
+fn keyframe_args() -> &'static [&'static str] {
+    if game_running() {
+        &["-skip_frame", "nokey", "-threads", "2"]
+    } else {
+        &["-skip_frame", "nokey"]
+    }
+}
+
 #[cfg(windows)]
 fn no_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -171,6 +182,29 @@ impl Ffmpeg {
         })
     }
 
+    /// Typical spacing of keyframes (ms), from the packet flags of the first minute (nothing is
+    /// decoded). None when it cannot be told.
+    pub fn keyframe_interval_ms(&self, video: &Path) -> Option<u64> {
+        let out = self
+            .probe_command()
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-read_intervals",
+                "%+60",
+                "-show_entries",
+                "packet=pts_time,flags",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(video)
+            .output()
+            .ok()?;
+        keyframe_interval(&String::from_utf8_lossy(&out.stdout))
+    }
+
     /// True if the file has at least one audio stream.
     pub fn has_audio(&self, video: &Path) -> bool {
         self.probe_command()
@@ -271,20 +305,47 @@ impl Ffmpeg {
         crop: Option<ContentRect>,
         color: bool,
     ) -> Result<GrayFrames> {
+        self.analysis_frames_opts(video, fps, info, height, crop, color, Decode::default())
+    }
+
+    /// [`Ffmpeg::analysis_frames`] over part of the video and/or from keyframes only.
+    #[allow(clippy::too_many_arguments)]
+    pub fn analysis_frames_opts(
+        &self,
+        video: &Path,
+        fps: f32,
+        info: &VideoInfo,
+        height: u32,
+        crop: Option<ContentRect>,
+        color: bool,
+        opts: Decode,
+    ) -> Result<GrayFrames> {
         let (src_w, src_h) = crop.map(|c| (c.w, c.h)).unwrap_or((info.width, info.height));
         let height = height.min(src_h).max(2) & !1;
         let width = (((src_w as f64 * height as f64 / src_h as f64).round() as u32).max(2)) & !1;
         let crop_filter = crop.map(|c| format!("{},", c.filter())).unwrap_or_default();
-        let mut child = self
-            .command()
-            .args(decode_args())
+        let mut cmd = self.command();
+        cmd.args(if opts.keyframes_only { keyframe_args() } else { decode_args() });
+        if let Some((start, dur)) = opts.range {
+            cmd.args(["-ss", &format_secs(start), "-t", &format_secs(dur.max(1))]);
+        }
+        let mut child = cmd
             .arg("-i")
             .arg(video)
             .args(["-an", "-sn", "-vf"])
-            .arg(format!(
-                "fps={fps},{crop_filter}scale={width}:{height}:flags=area,format={}",
-                if color { "rgb24" } else { "gray" }
-            ))
+            .arg(if opts.keyframes_only {
+                // Keyframes come at uneven times (encoders add them at scene cuts): scale each
+                // once, then let `fps` repeat them on a regular clock. Callers skip repeats.
+                format!(
+                    "{crop_filter}scale={width}:{height}:flags=area,format={},fps={fps}",
+                    if color { "rgb24" } else { "gray" }
+                )
+            } else {
+                format!(
+                    "fps={fps},{crop_filter}scale={width}:{height}:flags=area,format={}",
+                    if color { "rgb24" } else { "gray" }
+                )
+            })
             .args(["-f", "rawvideo", "-pix_fmt", if color { "rgb24" } else { "gray" }, "-"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -295,6 +356,7 @@ impl Ffmpeg {
         Ok(GrayFrames {
             child,
             stdout,
+            start_ms: opts.range.map(|r| r.0).unwrap_or(0),
             width,
             height,
             fps,
@@ -307,6 +369,7 @@ impl Ffmpeg {
 impl Ffmpeg {
     /// Decode `[start_ms, start_ms + dur_ms)` as full-resolution RGB frames at `fps`, cropped to
     /// the game picture when `crop` is given. Timestamps are from the start of the video.
+    #[allow(clippy::too_many_arguments)]
     pub fn rgb_frames(
         &self,
         video: &Path,
@@ -315,12 +378,13 @@ impl Ffmpeg {
         fps: f32,
         info: &VideoInfo,
         crop: Option<ContentRect>,
+        keyframes_only: bool,
     ) -> Result<RgbFrames> {
         let (width, height) = crop.map(|c| (c.w, c.h)).unwrap_or((info.width, info.height));
         let crop_filter = crop.map(|c| format!("{},", c.filter())).unwrap_or_default();
         let mut child = self
             .command()
-            .args(decode_args())
+            .args(if keyframes_only { keyframe_args() } else { decode_args() })
             .args(["-ss", &format_secs(start_ms), "-t", &format_secs(dur_ms.max(1)), "-i"])
             .arg(video)
             .args(["-an", "-sn", "-vf"])
@@ -379,6 +443,8 @@ impl Drop for RgbFrames {
 pub struct GrayFrames {
     child: Child,
     stdout: std::process::ChildStdout,
+    /// Where the decoded range starts in the video.
+    start_ms: u64,
     pub width: u32,
     pub height: u32,
     fps: f32,
@@ -404,7 +470,7 @@ impl GrayFrames {
         if self.stdout.read_exact(&mut buf).is_err() {
             return None;
         }
-        let t_ms = ((self.index as f64) * 1000.0 / self.fps as f64).round() as u64;
+        let t_ms = self.start_ms + ((self.index as f64) * 1000.0 / self.fps as f64).round() as u64;
         self.index += 1;
         let frame = if self.color {
             AnalysisFrame::Rgb(image::RgbImage::from_raw(self.width, self.height, buf)?)
@@ -432,6 +498,36 @@ impl Drop for GrayFrames {
     }
 }
 
+/// How much of a video to decode for analysis.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Decode {
+    /// `(start_ms, dur_ms)`; the whole video when None.
+    pub range: Option<(u64, u64)>,
+    /// Decode keyframes only (frames in between repeat the last keyframe).
+    pub keyframes_only: bool,
+}
+
+/// Median spacing of keyframes in ffprobe `packet=pts_time,flags` CSV output.
+pub fn keyframe_interval(csv: &str) -> Option<u64> {
+    let times: Vec<f64> = csv
+        .lines()
+        .filter_map(|l| {
+            let (t, flags) = l.split_once(',')?;
+            flags.starts_with('K').then(|| t.trim().parse::<f64>().ok()).flatten()
+        })
+        .collect();
+    let mut gaps: Vec<u64> = times
+        .windows(2)
+        .map(|w| ((w[1] - w[0]) * 1000.0).round().max(0.0) as u64)
+        .filter(|g| *g > 0)
+        .collect();
+    if gaps.len() < 2 {
+        return None;
+    }
+    gaps.sort_unstable();
+    Some(gaps[gaps.len() / 2])
+}
+
 pub fn format_secs(ms: u64) -> String {
     format!("{}.{:03}", ms / 1000, ms % 1000)
 }
@@ -439,6 +535,13 @@ pub fn format_secs(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyframe_spacing() {
+        let csv = "0.000000,K__\n0.016667,___\n1.000000,K__\n1.016667,___\n2.000000,K_\n3.000000,K__\n";
+        assert_eq!(keyframe_interval(csv), Some(1000));
+        assert_eq!(keyframe_interval("0.0,K__\n"), None);
+    }
 
     #[test]
     fn parses_frame_rates() {

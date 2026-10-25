@@ -270,6 +270,7 @@ pub fn test_detector_with_progress(
             cancel: Some(&CANCEL),
             progress: Some(progress),
             content: Some(crop),
+            full: true,
         },
     )?;
     let trace = res.traces.into_iter().next();

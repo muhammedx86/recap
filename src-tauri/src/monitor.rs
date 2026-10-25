@@ -57,13 +57,13 @@ pub fn spawn(app: AppHandle) {
                 // Arm first, so a recording that starts now reuses the armed capture.
                 arm(&app, &running);
                 tick(&app, &running, &mut handled);
-                // Decoders stay off the GPU while any known game runs.
-                let game_on = state(&app)
-                    .games
-                    .read()
-                    .unwrap()
-                    .iter()
-                    .any(|g| g.def.processes.iter().any(|p| running.contains_key(&p.to_lowercase())));
+                // Decoders stay off the GPU and on two threads while a game is being played: a
+                // running game whose API says it is in the menus does not count.
+                let gates = state(&app).gates.lock().unwrap().clone();
+                let game_on = state(&app).games.read().unwrap().iter().any(|g| {
+                    g.def.processes.iter().any(|p| running.contains_key(&p.to_lowercase()))
+                        && gates.get(&g.def.id).is_none_or(|e| !e.fresh() || e.gate.in_match())
+                });
                 recap_core::ffmpeg::set_game_running(game_on);
                 std::thread::sleep(Duration::from_secs(1));
             }

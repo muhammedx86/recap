@@ -53,6 +53,10 @@ fn emit_progress(app: &AppHandle, match_id: &str, stage: &str, progress: f32, me
     );
 }
 
+/// Live detection must have seen this share of a recording for its events to stand in for the
+/// post-match scan.
+const LIVE_MIN_COVERAGE: f32 = 0.9;
+
 /// Event kinds an API source reports exactly; vision detectors for these are skipped when `preferApi` is set.
 pub fn api_kinds(api: ApiSource) -> &'static [&'static str] {
     match api {
@@ -209,18 +213,44 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
         }
     }
 
-    // The heavy part (decoding the whole recording) waits while another match is being recorded,
-    // so it never costs frames in the game; it catches up between matches.
-    wait_while_recording(app, match_id);
+    // Recordings with a keyframe every second or two get the two-pass scan (keyframes, then a
+    // few seconds around each candidate), light enough to run at background priority even while
+    // the next match records. Older recordings need every frame decoded: that waits while
+    // another match is being recorded, so it never costs frames in the game.
+    let gop = st.ff.keyframe_interval_ms(&video);
+    if gop.is_none_or(|g| g > recap_core::scan::MAX_FAST_GOP_MS) {
+        wait_while_recording(app, match_id);
+    }
 
     let game = st.game(&m.game_id);
     let settings = st.settings.read().unwrap().clone();
     let mut derived: Vec<GameEvent> = Vec::new();
 
-    // Vision scan.
+    // Vision: what live detection found while the match was recorded, when it saw the whole
+    // recording with every detector; otherwise scan the video.
+    let live = st.live_scans.lock().unwrap().remove(match_id).filter(|_| !rescan);
     if let Some(g) = &game {
         let dets = detectors_to_run(g);
-        if settings.scan_after_match && !dets.is_empty() {
+        let live_ok = live
+            .as_ref()
+            .is_some_and(|l| l.coverage >= LIVE_MIN_COVERAGE && dets.iter().all(|d| l.detectors.contains(&d.def.id)));
+        if live_ok {
+            let l = live.unwrap_or_default();
+            log::info!(
+                "{match_id}: {} events from live detection ({:.0}% covered); no video scan",
+                l.events.len(),
+                l.coverage * 100.0
+            );
+            derived.extend(l.events);
+        } else if let Some(l) = &live {
+            log::info!(
+                "{match_id}: live detection covered {:.0}% with {} of {} detectors; scanning the video",
+                l.coverage * 100.0,
+                l.detectors.len(),
+                dets.len()
+            );
+        }
+        if settings.scan_after_match && !dets.is_empty() && !live_ok {
             emit_progress(app, match_id, "scanning", 0.0, None);
             let app2 = app.clone();
             let mid = match_id.to_string();
@@ -235,6 +265,7 @@ fn run(app: &AppHandle, match_id: &str, rescan: bool) -> Result<()> {
                     cancel: None,
                     progress: Some(&progress),
                     content: None,
+                    full: false,
                 },
             )?;
             derived.extend(res.events);

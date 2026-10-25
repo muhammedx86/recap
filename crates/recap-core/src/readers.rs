@@ -593,6 +593,10 @@ pub fn read_details(
 ) -> Result<MatchDetails> {
     let info: VideoInfo = ff.probe(video)?;
     let crop: Option<ContentRect> = ff.content_rect(video, &info);
+    // When keyframes come at least as often as a reader samples, decode keyframes only: the
+    // readers see the same moments at a fraction of the decoding work.
+    let gop = ff.keyframe_interval_ms(video);
+    let keyframes_ok = |fps: f32| gop.is_some_and(|g| g <= 2_000 && g as f32 <= 1000.0 / fps + 1.0);
     let (fw, fh) = crop.map(|c| (c.w, c.h)).unwrap_or((info.width, info.height));
     let ready: Vec<&LoadedReader> = readers.iter().filter(|r| r.def.is_ready()).collect();
     let mut prepared = Vec::new();
@@ -626,9 +630,61 @@ pub fn read_details(
         .collect();
     for ((a, b, fps_milli), rs) in groups {
         let fps = fps_milli as f32 / 1000.0;
-        for (t, frame) in ff.rgb_frames(video, a, b - a, fps, &info, crop)? {
-            for r in &rs {
-                let found = r.read_frame(&frame, ocr);
+        // Readers that only keep their latest reading (a scoreboard the player opens now and
+        // then) read the match backwards, a chunk at a time, and stop at the first chunk where
+        // each of them read something: the rest of the match could not change the result.
+        let backwards = b - a > 2 * LATEST_CHUNK_MS && rs.iter().all(|r| r.def.pick == ReadPick::Latest);
+        let chunks: Vec<(u64, u64)> = if backwards {
+            let mut v = Vec::new();
+            let mut end = b;
+            while end > a {
+                let start = end.saturating_sub(LATEST_CHUNK_MS).max(a);
+                v.push((start, end));
+                end = start;
+            }
+            v
+        } else {
+            vec![(a, b)]
+        };
+        let started = std::time::Instant::now();
+        for (ca, cb) in chunks {
+            let mut read_by: std::collections::HashSet<&str> = Default::default();
+            for (t, frame) in ff.rgb_frames(video, ca, cb - ca, fps, &info, crop, keyframes_ok(fps))? {
+                read_frame_into(&rs, t, &frame, ocr, &mut local_traces, &mut latest, &mut votes, &mut read_by);
+            }
+            if backwards && (read_by.len() == rs.len() || started.elapsed() > LATEST_BUDGET) {
+                break;
+            }
+        }
+    }
+    if let Some(t) = traces {
+        *t = local_traces;
+    }
+    finish_details(votes, latest)
+}
+
+/// Chunk of match read at a time by latest-only readers, and how long they may keep going back.
+const LATEST_CHUNK_MS: u64 = 90_000;
+const LATEST_BUDGET: std::time::Duration = std::time::Duration::from_secs(8);
+
+#[allow(clippy::too_many_arguments)]
+fn read_frame_into<'a>(
+    rs: &[&'a PreparedReader],
+    t: u64,
+    frame: &image::RgbImage,
+    ocr: Option<&dyn TextReader>,
+    local_traces: &mut [ReaderTrace],
+    latest: &mut BTreeMap<String, (u64, String, f32)>,
+    votes: &mut BTreeMap<String, BTreeMap<String, (u32, f32)>>,
+    read_by: &mut std::collections::HashSet<&'a str>,
+) {
+    {
+        {
+            for r in rs {
+                let found = r.read_frame(frame, ocr);
+                if !found.is_empty() {
+                    read_by.insert(r.def.id.as_str());
+                }
                 if let Some(tr) = local_traces.iter_mut().find(|x| x.reader == r.def.id) {
                     tr.frames += 1;
                     tr.readings.extend(found.iter().map(|(f, v, _)| (t, f.clone(), v.clone())));
@@ -647,9 +703,12 @@ pub fn read_details(
             }
         }
     }
-    if let Some(t) = traces {
-        *t = local_traces;
-    }
+}
+
+fn finish_details(
+    votes: BTreeMap<String, BTreeMap<String, (u32, f32)>>,
+    latest: BTreeMap<String, (u64, String, f32)>,
+) -> Result<MatchDetails> {
     let mut out = MatchDetails::new();
     for (f, vals) in votes {
         let total: u32 = vals.values().map(|v| v.0).sum();

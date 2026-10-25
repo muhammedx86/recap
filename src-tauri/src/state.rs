@@ -118,6 +118,8 @@ pub struct AppState {
     pub resume_pids: Mutex<HashSet<u32>>,
     /// Recorder readiness between matches, encoder memory, recent frame stats.
     pub arming: Mutex<crate::arming::Arming>,
+    /// What live detection found in each recording, until its processing uses it.
+    pub live_scans: Mutex<std::collections::HashMap<String, recap_core::live::LiveScan>>,
 }
 
 impl AppState {

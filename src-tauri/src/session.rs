@@ -57,6 +57,7 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
         video: arming::video_config(&settings),
         audio: arming::audio_config(&settings),
         encoder_memory: arming::load_memory(&st),
+        live: game.as_ref().and_then(|g| arming::live_config(g, &settings)),
     };
 
     let record = MatchRecord {
@@ -344,10 +345,23 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
             refresh_status(app, Some(reason));
         }
         RecorderEvent::Stopped {
-            id, duration_ms, health, ..
+            id,
+            duration_ms,
+            health,
+            live,
+            ..
         } => {
             if let Some(h) = health {
                 arming::record_health(app, &id, h);
+            }
+            if let Some(l) = live {
+                log::info!(
+                    "{id}: live detection found {} events in {} frames ({:.0}% covered)",
+                    l.events.len(),
+                    l.frames,
+                    l.coverage * 100.0
+                );
+                state(app).live_scans.lock().unwrap().insert(id.clone(), l);
             }
             finalize(app, &id, Some(duration_ms))
         }
