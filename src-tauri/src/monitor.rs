@@ -45,11 +45,50 @@ pub fn spawn(app: AppHandle) {
                 let alive: HashSet<u32> = running.values().flatten().copied().collect();
                 handled.retain(|pid| alive.contains(pid));
                 state(&app).resume_pids.lock().unwrap().retain(|pid| alive.contains(pid));
+                // Arm first, so a recording that starts now reuses the armed capture.
+                arm(&app, &running);
                 tick(&app, &running, &mut handled);
+                // Decoders stay off the GPU while any known game runs.
+                let game_on = state(&app)
+                    .games
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .any(|g| g.def.processes.iter().any(|p| running.contains_key(&p.to_lowercase())));
+                recap_core::ffmpeg::set_game_running(game_on);
                 std::thread::sleep(Duration::from_secs(1));
             }
         })
         .expect("spawn monitor");
+}
+
+/// Keep the recorder armed for the game being played (the recording's game, else the first
+/// enabled game running), disarmed when none runs.
+fn arm(app: &AppHandle, running: &HashMap<String, Vec<u32>>) {
+    let st = state(app);
+    let recording = st.session.lock().unwrap().as_ref().and_then(|s| Some((s.game.clone()?, s.pid?)));
+    let settings = st.settings.read().unwrap().clone();
+    let games = st.games.read().unwrap().clone();
+    let target = match recording {
+        Some((g, pid)) => {
+            let exe = g
+                .def
+                .processes
+                .iter()
+                .find(|p| running.get(&p.to_lowercase()).is_some_and(|pids| pids.contains(&pid)))
+                .cloned();
+            exe.map(|e| (g, pid, e))
+        }
+        None => games.iter().filter(|g| settings.game_enabled(&g.def.id)).find_map(|g| {
+            g.def.processes.iter().find_map(|p| {
+                running
+                    .get(&p.to_lowercase())
+                    .and_then(|pids| pids.iter().min().copied())
+                    .map(|pid| (g.clone(), pid, p.clone()))
+            })
+        }),
+    };
+    crate::arming::sync(app, target.as_ref().map(|(g, pid, exe)| (g, *pid, exe.clone())));
 }
 
 /// The game has detectors that mark match boundaries (so a session can be split).
@@ -105,7 +144,10 @@ fn tick(app: &AppHandle, running: &HashMap<String, Vec<u32>>, handled: &mut Hash
                             .map(move |pid| (*pid, p.clone()))
                     })
                     .collect();
-                let Some((pid, exe)) = pids.first().cloned() else { continue };
+                // Lowest pid, like `arm` (the start then matches the armed setup).
+                let Some((pid, exe)) = pids.iter().min_by_key(|p| p.0).cloned() else {
+                    continue;
+                };
 
                 let gate = st
                     .gates

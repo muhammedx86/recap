@@ -5,7 +5,7 @@ import { useLoad } from "../lib/hooks";
 import { COMMON_KINDS, kindStyle } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import type { EncoderChoice, Settings } from "../lib/types";
-import { Icon, ProgressBar, Toggle } from "../components/ui";
+import { Icon, KindDot, ProgressBar, Toggle } from "../components/ui";
 import { loadPref, savePref } from "../lib/media";
 
 const ENCODER_LABEL: Record<string, string> = {
@@ -62,6 +62,17 @@ export function SettingsPage() {
 
   const dirty = JSON.stringify(s) !== JSON.stringify(base);
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS({ ...s, [k]: v });
+  /** Kinds with their own built-in timing (mirrors recap-core clips::default_timing). */
+  const TIMED_KINDS: Array<[string, number, number]> = [
+    ["kill", 6, 3],
+    ["multikill", 6, 4],
+    ["ace", 8, 5],
+    ["death", 7, 2],
+    ["assist", 5, 2],
+    ["bookmark", 20, 3],
+    ["objective", 8, 4],
+    ["round_win", 6, 3],
+  ];
   const setClip = <K extends keyof Settings["autoClip"]>(k: K, v: Settings["autoClip"][K]) => setS({ ...s, autoClip: { ...s.autoClip, [k]: v } });
 
   const save = async () => {
@@ -168,11 +179,50 @@ export function SettingsPage() {
             ))}
           </select>
         </Row>
-        <Row label="Bitrate" hint="12,000 kbps at 1080p60 is about 5 GB per hour." htmlFor="set-br">
-          <div className="input-row set-num">
-            <input id="set-br" type="number" className="input" min={1000} max={100000} step={500} value={s.bitrateKbps} onChange={(e) => set("bitrateKbps", Number(e.target.value))} />
-            <span className="unit">kbps</span>
-          </div>
+        <Row
+          label="Quality"
+          hint={
+            s.rateControl === "cbr"
+              ? "The same bitrate all the time: predictable file sizes."
+              : "Constant quality: small files in menus, full detail in fights. High is sharper and bigger."
+          }
+          htmlFor="set-q"
+        >
+          <select
+            id="set-q"
+            className="input set-select"
+            value={s.rateControl === "cbr" ? "cbr" : s.quality}
+            onChange={(e) => {
+              const v = e.target.value;
+              setS(v === "cbr" ? { ...s, rateControl: "cbr" } : { ...s, rateControl: "quality", quality: v as Settings["quality"] });
+            }}
+          >
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low (smallest files)</option>
+            <option value="cbr">Constant bitrate</option>
+          </select>
+        </Row>
+        {s.rateControl === "cbr" && (
+          <Row label="Bitrate" hint="12,000 kbps at 1080p60 is about 5 GB per hour." htmlFor="set-br">
+            <div className="input-row set-num">
+              <input id="set-br" type="number" className="input" min={1000} max={100000} step={500} value={s.bitrateKbps} onChange={(e) => set("bitrateKbps", Number(e.target.value))} />
+              <span className="unit">kbps</span>
+            </div>
+          </Row>
+        )}
+        <Row
+          label="Keep the seconds before a match"
+          hint="While a game runs, Recap keeps a few seconds in short temporary files next to your recordings, so a match's opening is never cut off."
+          htmlFor="set-pre"
+        >
+          <select id="set-pre" className="input set-select" value={s.prerollSecs} onChange={(e) => set("prerollSecs", Number(e.target.value))}>
+            {[0, 5, 10, 15, 20, 30].map((v) => (
+              <option key={v} value={v}>
+                {v === 0 ? "Off" : `${v} seconds`}
+              </option>
+            ))}
+          </select>
         </Row>
         <Row label="Encoder" htmlFor="set-enc">
           <select id="set-enc" className="input set-select" value={s.encoder} onChange={(e) => set("encoder", e.target.value as EncoderChoice)} title="Automatic picks your graphics card's encoder and falls back to the CPU.">
@@ -182,6 +232,13 @@ export function SettingsPage() {
               </option>
             ))}
           </select>
+        </Row>
+        <Row
+          on={s.gpuPreference}
+          label="Record on the high-performance GPU"
+          hint="Laptops with two graphics chips: record on the one games use, so frames are not copied between them. Applies after restarting Recap."
+        >
+          <Toggle checked={s.gpuPreference} onChange={(v) => set("gpuPreference", v)} label="High-performance GPU" />
         </Row>
       </Section>
 
@@ -252,7 +309,7 @@ export function SettingsPage() {
         <Row on={s.autoClip.enabled} label="Make clips after each match">
           <Toggle checked={s.autoClip.enabled} onChange={(v) => setClip("enabled", v)} label="Auto-clips" />
         </Row>
-        <Row label="Seconds before / after" htmlFor="set-cb">
+        <Row label="Seconds before / after" hint="For plays without their own timing below." htmlFor="set-cb">
           <div className="input-row set-pair">
             <input id="set-cb" type="number" className="input" min={0} max={60} step={0.5} value={s.autoClip.secondsBefore} onChange={(e) => setClip("secondsBefore", Number(e.target.value))} aria-label="Seconds before" />
             <input type="number" className="input" min={0} max={60} step={0.5} value={s.autoClip.secondsAfter} onChange={(e) => setClip("secondsAfter", Number(e.target.value))} aria-label="Seconds after" />
@@ -267,6 +324,37 @@ export function SettingsPage() {
         <Row on={s.autoClip.preciseCuts} label="Frame-accurate cuts" hint="Slower; re-encodes each clip.">
           <Toggle checked={s.autoClip.preciseCuts} onChange={(v) => setClip("preciseCuts", v)} label="Frame-accurate cuts" />
         </Row>
+        <div className="set-block wide">
+          <p className="set-label">Seconds around each kind of play</p>
+          <p className="field-hint">A death is mostly what led to it; a bookmark keeps what just happened. Multikills run from the first kill to the last. Empty = default.</p>
+          <div className="timing-grid" role="table" aria-label="Clip timing per play">
+            <span className="timing-h" role="columnheader">Play</span>
+            <span className="timing-h" role="columnheader">Before</span>
+            <span className="timing-h" role="columnheader">After</span>
+            {TIMED_KINDS.map(([k, db, da]) => {
+              const t = s.autoClip.timing?.[k];
+              const setT = (field: "before" | "after", raw: string) => {
+                const next = { ...(s.autoClip.timing ?? {}) };
+                const cur = next[k] ?? { before: db, after: da };
+                if (raw === "") {
+                  const other = field === "before" ? t?.after : t?.before;
+                  if (other === undefined || other === (field === "before" ? da : db)) delete next[k];
+                  else next[k] = { ...cur, [field]: field === "before" ? db : da };
+                } else next[k] = { ...cur, [field]: Math.max(0, Math.min(120, Number(raw))) };
+                setClip("timing", next);
+              };
+              return (
+                <div key={k} className="timing-row" role="row">
+                  <span className="timing-kind" role="cell">
+                    <KindDot kind={k} tone="color" size={13} /> {kindStyle(k).label}
+                  </span>
+                  <input className="input input-small" type="number" min={0} max={120} step={0.5} placeholder={String(db)} value={t?.before ?? ""} onChange={(e) => setT("before", e.target.value)} aria-label={`${kindStyle(k).label}: seconds before`} />
+                  <input className="input input-small" type="number" min={0} max={120} step={0.5} placeholder={String(da)} value={t?.after ?? ""} onChange={(e) => setT("after", e.target.value)} aria-label={`${kindStyle(k).label}: seconds after`} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
         <div className="set-block wide">
           <p className="set-label">Clip these plays in every game</p>
           <p className="field-hint">Leave empty to use each game's own choice.</p>

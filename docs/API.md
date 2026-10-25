@@ -138,10 +138,15 @@ interface ReaderDef {
 // Settings: see crates/recap-core/src/settings.rs (serde camelCase). Key fields:
 interface Settings {
   recordingsDir: string; fps: number; bitrateKbps: number; outputHeight: number | null;
-  encoder: "auto" | "nvenc" | "amf" | "qsv" | "x264";
+  encoder: "auto" | "nvenc" | "amf" | "qsv" | "x264";  // auto: NVENC, Quick Sync, AMF, then x264 (720p, <= 60 fps, with a warning)
+  rateControl: "quality" | "cbr";  // default "quality": CQP on GPU encoders, CRF on x264; bitrateKbps only applies to "cbr"
+  quality: "high" | "medium" | "low";  // CQP 20/24/28, CRF 20/23/27
+  prerollSecs: number;             // default 10; 0 = off. While a game runs the recorder buffers rotating segments in <recordingsDir>/.recap-buffer
+  gpuPreference: boolean;          // default true: Windows per-app GPU preference "high performance" for recap-recorder.exe (only our own value is touched)
   recordDesktopAudio: boolean; recordMicrophone: boolean; microphoneDevice: string | null;
   bookmarkHotkey: string; manualRecordHotkey: string;
-  autoClip: { enabled: boolean; secondsBefore: number; secondsAfter: number; mergeGapSeconds: number; eventsOverride: string[]; preciseCuts: boolean };
+  autoClip: { enabled: boolean; secondsBefore: number; secondsAfter: number; mergeGapSeconds: number; eventsOverride: string[]; preciseCuts: boolean;
+    timing: Record<string, { before: number; after: number }> /* per kind; overrides the game's and built-in timing */ };
   scanAfterMatch: boolean; analysisHeight: number;
   gamesEnabled: Record<string, boolean>;
   storageLimitGb: number | null;
@@ -251,4 +256,36 @@ Errors are returned as rejected promises with a string message.
 | `bookmark-added` | `{ matchId: string; tMs: number }` |
 | `window-hidden` | `{ reason: "closed" \| "minimized" }` — the window went to the tray or was minimized; the UI pauses all media |
 | `studio-progress` | `{ task: "test"; progress: number }` — a Studio detector test is running (0..1) |
+| `recording-health` | `{ matchId: string; health: RecordingHealth; lostShare: number \| null }` — frame stats when a recording ends: `{ totalFrames, droppedFrames /* encoder lag + output drops */, laggedFrames /* render lag */, encoder, encoderFallback?, prerollMs }` |
 | `overlay-toast` | `{ kind: "recording" \| "saved" \| "bookmark" \| "clips" \| "skipped"; title: string; detail?: string; corner }`, sent only to the `overlay` window (`overlay.html`). Not sent while the main window has focus. |
+
+## Recorder sidecar protocol
+
+`recap-recorder` reads one JSON command per line on stdin and writes one JSON event per line on
+stdout (`crates/recap-core/src/protocol.rs`). Fields are camelCase; new fields are optional so
+older apps and recorders keep working.
+
+| Command | Meaning |
+|---|---|
+| `arm { capture, video, audio, bufferDir?, prerollSecs, encoderMemory? }` | The game is running: attach capture/audio/encoder now and keep them for every match. With `bufferDir` and `prerollSecs` > 0 the output writes rotating segments so a `start` begins up to `prerollSecs` earlier. Replies `armed` once the window is attached. Deferred while recording. |
+| `disarm` | The game exited: release everything. Replies `disarmed`. |
+| `start { id, path, capture, video, audio, encoderMemory? }` | Record to `path`. Reuses the armed setup when it matches (same mode, process, video, audio); otherwise arms for this recording only. |
+| `stop { id }`, `listEncoders`, `shutdown` | As before. |
+
+| Event | Meaning |
+|---|---|
+| `armed { capture, encoder?, buffering, encoderFallback?, encoderMemory? }` | Capture attached; `buffering` = the pre-roll buffer runs. |
+| `started { …, prerollMs, encoderFallback?, encoderMemory? }` | `startedUnixMs` is back-dated by `prerollMs`; the app counts event times from there. |
+| `stopped { id, path, durationMs, health? }` | `health` = `RecordingHealth` (see `recording-health`). |
+| `warning { id?, code, message }` | `cpuEncoder`, `encoderRestarted`, `captureRestarted`, `captureNoFrames`, `captureFailed`, `bufferFailed`. Shown as the status message. |
+
+`encoderMemory` = `{ available: string[], failed: string[], working?: string }`: encoders that
+failed to start (or wrote no frames for 6 s) are skipped next time while OBS lists exactly
+`available`; a new GPU or driver changes the list and everything is tried again. The app keeps
+it in `encoder-memory.json` in the data folder.
+
+Pre-roll buffer: segments `seg-<run>-<n>.mp4` rotate every `prerollSecs` (hybrid MP4 output,
+gapless `split_file` at the next 1 s keyframe). At `start` the segment in progress becomes the
+recording (a `<segment>.target` marker names the match path); at `stop` the output splits and
+the finished segment is renamed to the match path. After a crash the app moves marked segments
+to their targets (`prebuffer::recover`) at startup and when the recorder exits.

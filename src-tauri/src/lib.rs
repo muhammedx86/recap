@@ -1,5 +1,6 @@
 //! Recap desktop app: wires the core, the recorder sidecar and the UI together.
 
+mod arming;
 mod commands;
 mod hotkeys;
 mod matchwatch;
@@ -107,8 +108,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         gsi_token: token,
         gates: Default::default(),
         resume_pids: Default::default(),
+        arming: Default::default(),
     });
 
+    // A crash mid-match leaves the recording in the pre-roll buffer: move it where it belongs.
+    {
+        let st = state::state(&handle);
+        arming::recover_buffer(&st);
+        let gpu = st.settings.read().unwrap().gpu_preference;
+        arming::gpu_preference::apply(&st.paths.recorder_exe, gpu);
+    }
     // Recordings cut short by a crash still have a playable (hybrid MP4) file: process them.
     for m in interrupted {
         if std::path::Path::new(&m.path).exists() {

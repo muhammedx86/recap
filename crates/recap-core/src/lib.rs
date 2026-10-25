@@ -5,6 +5,7 @@
 //! hotkey all produce the same event type, so the timeline, auto-clips and
 //! library never care where an event came from.
 
+pub mod background;
 pub mod clips;
 pub mod cs2;
 pub mod details;
@@ -15,10 +16,12 @@ pub mod league;
 pub mod library;
 pub mod matchgate;
 pub mod postmatch;
+pub mod prebuffer;
 pub mod protocol;
 pub mod readers;
 pub mod riot_local;
 pub mod scan;
 pub mod segments;
 pub mod settings;
+pub mod valorant_log;
 pub mod vision;
