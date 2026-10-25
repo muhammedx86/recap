@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  AudioLines,
   Bell,
   Bookmark,
   Calendar,
@@ -24,6 +25,8 @@ import {
   Film,
   FolderOpen,
   Gamepad2,
+  Activity,
+  Unplug,
   HardDrive,
   Info,
   Keyboard,
@@ -249,6 +252,9 @@ const ICONS: Record<string, LucideIcon> = {
   sparkles: Sparkles,
   target: Crosshair,
   eye: Eye,
+  wave: AudioLines,
+  health: Activity,
+  unplug: Unplug,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

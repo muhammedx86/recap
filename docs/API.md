@@ -42,6 +42,13 @@ interface MatchRecord {
   eventCounts: Record<string, number>;  // kind -> count (hidden kinds starting with "_" excluded)
   error: string | null;
   details: Record<string, DetailValue>; // field -> value, e.g. character, map, mode, kills, deaths, assists, result, score
+  health?: {            // how the recording went; every field optional (missing = fine/unknown)
+    partial?: boolean;        // interrupted and resumed, or started after the match (derived from a `_resumed` event)
+    apiUnavailable?: boolean; // the game's live API never answered; plays came from the screen only
+    droppedFrames?: number;   // share of frames dropped while encoding, 0..1
+    lowDisk?: boolean;        // disk space ran low while recording
+    encoder?: string;         // encoder actually used, e.g. "NVENC H.264"
+  };                          // backend: Library::set_health(match_id, &MatchHealth) merges (bools OR'ed, values overwrite)
 }
 
 // Where a detail came from, best first. A value is only replaced by an equal or better source;
@@ -206,6 +213,9 @@ Arguments are passed as an object with these camelCase keys.
 | `rescan_match` | `{ id }` | `null` (progress via `processing-progress` events) |
 | `list_clips` | `{ matchId?: string }` | `ClipRecord[]` (newest first) |
 | `create_clip` | `{ matchId, startMs, endMs, title?: string }` | `ClipRecord` |
+| `clip_cut_points` | `{ matchId, startMs, endMs }` | `{ startMs, endMs, exact }`: where a clip of that range will really start (the keyframe a stream-copy cut uses) and end; `exact` when frame-accurate cuts are on |
+| `match_waveform` | `{ matchId }` | `number[]` (peaks 0..255, one per bucket across the recording; empty without audio). Cached as `<thumbnails>/<id>.wave` |
+| `match_scrub_strip` | `{ matchId }` | `{ path, frames }`: one JPG with `frames` evenly spaced 16:9 frames side by side, for hover scrubbing. Cached as `<thumbnails>/<id>.strip.jpg` |
 | `create_montage` | `{ clipIds: string[], title: string }` | `ClipRecord` |
 | `update_clip` | `{ id, title }` | `ClipRecord` |
 | `delete_clip` | `{ id, deleteFile: boolean }` | `null` |

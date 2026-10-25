@@ -94,6 +94,7 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
         event_counts: Default::default(),
         error: None,
         details: Default::default(),
+        health: Default::default(),
     };
     // Never hold the session lock while taking the library lock (lock order: library, then session).
     st.library.lock().unwrap().insert_match(&record)?;

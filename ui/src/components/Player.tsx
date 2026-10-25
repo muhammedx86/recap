@@ -9,6 +9,7 @@ export interface PlayerHandle {
   seek: (ms: number) => void;
   toggle: () => void;
   pause: () => void;
+  play: () => void;
   nudge: (deltaMs: number) => void;
   time: () => number;
   /** Change speed by `delta` (e.g. ±0.25); 0 resets to 1×. */
@@ -120,6 +121,15 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
     }
   }, [simulate]);
 
+  const play = useCallback(() => {
+    if (simulate) {
+      sim.current.playing = true;
+      setPlaying(true);
+    } else if (video.current?.paused) {
+      video.current.play().catch(() => {});
+    }
+  }, [simulate]);
+
   const toggle = useCallback(() => {
     if (simulate) {
       sim.current.playing = !sim.current.playing;
@@ -151,6 +161,7 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       seek,
       toggle,
       pause,
+      play,
       nudge: (d) => seek(current() + d),
       time: current,
       changeRate,
@@ -158,7 +169,7 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
       toggleFullscreen,
       toggleMute,
     }),
-    [seek, toggle, pause, current, changeRate, frameStep, toggleFullscreen, toggleMute],
+    [seek, toggle, pause, play, current, changeRate, frameStep, toggleFullscreen, toggleMute],
   );
 
   // Remember preferences; apply them to the element.

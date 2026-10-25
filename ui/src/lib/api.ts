@@ -23,6 +23,8 @@ import type {
   ReaderTestResult,
   RecorderStatus,
   Region,
+  CutPoints,
+  ScrubStrip,
   Settings,
   VideoInfo,
   StorageInfo,
@@ -49,6 +51,12 @@ export function on<K extends keyof EventMap>(name: K, handler: (payload: EventMa
     cancelled = true;
     unlisten?.();
   };
+}
+
+/** Video URL for hover previews (the browser preview plays a demo clip when one is configured). */
+export function previewVideoSrc(path: string): string | undefined {
+  if (isTauri) return convertFileSrc(path);
+  return mock.mockPreviewVideo() ?? undefined;
 }
 
 /** URL the webview can load for a local file (video, thumbnail, template). */
@@ -104,6 +112,12 @@ export const api = {
   listClips: (matchId?: string) => call<ClipRecord[]>("list_clips", matchId ? { matchId } : {}),
   createClip: (matchId: string, startMs: number, endMs: number, title?: string) =>
     call<ClipRecord>("create_clip", { matchId, startMs, endMs, ...(title ? { title } : {}) }),
+  /** Where a stream-copy clip of the range will really start (the keyframe it snaps to) and end. */
+  clipCutPoints: (matchId: string, startMs: number, endMs: number) => call<CutPoints>("clip_cut_points", { matchId, startMs, endMs }),
+  /** Audio peaks 0..255 across the recording, evenly spaced; empty when it has no audio. Cached. */
+  matchWaveform: (matchId: string) => call<number[]>("match_waveform", { matchId }),
+  /** Evenly spaced stills tiled into one image, for scrubbing a library card. Cached. */
+  matchScrubStrip: (matchId: string) => call<ScrubStrip>("match_scrub_strip", { matchId }),
   createMontage: (clipIds: string[], title: string) => call<ClipRecord>("create_montage", { clipIds, title }),
   updateClip: (id: string, title: string) => call<ClipRecord>("update_clip", { id, title }),
   deleteClip: (id: string, deleteFile: boolean) => call<null>("delete_clip", { id, deleteFile }),

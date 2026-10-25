@@ -7,7 +7,8 @@ import { kindStyle, sortKinds, sourceLabel } from "../lib/kinds";
 import { useToast } from "../lib/toast";
 import { computeRounds, type Round } from "../lib/rounds";
 import { groupMoments, momentTitle, type Moment } from "../lib/moments";
-import type { ClipRecord, GameEvent, MatchRecord } from "../lib/types";
+import type { ClipRecord, CutPoints, GameEvent, MatchRecord } from "../lib/types";
+import { HL_AFTER_DEFAULT, HL_BEFORE_DEFAULT, highlightWindows, nextWindow, windowAt } from "../lib/highlights";
 import { AssetImg } from "../components/AssetImg";
 import { useAssetDirs } from "../lib/assets";
 import { kdaRatio, scoreParts } from "../lib/details";
@@ -49,6 +50,7 @@ export function MatchPage() {
     setOut(null);
     setClipTitle("");
     setHidden(new Set());
+    setHlOn(false);
   }, [id]);
 
   const events = data?.events ?? [];
@@ -62,6 +64,95 @@ export function MatchPage() {
   const [onlyBig, setOnlyBig] = useState(false);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const shownMoments = onlyBig ? moments.filter((x) => momentTitle(x)) : moments;
+
+  // Highlight mode: play only the moments (padded), skipping the rest.
+  const [hlOn, setHlOn] = useState(false);
+  const [hlBefore, setHlBefore] = useState(() => loadPref<number>("match.hl.before", HL_BEFORE_DEFAULT));
+  const [hlAfter, setHlAfter] = useState(() => loadPref<number>("match.hl.after", HL_AFTER_DEFAULT));
+  const hlWindows = useMemo(() => highlightWindows(shownMoments, hlBefore, hlAfter, m?.durationMs ?? 0), [shownMoments, hlBefore, hlAfter, m?.durationMs]);
+  const hlLast = useRef(0);
+  const hlNow = hlOn ? windowAt(hlWindows, time) : -1;
+  if (hlNow >= 0) hlLast.current = hlNow;
+  const hlIdx = hlNow >= 0 ? hlNow : hlLast.current;
+
+  const startHighlights = useCallback(() => {
+    const p = player.current;
+    if (!p || hlWindows.length === 0) {
+      toast.info("No moments to play yet");
+      return;
+    }
+    const t = p.time();
+    let i = windowAt(hlWindows, t);
+    if (i < 0) i = nextWindow(hlWindows, t);
+    if (i < 0) i = 0;
+    hlLast.current = i;
+    if (windowAt(hlWindows, t) !== i) p.seek(hlWindows[i].startMs);
+    setHlOn(true);
+    p.play();
+  }, [hlWindows, toast]);
+  const stopHighlights = useCallback(() => setHlOn(false), []);
+  const hlGo = useCallback(
+    (i: number) => {
+      const w = hlWindows[Math.max(0, Math.min(hlWindows.length - 1, i))];
+      if (!w) return;
+      hlLast.current = hlWindows.indexOf(w);
+      player.current?.seek(w.startMs);
+    },
+    [hlWindows],
+  );
+
+  // While on, anything outside a window skips to the next one; past the last, stop.
+  useEffect(() => {
+    if (!hlOn) return;
+    const p = player.current;
+    if (!p) return;
+    if (hlWindows.length === 0) {
+      setHlOn(false);
+      return;
+    }
+    if (windowAt(hlWindows, time) >= 0) return;
+    const nx = nextWindow(hlWindows, time);
+    if (nx >= 0) {
+      hlLast.current = nx;
+      p.seek(hlWindows[nx].startMs);
+    } else {
+      p.pause();
+      setHlOn(false);
+      toast.info("End of highlights");
+    }
+  }, [hlOn, time, hlWindows, toast]);
+
+  // Where the clip will really be cut (stream copy starts at the keyframe before In).
+  const [cut, setCut] = useState<CutPoints | null>(null);
+  useEffect(() => {
+    setCut(null);
+    if (!m || inMs === null || m.status === "recording") return;
+    const end = Math.max(inMs + 1, outMs ?? (m.durationMs || inMs + 1));
+    let dead = false;
+    const t = window.setTimeout(() => {
+      api.clipCutPoints(m.id, inMs, end).then((c) => !dead && setCut(c), () => {});
+    }, 180);
+    return () => {
+      dead = true;
+      window.clearTimeout(t);
+    };
+  }, [m?.id, m?.status, m?.durationMs, inMs, outMs]);
+
+  // Audio waveform under the timeline: fetched lazily, once per recording (the backend caches it).
+  const [showWave, setShowWave] = useState(() => loadPref<boolean>("match.wave", true));
+  const [wave, setWave] = useState<number[] | null>(null);
+  useEffect(() => {
+    setWave(null);
+    if (!m || !showWave || m.status === "recording") return;
+    let dead = false;
+    const t = window.setTimeout(() => {
+      api.matchWaveform(m.id).then((w) => !dead && setWave(w), () => {});
+    }, 350);
+    return () => {
+      dead = true;
+      window.clearTimeout(t);
+    };
+  }, [m?.id, m?.status, showWave]);
 
   const addMarker = useCallback(async () => {
     if (!m) return;
@@ -79,12 +170,16 @@ export function MatchPage() {
     (dir: -1 | 1) => {
       const p = player.current;
       if (!p) return;
+      if (hlOn) {
+        hlGo(hlLast.current + dir);
+        return;
+      }
       const now = p.time() + LEAD_IN_MS;
       const list = visible.map((e) => e.tMs).sort((a, b) => a - b);
       const target = dir > 0 ? list.find((t) => t > now + 1000) : [...list].reverse().find((t) => t < now - 1000);
       if (target !== undefined) p.seek(Math.max(0, target - LEAD_IN_MS));
     },
-    [visible],
+    [visible, hlOn, hlGo],
   );
 
   // Keyboard: Space/K play, J/L ±10s, arrows ±5s (Shift 1s), Ctrl+arrows previous/next marker,
@@ -153,11 +248,15 @@ export function MatchPage() {
         case "m":
           addMarker();
           break;
+        case "h":
+          if (hlOn) stopHighlights();
+          else startHighlights();
+          break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [addMarker, stepEvent]);
+  }, [addMarker, stepEvent, hlOn, startHighlights, stopHighlights]);
 
   const jump = (e: GameEvent) => player.current?.seek(Math.max(0, e.tMs - LEAD_IN_MS));
 
@@ -309,6 +408,25 @@ export function MatchPage() {
               </button>
             </div>
             <div className="tools-end">
+              <button
+                className={`btn btn-small ${hlOn ? "btn-on" : "btn-ghost"}`}
+                onClick={hlOn ? stopHighlights : startHighlights}
+                disabled={live || shownMoments.length === 0}
+                aria-pressed={hlOn}
+                title="Play only the moments (H)"
+              >
+                <Icon name="sparkles" size={13} />
+                Highlights
+              </button>
+              <button
+                className={`icon-btn wave-toggle ${showWave ? "on" : ""}`}
+                onClick={() => setShowWave((v) => (savePref("match.wave", !v), !v))}
+                aria-pressed={showWave}
+                aria-label={showWave ? "Hide the audio waveform" : "Show the audio waveform"}
+                title={showWave ? "Hide audio waveform" : "Show audio waveform"}
+              >
+                <Icon name="wave" size={14} />
+              </button>
               <button className="btn btn-small btn-ghost" onClick={addMarker} disabled={live} title="Add a marker at the playhead (M)">
                 <Icon name="marker" size={13} />
                 Marker
@@ -355,10 +473,29 @@ export function MatchPage() {
                     <kbd>M</kbd>
                   </dt>
                   <dd>Add marker</dd>
+                  <dt>
+                    <kbd>H</kbd>
+                  </dt>
+                  <dd>Highlights: play only the moments</dd>
                 </dl>
               </details>
             </div>
           </div>
+          {inMs !== null && cut && <CutNote cut={cut} inMs={inMs} outMs={outMs} />}
+          {hlOn && (
+            <HighlightBar
+              windows={hlWindows}
+              index={hlIdx}
+              timeMs={time}
+              total={shownMoments.length}
+              before={hlBefore}
+              after={hlAfter}
+              onBefore={(v) => (setHlBefore(v), savePref("match.hl.before", v))}
+              onAfter={(v) => (setHlAfter(v), savePref("match.hl.after", v))}
+              onGo={hlGo}
+              onExit={stopHighlights}
+            />
+          )}
           <Timeline
             events={events}
             rounds={rounds}
@@ -366,6 +503,9 @@ export function MatchPage() {
             timeMs={time}
             inMs={inMs}
             outMs={outMs}
+            cut={cut}
+            waveform={showWave ? wave : null}
+            windows={hlOn ? hlWindows : null}
             hiddenKinds={hidden}
             onSeek={(ms) => player.current?.seek(ms)}
             onEventClick={jump}
@@ -653,4 +793,142 @@ function momentLabel(mo: Moment): string {
     .slice(0, 3)
     .map(([k, n]) => (n > 1 ? `${n} ${kindStyle(k).plural.toLowerCase()}` : kindStyle(k).label))
     .join(" + ");
+}
+
+/** Under the clipper: where the clip will really start, and why. */
+function CutNote({ cut, inMs, outMs }: { cut: CutPoints; inMs: number; outMs: number | null }) {
+  const lead = inMs - cut.startMs;
+  const len = outMs !== null ? cut.endMs - cut.startMs : null;
+  return (
+    <p className={`cut-note ${cut.exact ? "exact" : ""}`}>
+      <Icon name="scissors" size={12} />
+      {cut.exact ? (
+        <span>
+          Cuts exactly at <span className="num">{timecode(cut.startMs, true)}</span>
+          {outMs !== null && (
+            <>
+              {" "}
+              → <span className="num">{timecode(cut.endMs, true)}</span>
+            </>
+          )}{" "}
+          (frame-accurate cuts are on)
+        </span>
+      ) : lead >= 40 ? (
+        <span>
+          Starts at the keyframe at <span className="num">{timecode(cut.startMs, true)}</span>,{" "}
+          <span className="num">{(lead / 1000).toFixed(1)} s</span> before In
+          {len !== null && (
+            <>
+              {" "}
+              · <span className="num">{(len / 1000).toFixed(1)} s</span> long
+            </>
+          )}
+          . <Link to="/settings">Frame-accurate cuts</Link> trim it exactly but take longer.
+        </span>
+      ) : (
+        <span>
+          In lands on a keyframe: the clip starts right at <span className="num">{timecode(cut.startMs, true)}</span>
+          {len !== null && (
+            <>
+              {" "}
+              · <span className="num">{(len / 1000).toFixed(1)} s</span> long
+            </>
+          )}
+        </span>
+      )}
+    </p>
+  );
+}
+
+const HL_SECONDS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 15];
+
+function SecondsStepper({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const i = Math.max(0, HL_SECONDS.findIndex((x) => x >= value));
+  return (
+    <span className="stepper" role="group" aria-label={`${label} each moment`}>
+      <span className="stepper-label">{label}</span>
+      <button className="stepper-btn" onClick={() => onChange(HL_SECONDS[Math.max(0, i - 1)])} disabled={i === 0} aria-label={`Less time ${label.toLowerCase()}`}>
+        −
+      </button>
+      <span className="stepper-value num">{value} s</span>
+      <button
+        className="stepper-btn"
+        onClick={() => onChange(HL_SECONDS[Math.min(HL_SECONDS.length - 1, i + 1)])}
+        disabled={i === HL_SECONDS.length - 1}
+        aria-label={`More time ${label.toLowerCase()}`}
+      >
+        +
+      </button>
+    </span>
+  );
+}
+
+/** "Moment 3 of 12", a segment per window, prev/next and the padding controls. */
+function HighlightBar({
+  windows,
+  index,
+  timeMs,
+  total,
+  before,
+  after,
+  onBefore,
+  onAfter,
+  onGo,
+  onExit,
+}: {
+  windows: Array<{ startMs: number; endMs: number; first: number; count: number }>;
+  index: number;
+  timeMs: number;
+  total: number;
+  before: number;
+  after: number;
+  onBefore: (v: number) => void;
+  onAfter: (v: number) => void;
+  onGo: (i: number) => void;
+  onExit: () => void;
+}) {
+  const w = windows[index];
+  if (!w) return null;
+  const label = w.count > 1 ? `Moments ${w.first + 1}–${w.first + w.count} of ${total}` : `Moment ${w.first + 1} of ${total}`;
+  const segs = windows.length <= 60;
+  return (
+    <div className="hl-bar" role="group" aria-label="Highlights">
+      <span className="hl-badge">
+        <Icon name="sparkles" size={12} />
+        Highlights
+      </span>
+      <button className="icon-btn" onClick={() => onGo(index - 1)} disabled={index === 0} aria-label="Previous moment" title="Previous moment (Ctrl+←)">
+        <Icon name="skip-back" size={14} />
+      </button>
+      <span className="hl-label num" aria-live="polite">
+        {label}
+      </span>
+      <button className="icon-btn" onClick={() => onGo(index + 1)} disabled={index >= windows.length - 1} aria-label="Next moment" title="Next moment (Ctrl+→)">
+        <Icon name="skip-fwd" size={14} />
+      </button>
+      {segs ? (
+        <span className="hl-segs" aria-hidden>
+          {windows.map((x, i) => {
+            const f = i < index ? 1 : i > index ? 0 : Math.max(0, Math.min(1, (timeMs - x.startMs) / Math.max(1, x.endMs - x.startMs)));
+            return (
+              <span key={x.startMs} className="hl-seg" onClick={() => onGo(i)}>
+                <span className="hl-seg-fill" style={{ width: `${f * 100}%` }} />
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        <span className="hl-segs" aria-hidden>
+          <span className="hl-seg wide">
+            <span className="hl-seg-fill" style={{ width: `${((index + 1) / windows.length) * 100}%` }} />
+          </span>
+        </span>
+      )}
+      <SecondsStepper label="Before" value={before} onChange={onBefore} />
+      <SecondsStepper label="After" value={after} onChange={onAfter} />
+      <button className="btn btn-small btn-ghost" onClick={onExit} title="Back to the full recording (H)">
+        Exit
+      </button>
+    </div>
+  );
 }

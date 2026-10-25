@@ -36,6 +36,36 @@ export interface MatchRecord {
   error: string | null;
   /** field -> value: character, map, mode, kills, deaths, assists, result, score, or custom fields. */
   details: Record<string, DetailValue>;
+  /** Recording health; every field optional, missing = fine / unknown. */
+  health?: MatchHealth;
+}
+
+/** How well a recording went. The recorder fills what it knows; the UI badges anything set. */
+export interface MatchHealth {
+  /** Recording was interrupted and resumed, or started after the match did. */
+  partial?: boolean;
+  /** The game's live API never answered, so plays came from the screen only. */
+  apiUnavailable?: boolean;
+  /** Share of frames dropped while encoding, 0..1. */
+  droppedFrames?: number;
+  /** Disk space ran low while recording. */
+  lowDisk?: boolean;
+  /** Encoder that was used, e.g. "NVENC H.264" (shown when it differs from the one picked). */
+  encoder?: string;
+}
+
+/** Where a clip of the requested range will really start and end. */
+export interface CutPoints {
+  startMs: number;
+  endMs: number;
+  /** True when frame-accurate cuts are on (the range is cut exactly). */
+  exact: boolean;
+}
+
+export interface ScrubStrip {
+  /** One JPG holding `frames` stills side by side; still i shows the middle of slot i. */
+  path: string;
+  frames: number;
 }
 
 /** Where a detail came from, best first. "manual" values are never replaced by processing. */
