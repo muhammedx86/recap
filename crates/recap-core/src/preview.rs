@@ -131,12 +131,12 @@ pub fn waveform(ff: &Ffmpeg, video: &Path, duration_ms: u64, buckets: usize) -> 
             index += 1;
             bytes = &bytes[1..];
         }
-        let mut chunks = bytes.chunks_exact(2);
-        for c in &mut chunks {
-            add_peak(&mut peaks, index, total, i16::from_le_bytes([c[0], c[1]]));
+        let (pairs, rest) = bytes.as_chunks::<2>();
+        for c in pairs {
+            add_peak(&mut peaks, index, total, i16::from_le_bytes(*c));
             index += 1;
         }
-        if let [lo] = chunks.remainder() {
+        if let [lo] = rest {
             carry = Some(*lo);
         }
     }
