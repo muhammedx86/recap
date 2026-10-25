@@ -67,7 +67,7 @@ const TRACKS_1_AND_2: u32 = 0b11;
 const WINDOW_WAIT: Duration = Duration::from_secs(60);
 /// A game capture that has not shown a frame this long after attaching is recreated...
 const HOOK_GRACE: Duration = Duration::from_secs(20);
-/// ...this many times, then the game's monitor is recorded instead.
+/// ...this many times.
 const MAX_CAPTURE_RESTARTS: u32 = 2;
 /// An output that wrote no frame this long after starting has a stuck encoder.
 const ENCODER_STALL: Duration = Duration::from_secs(6);
@@ -804,10 +804,12 @@ impl ObsBackend {
         };
         let Some((next, since)) = b.split_to else { return Ok(None) };
         // The new file is opened only after the old one is finalised and closed.
-        if prebuffer::segment_path(&b.dir, b.run, next).exists() {
+        let new = prebuffer::segment_path(&b.dir, b.run, next);
+        if new.exists() {
             let old = b.current();
             b.n = next;
-            b.seg_started = Instant::now();
+            // The new file was created at the split (its first frame); polling noticed later.
+            b.seg_started = created_instant(&new).unwrap_or_else(Instant::now);
             b.split_to = None;
             return Ok(Some(old));
         }
@@ -969,7 +971,7 @@ impl ObsBackend {
 
     // --- watchdogs ------------------------------------------------------------------------
 
-    /// A game capture that never showed a frame is recreated, then replaced by the monitor.
+    /// A game capture that never showed a frame is recreated (a few times).
     fn watch_capture(&mut self) -> Vec<RecorderEvent> {
         let rec_id = self.rec.as_ref().map(|r| r.id.clone());
         let Some(t) = self.arm.as_mut().and_then(|a| a.attached.as_mut()) else {
@@ -1014,47 +1016,18 @@ impl ObsBackend {
                 message: "The game capture showed no picture; it was restarted".into(),
             }];
         }
-        // Give up on the hook: record the game's monitor.
-        log("game capture never showed a frame; recording the monitor");
-        let monitors = capture::monitors();
-        let (mi, wm) = {
-            let a = self.arm.as_ref().expect("armed");
-            let wm = a.attached.as_ref().and_then(|t| t.window_monitor.clone());
-            (pick_monitor(&monitors, wm.as_deref(), a.capture.monitor), wm)
-        };
-        self.clear_scene();
-        let audio = self.arm.as_ref().map(|a| a.audio.clone());
-        let ok = capture::add_monitor(self, mi).is_ok();
-        if let Some(audio) = audio {
-            let _ = self.add_audio(&audio);
+        // Stop watching: the hook may still come (a game minimised while loading hooks when it
+        // is shown), and recording the whole monitor instead could show other windows.
+        log("game capture still shows no frames after restarts; leaving it as is");
+        if let Some(t) = self.arm.as_mut().and_then(|a| a.attached.as_mut()) {
+            t.source = None;
         }
-        let reason = "the game capture never showed a picture; recording the monitor".to_string();
-        if let Some(a) = self.arm.as_mut() {
-            a.attached = Some(Attached {
-                mode: CaptureMode::Monitor,
-                reason: Some(reason.clone()),
-                window_monitor: wm,
-                source: None,
-                since: Instant::now(),
-                hooked: true,
-                restarts,
-            });
-        }
-        if !ok {
-            return vec![];
-        }
-        match rec_id {
-            Some(id) => vec![RecorderEvent::CaptureChanged {
-                id,
-                capture: CaptureMode::Monitor,
-                reason,
-            }],
-            None => vec![RecorderEvent::Warning {
-                id: None,
-                code: "captureChanged".into(),
-                message: reason,
-            }],
-        }
+        vec![RecorderEvent::Warning {
+            id: rec_id,
+            code: "captureNoFrames".into(),
+            message: "The game capture shows no picture yet. Run the game in borderless or fullscreen on this PC; recording continues"
+                .into(),
+        }]
     }
 
     /// Recreate capture and audio while the output runs (canvas size unchanged).
@@ -1253,21 +1226,29 @@ impl ObsBackend {
                 let a = self.arm.as_ref().expect("armed");
                 (b.seg_started.elapsed().as_millis() as u64, a.preroll_ms)
             };
-            let preroll_ms = match prebuffer::plan_start(age, preroll) {
-                StartPlan::KeepCurrent { preroll_ms } => preroll_ms,
-                StartPlan::SplitFirst => {
-                    if self.rotate() {
-                        match self.wait_split() {
-                            Ok(Some(old)) => {
-                                let _ = std::fs::remove_file(old);
-                            }
-                            _ => log("buffer split overdue at start"),
-                        }
+            if prebuffer::plan_start(age, preroll) == StartPlan::SplitFirst {
+                // The segment is much older than the pre-roll (rotation stalled): start a fresh
+                // one, or record without the buffer if it cannot split.
+                let fresh = match self.rotate().then(|| self.wait_split()) {
+                    Some(Ok(Some(old))) => {
+                        let _ = std::fs::remove_file(old);
+                        true
                     }
-                    0
+                    _ => false,
+                };
+                if !fresh {
+                    log("buffer could not split at start; recording without pre-roll");
+                    let _ = self.stop_output();
+                    self.run = None;
                 }
-            };
+            }
             if self.buffering() {
+                // The recording begins where the current segment began.
+                let preroll_ms = self
+                    .run
+                    .as_ref()
+                    .and_then(|r| r.buffer.as_ref())
+                    .map_or(0, |b| b.seg_started.elapsed().as_millis() as u64);
                 let seg = self
                     .run
                     .as_ref()
@@ -1382,6 +1363,13 @@ impl ObsBackend {
         notices.extend(self.armed_event());
         result.map(|()| StopOutcome { health, notices })
     }
+}
+
+/// When `path` was created, as an `Instant` (None if unknown or in the future).
+fn created_instant(path: &Path) -> Option<Instant> {
+    let created = std::fs::metadata(path).ok()?.created().ok()?;
+    let age = std::time::SystemTime::now().duration_since(created).ok()?;
+    Instant::now().checked_sub(age.min(Duration::from_secs(5)))
 }
 
 /// A fresh id for a buffer run (segment names never collide with an earlier run's).

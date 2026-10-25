@@ -277,7 +277,7 @@ older apps and recorders keep working.
 | `armed { capture, encoder?, buffering, encoderFallback?, encoderMemory? }` | Capture attached; `buffering` = the pre-roll buffer runs. |
 | `started { …, prerollMs, encoderFallback?, encoderMemory? }` | `startedUnixMs` is back-dated by `prerollMs`; the app counts event times from there. |
 | `stopped { id, path, durationMs, health? }` | `health` = `RecordingHealth` (see `recording-health`). |
-| `warning { id?, code, message }` | `cpuEncoder`, `encoderRestarted`, `captureRestarted`, `captureChanged`, `captureFailed`, `bufferFailed`. Shown as the status message. |
+| `warning { id?, code, message }` | `cpuEncoder`, `encoderRestarted`, `captureRestarted`, `captureNoFrames`, `captureFailed`, `bufferFailed`. Shown as the status message. |
 
 `encoderMemory` = `{ available: string[], failed: string[], working?: string }`: encoders that
 failed to start (or wrote no frames for 6 s) are skipped next time while OBS lists exactly
