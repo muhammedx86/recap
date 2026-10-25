@@ -1,4 +1,4 @@
-import { Bomb, Bookmark, CircleX, Crosshair, Crown, Flag, Flame, Gem, Handshake, Heart, Shield, Skull, Star, Trophy, Zap, type LucideIcon } from "lucide-react";
+import { Bomb, Bookmark, CarFront, CircleX, Crosshair, Crown, Flag, Flame, Gem, Goal, Handshake, Heart, Shield, Skull, Star, Target, Trophy, Zap, type LucideIcon } from "lucide-react";
 import type { EventIcon as EventIconName } from "../lib/types";
 
 const MAP: Record<EventIconName, LucideIcon> = {
@@ -17,9 +17,12 @@ const MAP: Record<EventIconName, LucideIcon> = {
   bookmark: Bookmark,
   zap: Zap,
   heart: Heart,
+  goal: Goal,
+  car: CarFront,
+  target: Target,
 };
 
-/** One of the 15 event icons, drawn in `color` (defaults to the current text colour). */
+/** One of the 18 event icons, drawn in `color` (defaults to the current text colour). */
 export function EventIcon({ icon, size = 14, color, title }: { icon: EventIconName; size?: number; color?: string; title?: string }) {
   const C = MAP[icon] ?? Star;
   return <C size={size} color={color ?? "currentColor"} strokeWidth={2} aria-hidden={title ? undefined : true} aria-label={title} className="ev-icon" />;

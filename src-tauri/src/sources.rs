@@ -143,3 +143,274 @@ fn steam_roots() -> Vec<PathBuf> {
     roots.dedup();
     roots.into_iter().filter(|p| p.exists()).collect()
 }
+
+// ---------------------------------------------------------------------------------------------
+// Rocket League Stats API
+
+/// What Recap knows about Rocket League's Stats API on this computer (shown on the Games page).
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RlApiStatus {
+    /// Install folders found (Epic, Steam, the running game).
+    pub installs: Vec<String>,
+    /// `PacketSendRate` > 0 in at least one install's `DefaultStatsAPI.ini`.
+    pub enabled: bool,
+    /// Recap switched it on while the game was running: it takes effect after a restart.
+    pub needs_restart: bool,
+    /// The ini could not be written (the install is in a protected folder).
+    pub needs_admin: bool,
+    pub port: u16,
+    /// The game is streaming to Recap right now.
+    pub connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+static RL_STATUS: std::sync::Mutex<Option<RlApiStatus>> = std::sync::Mutex::new(None);
+static RL_EXE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+static RL_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// The process monitor saw `RocketLeague.exe` at `exe` (called every second while it runs).
+pub fn rocket_league_seen(exe: &std::path::Path) {
+    RL_RUNNING.store(true, Ordering::Relaxed);
+    let mut cur = RL_EXE.lock().unwrap();
+    if cur.as_deref() != Some(exe) {
+        *cur = Some(exe.to_path_buf());
+    }
+}
+
+pub fn rocket_league_status() -> RlApiStatus {
+    RL_STATUS.lock().unwrap().clone().unwrap_or_default()
+}
+
+fn rl_installs() -> Vec<PathBuf> {
+    use recap_core::rocket_league::{epic_installs, install_from_exe, steam_installs};
+    let mut v = Vec::new();
+    if let Some(exe) = RL_EXE.lock().unwrap().clone() {
+        v.extend(install_from_exe(&exe));
+    }
+    #[cfg(windows)]
+    {
+        let pd = std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        v.extend(epic_installs(&pd.join(r"Epic\EpicGamesLauncher\Data\Manifests")));
+    }
+    #[cfg(not(windows))]
+    let _ = epic_installs;
+    for root in steam_roots() {
+        v.extend(steam_installs(&root));
+    }
+    let mut seen = std::collections::HashSet::new();
+    v.retain(|p| p.is_dir() && seen.insert(p.to_string_lossy().to_lowercase()));
+    v
+}
+
+/// Make sure every install has the Stats API on. `elevate` retries a protected install through
+/// an administrator prompt (only when the player asked for it).
+pub fn enable_rocket_league_api(elevate: bool) -> RlApiStatus {
+    use recap_core::rocket_league::{parse_ini, stats_ini_path, with_rate, PACKET_RATE};
+    let installs = rl_installs();
+    let mut st = RlApiStatus {
+        installs: installs.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
+        port: recap_core::rocket_league::DEFAULT_PORT,
+        connected: rocket_league_status().connected,
+        ..Default::default()
+    };
+    for inst in &installs {
+        let path = stats_ini_path(inst);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let ini = parse_ini(&text);
+        st.port = ini.port();
+        if ini.enabled() {
+            st.enabled = true;
+            continue;
+        }
+        let new = with_rate(&text, PACKET_RATE);
+        let wrote = std::fs::create_dir_all(path.parent().unwrap_or(inst)).and_then(|_| std::fs::write(&path, &new));
+        match wrote {
+            Ok(()) => {
+                log::info!("Rocket League Stats API switched on in {}", path.display());
+                st.enabled = true;
+                st.needs_restart |= RL_RUNNING.load(Ordering::Relaxed);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && elevate => match write_elevated(&path, &new) {
+                Ok(()) => {
+                    st.enabled = true;
+                    st.needs_restart |= RL_RUNNING.load(Ordering::Relaxed);
+                }
+                Err(e) => {
+                    st.needs_admin = true;
+                    st.error = Some(format!("{e:#}"));
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => st.needs_admin = true,
+            Err(e) => st.error = Some(format!("could not write {}: {e}", path.display())),
+        }
+    }
+    if st.enabled {
+        st.needs_admin = false;
+    }
+    *RL_STATUS.lock().unwrap() = Some(st.clone());
+    st
+}
+
+/// Copy `text` over `path` from an elevated PowerShell (one administrator prompt).
+fn write_elevated(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let tmp = std::env::temp_dir().join("recap-DefaultStatsAPI.ini");
+        std::fs::write(&tmp, text)?;
+        let q = |p: &std::path::Path| p.to_string_lossy().replace('\'', "''");
+        let inner = format!("Copy-Item -LiteralPath '{}' -Destination '{}' -Force", q(&tmp), q(path));
+        let script = format!(
+            "$p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-Command',\"{}\"; exit $p.ExitCode",
+            inner.replace('"', "`\"")
+        );
+        let status = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
+            .creation_flags(0x0800_0000)
+            .status()?;
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::ensure!(status.success(), "the administrator prompt was declined");
+        anyhow::ensure!(
+            recap_core::rocket_league::parse_ini(&std::fs::read_to_string(path).unwrap_or_default()).enabled(),
+            "the setting did not change"
+        );
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (path, text);
+        anyhow::bail!("needs Windows")
+    }
+}
+
+/// Follow the Stats API whenever Rocket League runs: match on/off for per-match recording, and
+/// plays and details into the running recording.
+pub fn start_rocket_league(app: AppHandle) {
+    std::thread::Builder::new()
+        .name("rocket-league".into())
+        .spawn(move || rl_loop(app))
+        .ok();
+}
+
+fn rl_loop(app: AppHandle) {
+    use recap_core::{games::ApiSource, rocket_league::RlTracker};
+    let epoch = std::time::Instant::now();
+    let now_ms = move || epoch.elapsed().as_millis() as u64;
+    let mut tracker = RlTracker::new();
+    let mut last_setup: Option<std::time::Instant> = None;
+    let mut was_running = false;
+    loop {
+        let ids = crate::matchwatch::games_with(&app, ApiSource::RocketLeagueStats);
+        let running = RL_RUNNING.swap(false, Ordering::Relaxed);
+        if ids.is_empty() {
+            std::thread::sleep(Duration::from_secs(3));
+            continue;
+        }
+        // Switch the API on at startup, when the game starts, and every few minutes.
+        if last_setup.is_none_or(|t| t.elapsed() > Duration::from_secs(300)) || (running && !was_running) {
+            enable_rocket_league_api(false);
+            last_setup = Some(std::time::Instant::now());
+        }
+        was_running = running;
+        let status = rocket_league_status();
+        if !running {
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
+        }
+        if !status.enabled || status.needs_restart {
+            // No signal yet: record whole sessions (split afterwards), as before.
+            ids.iter().for_each(|id| crate::matchwatch::clear(&app, id));
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
+        }
+        match std::net::TcpStream::connect_timeout(&([127, 0, 0, 1], status.port).into(), Duration::from_secs(1)) {
+            Ok(stream) => {
+                set_connected(true);
+                follow_stream(&app, &ids, stream, &mut tracker, &now_ms);
+                set_connected(false);
+            }
+            Err(_) => {
+                // The game is up but serves nothing: menus, free play, or it was not restarted
+                // since the setting changed. Not in a match.
+                for id in &ids {
+                    crate::matchwatch::observe(&app, id, "rocket-league-stats", false);
+                }
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        }
+    }
+}
+
+fn set_connected(on: bool) {
+    let mut s = RL_STATUS.lock().unwrap();
+    s.get_or_insert_with(Default::default).connected = on;
+}
+
+/// Read one connection until the game closes it.
+fn follow_stream(
+    app: &AppHandle,
+    ids: &[String],
+    mut stream: std::net::TcpStream,
+    tracker: &mut recap_core::rocket_league::RlTracker,
+    now_ms: &dyn Fn() -> u64,
+) {
+    use std::io::Write;
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    let mut framer = recap_core::rocket_league::JsonStream::default();
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut got_any = false;
+    let mut tried_ws = false;
+    let opened = std::time::Instant::now();
+    let mut recording: Option<String> = None;
+    let mut last_observe = std::time::Instant::now() - Duration::from_secs(10);
+    loop {
+        let n = match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => 0,
+            Err(_) => break,
+        };
+        // Some builds may speak WebSocket: if nothing arrives, ask for an upgrade once. The
+        // framer skips the HTTP reply and frame headers and still finds the JSON objects.
+        if n == 0 && !got_any && !tried_ws && opened.elapsed() > Duration::from_secs(3) {
+            tried_ws = true;
+            let req = "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: cmVjYXAtcm9ja2V0LWxlYWd1ZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
+            let _ = stream.write_all(req.as_bytes());
+        }
+        got_any |= n > 0;
+        let msgs = framer.push(&buf[..n]);
+        let now = now_ms();
+        let st = state(app);
+        for msg in msgs {
+            // Which recording (if any) these plays belong to, and where it is.
+            let (match_id, rec_ms) = {
+                let guard = st.session.lock().unwrap();
+                match guard.as_ref() {
+                    Some(s) if s.started.is_some() && s.game.as_ref().is_some_and(|g| ids.contains(&g.def.id)) => {
+                        (Some(s.match_id.clone()), Some(s.elapsed_ms()))
+                    }
+                    _ => (None, None),
+                }
+            };
+            if match_id != recording {
+                tracker.new_recording();
+                recording = match_id.clone();
+            }
+            let events = tracker.ingest(&msg, now, rec_ms);
+            if let Some(id) = &match_id {
+                add_live_events(app, id, events);
+            }
+        }
+        if last_observe.elapsed() >= Duration::from_secs(1) {
+            let on = tracker.in_match(now);
+            for id in ids {
+                crate::matchwatch::observe(app, id, "rocket-league-stats", on);
+            }
+            last_observe = std::time::Instant::now();
+        }
+    }
+}

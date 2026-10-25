@@ -359,6 +359,12 @@ Recap records one entry per match, without relaunching the game:
 
 * **VALORANT** and **CS2** report when a match is on (the Riot Client's local presence; CS2 Game
   State Integration). Recording starts when a match begins and stops a few seconds after it ends.
+* **Rocket League**: the game's Stats API (`DefaultStatsAPI.ini`, which Recap switches on) streams
+  match state on 127.0.0.1:49123. A match is on while both teams have players and no winner yet,
+  so free play and training are not recorded as matches. Plays for the local player (found from
+  the camera target, then by platform id): `goal`, `assist`, `save`, `epic_save`, `shot`, `demo`,
+  `demoed`, `goal_against`, `mvp`; details: arena, mode (3v3...), score, result and your
+  goals/assists/saves/shots/points. Plays the stat feed misses are counted from the scoreboard.
 * **League of Legends / TFT**: the game process only exists during a game.
 * **Other games** (Marvel Rivals, Rainbow Six Siege, custom games): Recap records while the game
   runs and cuts the session into matches with the game's `match_start` / `match_end` detectors,

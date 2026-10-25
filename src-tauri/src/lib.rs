@@ -145,6 +145,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     matchwatch::spawn_marvel_watcher(handle.clone());
     let gsi_app = handle.clone();
     std::thread::spawn(move || sources::start_cs2_gsi(gsi_app));
+    sources::start_rocket_league(handle.clone());
     refresh_status(&handle, None);
     Ok(())
 }
@@ -234,6 +235,8 @@ pub fn run() {
             commands::delete_clip,
             commands::list_games,
             commands::set_game_enabled,
+            commands::rocket_league_api_status,
+            commands::enable_rocket_league_api,
             commands::save_game,
             commands::list_event_types,
             commands::save_event_type,

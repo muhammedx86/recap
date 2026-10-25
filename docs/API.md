@@ -8,7 +8,7 @@ Times are integers: `*Ms` = milliseconds, `*UnixMs` = Unix epoch milliseconds.
 
 ```ts
 type CaptureMode = "game" | "window" | "monitor";
-type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client" | "marvel-state-file";
+type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client" | "marvel-state-file" | "rocket-league-stats";
 
 type EventSource =
   | { type: "vision"; detector: string }
@@ -225,6 +225,8 @@ Arguments are passed as an object with these camelCase keys.
 | `update_clip` | `{ id, title }` | `ClipRecord` |
 | `delete_clip` | `{ id, deleteFile: boolean }` | `null` |
 | `list_games` | – | `GameInfo[]` |
+| `rocket_league_api_status` | – | `{ installs: string[], enabled, needsRestart, needsAdmin, port, connected, error? }` |
+| `enable_rocket_league_api` | – | same; sets `PacketSendRate` in each install's `DefaultStatsAPI.ini`, with one administrator prompt if the install is protected |
 | `set_game_enabled` | `{ gameId, enabled }` | `GameInfo` |
 | `save_game` | `{ game: { id, name, processes, capture, api, preferApi, autoClipEvents, color } }` | `GameInfo` (adds a custom game in the user folder) |
 | `list_event_types` | – | `EventTypeDef[]` (built-ins plus every game's custom types, deduplicated by id) |

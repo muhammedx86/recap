@@ -21,6 +21,7 @@ pub mod preview;
 pub mod protocol;
 pub mod readers;
 pub mod riot_local;
+pub mod rocket_league;
 pub mod scan;
 pub mod segments;
 pub mod settings;

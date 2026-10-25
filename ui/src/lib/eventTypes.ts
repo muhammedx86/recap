@@ -3,7 +3,7 @@
 
 import type { EventIcon, EventTypeDef } from "./types";
 
-/** The 15 icons an event type can use, in picker order. */
+/** The 18 icons an event type can use, in picker order. */
 export const EVENT_ICONS: EventIcon[] = [
   "crosshair",
   "skull",
@@ -20,6 +20,9 @@ export const EVENT_ICONS: EventIcon[] = [
   "bookmark",
   "zap",
   "heart",
+  "goal",
+  "car",
+  "target",
 ];
 
 /** Colours offered when creating a custom type (auto = backend picks). */

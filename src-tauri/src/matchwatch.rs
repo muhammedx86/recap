@@ -71,7 +71,7 @@ pub fn clear(app: &AppHandle, game_id: &str) {
 }
 
 /// Ids of enabled games using `api`.
-fn games_with(app: &AppHandle, api: ApiSource) -> Vec<String> {
+pub(crate) fn games_with(app: &AppHandle, api: ApiSource) -> Vec<String> {
     let st = state(app);
     let settings = st.settings.read().unwrap();
     let ids = st

@@ -234,6 +234,21 @@ pub fn list_games(st: State<'_, AppState>) -> Vec<GameInfo> {
     st.games.read().unwrap().iter().map(|g| st.game_info(g)).collect()
 }
 
+/// Rocket League's Stats API on this computer (installs found, switched on, streaming).
+#[tauri::command]
+pub fn rocket_league_api_status() -> crate::sources::RlApiStatus {
+    crate::sources::rocket_league_status()
+}
+
+/// Switch Rocket League's Stats API on, asking for administrator rights if the install is in a
+/// protected folder.
+#[tauri::command]
+pub async fn enable_rocket_league_api() -> crate::sources::RlApiStatus {
+    tauri::async_runtime::spawn_blocking(|| crate::sources::enable_rocket_league_api(true))
+        .await
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn set_game_enabled(st: State<'_, AppState>, game_id: String, enabled: bool) -> CmdResult<GameInfo> {
     let game = st.game(&game_id).ok_or("Unknown game")?;

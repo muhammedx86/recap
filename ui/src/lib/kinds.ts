@@ -90,8 +90,11 @@ export function kindStyle(kind: string): KindStyle {
 /** Built-in kinds offered in clip/settings pickers. */
 export const COMMON_KINDS = BUILTIN_EVENT_TYPES.map((t) => t.id).filter((k) => !HIDDEN_IN_PICKERS.includes(k) && k !== "round_start");
 
+/** Game-defined kinds that are the headline play of their game, listed first (before kills). */
+const HEADLINE = ["goal"];
+
 export function sortKinds(kinds: string[]): string[] {
-  const order = types.map((t) => t.id);
+  const order = [...HEADLINE, ...types.map((t) => t.id).filter((id) => !HEADLINE.includes(id))];
   return [...kinds].sort((a, b) => {
     const ia = order.indexOf(a);
     const ib = order.indexOf(b);
@@ -104,7 +107,7 @@ export function sourceLabel(s: { type: string; detector?: string; name?: string;
     case "vision":
       return "Vision";
     case "api":
-      return s.name === "cs2-gsi" ? "CS2 GSI" : s.name === "league-live-client" ? "Live Client API" : "Game API";
+      return s.name === "cs2-gsi" ? "CS2 GSI" : s.name === "league-live-client" ? "Live Client API" : s.name === "rocket-league-stats" ? "Stats API" : "Game API";
     case "postMatch":
       return "Replay file";
     default:

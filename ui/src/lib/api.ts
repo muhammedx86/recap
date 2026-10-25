@@ -4,7 +4,7 @@
 import { invoke as tauriInvoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import * as mock from "./mock";
-import type {
+import type { RlApiStatus,
   AudioInput,
   ClipRecord,
   DetectorDef,
@@ -124,6 +124,8 @@ export const api = {
 
   listGames: () => call<GameInfo[]>("list_games"),
   setGameEnabled: (gameId: string, enabled: boolean) => call<GameInfo>("set_game_enabled", { gameId, enabled }),
+  rocketLeagueApiStatus: () => call<RlApiStatus>("rocket_league_api_status"),
+  enableRocketLeagueApi: () => call<RlApiStatus>("enable_rocket_league_api"),
   saveGame: (game: GameInput) => call<GameInfo>("save_game", { game }),
 
   listEventTypes: () => call<EventTypeDef[]>("list_event_types"),

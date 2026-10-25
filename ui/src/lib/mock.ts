@@ -67,6 +67,7 @@ const GAME_COLORS: Record<string, string> = {
   "marvel-rivals": "#8f6bff",
   fortnite: "#4fb3ff",
   "r6-siege": "#4fd1c5",
+  "rocket-league": "#1f8ef1",
   manual: "#8d9099",
 };
 
@@ -148,6 +149,15 @@ const customTypes: Record<string, EventTypeDef[]> = {
   valorant: [{ id: "ult_used", label: "Ult used", icon: "zap", color: "#c99bff", builtin: false }],
   cs2: [{ id: "clutch", label: "Clutch", icon: "crown", color: "#e9d38a", builtin: false }],
   "marvel-rivals": [{ id: "team_up", label: "Team-up", icon: "heart", color: "#ff9bd2", builtin: false }],
+  "rocket-league": [
+    { id: "goal", label: "Goal", icon: "goal", color: "#f2c14e", builtin: false },
+    { id: "save", label: "Save", icon: "shield", color: "#80acc9", builtin: false },
+    { id: "epic_save", label: "Epic save", icon: "shield", color: "#5fb4ff", builtin: false },
+    { id: "shot", label: "Shot", icon: "target", color: "#9aa7b8", builtin: false },
+    { id: "demo", label: "Demo", icon: "car", color: "#e8875f", builtin: false },
+    { id: "demoed", label: "Demoed", icon: "car", color: "#a08a90", builtin: false },
+    { id: "goal_against", label: "Goal against", icon: "goal", color: "#d68b80", builtin: false },
+  ],
 };
 
 let games: BaseGame[] = [
@@ -252,6 +262,20 @@ let games: BaseGame[] = [
       detector({ id: "round-won", label: "Round victory", event: "round_win", templateBox: { x: 0.36, y: 0.3, w: 0.28, h: 0.1 } }, "marvel-rivals", true),
       detector({ id: "round-lost", label: "Round defeat", event: "round_loss", templateBox: { x: 0.36, y: 0.3, w: 0.28, h: 0.1 } }, "marvel-rivals", true),
     ],
+  },
+  {
+    id: "rocket-league",
+    name: "Rocket League",
+    processes: ["RocketLeague.exe"],
+    capture: "game",
+    api: "rocket-league-stats",
+    preferApi: true,
+    autoClipEvents: ["goal", "assist", "epic_save", "demo"],
+    color: GAME_COLORS["rocket-league"],
+    enabled: true,
+    userModified: false,
+    hasPostMatch: false,
+    detectors: [],
   },
   {
     id: "r6-siege",
@@ -376,6 +400,7 @@ const seeds: MatchSeed[] = [
   { id: "m-lol-1", gameId: "league-of-legends", start: startOfToday + 11 * 60 * MIN, durMin: 31.4, status: "processing", kills: 9, deaths: 4, assists: 13, extra: [["objective", 5], ["multikill", 1]] },
   { id: "m-cs-1", gameId: "cs2", start: startOfToday - DAY + 21 * 60 * MIN, durMin: 47.8, status: "ready", kills: 27, deaths: 18, assists: 4, extra: [["mvp", 4], ["bomb_plant", 3], ["ace", 1], ["clutch", 2]], rounds: { won: 13, lost: 11, starts: true, meta: true } },
   { id: "m-mr-1", gameId: "marvel-rivals", start: startOfToday - DAY + 19 * 60 * MIN, durMin: 18.6, status: "ready", health: { apiUnavailable: true }, kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 3], ["team_up", 4]], rounds: { won: 2, lost: 1, starts: true, meta: false } },
+  { id: "m-rl-1", gameId: "rocket-league", start: startOfToday + 8.1 * 60 * MIN, durMin: 7.4, status: "ready", kills: 0, deaths: 0, assists: 2, extra: [["goal", 3], ["shot", 6], ["save", 3], ["epic_save", 1], ["demo", 2], ["demoed", 1], ["goal_against", 2], ["mvp", 1]] },
   { id: "m-r6-1", gameId: "r6-siege", start: startOfToday - 2 * DAY + 20.5 * 60 * MIN, durMin: 33.5, status: "ready", kills: 11, deaths: 6, assists: 3, extra: [["ace", 1]], rounds: { won: 5, lost: 4, starts: true, meta: false } },
   { id: "m-val-4", gameId: "valorant", start: startOfToday - 2 * DAY + 22.4 * 60 * MIN, durMin: 29.5, status: "ready", health: { droppedFrames: 0.034, encoder: "x264 (CPU)" }, kills: 12, deaths: 17, assists: 6, rounds: { won: 6, lost: 13, starts: true, meta: false } },
   { id: "m-val-5", gameId: "valorant", start: startOfToday - 2 * DAY + 21.6 * 60 * MIN, durMin: 44.2, status: "ready", favorite: true, kills: 31, deaths: 18, assists: 9, extra: [["clutch", 2], ["ult_used", 7]], rounds: { won: 13, lost: 11, starts: true, meta: false } },
@@ -395,7 +420,7 @@ function makeEvents(seed: MatchSeed): GameEvent[] {
   const r = rng(seed.id.split("").reduce((a, c) => a + c.charCodeAt(0) * 31, 7));
   const dur = seed.durMin * MIN;
   const evs: GameEvent[] = [];
-  const isApi = seed.gameId === "league-of-legends" || seed.gameId === "cs2";
+  const isApi = seed.gameId === "league-of-legends" || seed.gameId === "cs2" || seed.gameId === "rocket-league";
   const VISION: Record<string, string> = {
     death: "death-recap",
     round_start: "round-start",
@@ -405,12 +430,12 @@ function makeEvents(seed: MatchSeed): GameEvent[] {
     clutch: "clutch-banner",
     team_up: "team-up",
   };
-  const apiKinds = ["kill", "death", "assist", "mvp", "bomb_plant", "bomb_defuse", "ace", "multikill", "objective", ...ROUND_KINDS];
+  const apiKinds = ["kill", "death", "assist", "mvp", "bomb_plant", "bomb_defuse", "ace", "multikill", "objective", "goal", "save", "epic_save", "shot", "demo", "demoed", "goal_against", ...ROUND_KINDS];
   const src = (kind: string): GameEvent["source"] =>
     kind === "bookmark"
       ? { type: "manual" }
       : isApi && apiKinds.includes(kind)
-        ? { type: "api", name: seed.gameId === "cs2" ? "cs2-gsi" : "league-live-client" }
+        ? { type: "api", name: seed.gameId === "cs2" ? "cs2-gsi" : seed.gameId === "rocket-league" ? "rocket-league-stats" : "league-live-client" }
         : { type: "vision", detector: VISION[kind] ?? "kill-banner" };
   const add = (kind: string, n: number) => {
     for (let i = 0; i < n; i++) {
@@ -550,6 +575,18 @@ const seedDetails: Record<string, Record<string, DetailValue>> = {
     assists: dv("4", "api"),
     result: dv("win", "api"),
     score: dv("13-11", "api"),
+  },
+  "m-rl-1": {
+    map: dv("DFH Stadium", "api"),
+    mode: dv("3v3", "api"),
+    player: dv("wxia", "api"),
+    score: dv("3-2", "api"),
+    result: dv("win", "api"),
+    goals: dv("3", "api"),
+    assists: dv("2", "api"),
+    saves: dv("4", "api"),
+    shots: dv("6", "api"),
+    points: dv("742", "api"),
   },
   "m-mr-1": { character: dv("Magik", "manual"), kills: dv("21", "events"), deaths: dv("9", "events"), result: dv("win", "events"), score: dv("2-1", "events") },
   "m-r6-1": { map: dv("Clubhouse", "screen", 0.82), kills: dv("11", "events"), deaths: dv("6", "events"), assists: dv("3", "events"), result: dv("loss", "screen", 0.77), score: dv("4-5", "screen", 0.8) },
@@ -1010,6 +1047,8 @@ const handlers: Record<string, (a: any) => unknown> = {
     return null;
   },
   list_games: () => games.map((g) => gameInfo(g.id)),
+  rocket_league_api_status: () => ({ installs: ["C:\\Program Files\\Epic Games\\rocketleague"], enabled: false, needsRestart: false, needsAdmin: true, port: 49123, connected: false }),
+  enable_rocket_league_api: () => ({ installs: ["C:\\Program Files\\Epic Games\\rocketleague"], enabled: true, needsRestart: true, needsAdmin: false, port: 49123, connected: false }),
   set_game_enabled: ({ gameId, enabled }) => {
     settings = { ...settings, gamesEnabled: { ...settings.gamesEnabled, [gameId]: enabled } };
     return gameInfo(gameId);

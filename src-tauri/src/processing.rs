@@ -18,6 +18,7 @@ use recap_core::{
     library::{ClipKind, ClipRecord, MatchRecord, MatchStatus},
     postmatch::{run_processor, PostMatchContext},
     readers::{read_details, ReadWindows},
+    rocket_league::rl_kind,
     scan::{scan_video, ScanOptions},
     segments::{events_in_segment, plan_match_segments, MatchSegment, SegmentOptions},
     settings::Settings,
@@ -81,6 +82,19 @@ pub fn api_kinds(api: ApiSource) -> &'static [&'static str] {
         ApiSource::RiotClient => &[kind::ROUND_WIN, kind::ROUND_LOSS],
         // Only says when a match is on (recording starts/stops with it).
         ApiSource::MarvelStateFile => &[],
+        ApiSource::RocketLeagueStats => &[
+            rl_kind::GOAL,
+            rl_kind::SAVE,
+            rl_kind::EPIC_SAVE,
+            rl_kind::SHOT,
+            rl_kind::DEMO,
+            rl_kind::DEMOED,
+            rl_kind::GOAL_AGAINST,
+            kind::ASSIST,
+            kind::MVP,
+            kind::MATCH_START,
+            kind::MATCH_END,
+        ],
     }
 }
 

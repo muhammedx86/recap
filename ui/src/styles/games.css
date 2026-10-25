@@ -220,3 +220,21 @@
 .add-game .check {
   font-size: 13px;
 }
+
+/* Rocket League Stats API status */
+.game-api-setup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised-2);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.game-api-setup p { flex: 1; margin: 0; }
+.game-api-setup.ok .icon { color: var(--ok); }
+.game-api-setup.warn { border-color: var(--accent-line); background: var(--accent-soft); }
+.game-api-setup.warn .icon { color: var(--accent); }

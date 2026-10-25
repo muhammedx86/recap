@@ -29,6 +29,7 @@ const API_LABEL: Record<ApiSource, string> = {
   "cs2-gsi": "CS2 Game State Integration",
   "riot-client": "Riot Client (local)",
   "marvel-state-file": "game's match state file",
+  "rocket-league-stats": "Rocket League Stats API",
 };
 
 /** APIs that only say when a match is on (and details), not plays: events still come from vision. */
@@ -144,6 +145,7 @@ export function Games() {
                       </div>
                     )}
                   </dl>
+                  {g.api === "rocket-league-stats" && <RocketLeagueSetup />}
                   {g.matchDetection === "process" && (
                     <p className="game-hint">
                       Each recording is a whole game session. <Link to={`/studio?game=${g.id}`}>Add Match start / end detectors</Link> to split it into matches.
@@ -261,5 +263,54 @@ function AddGame({ onClose, onSaved }: { onClose: () => void; onSaved: (g: GameI
         </button>
       </div>
     </form>
+  );
+}
+
+/** Rocket League reports plays through its Stats API, which is off until a setting in the game's
+ * folder is switched on. Recap does that itself; this shows where things stand. */
+function RocketLeagueSetup() {
+  const { data: st, setData } = useLoad(() => api.rocketLeagueApiStatus(), []);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  if (!st) return null;
+  const turnOn = async () => {
+    setBusy(true);
+    try {
+      setData(await api.enableRocketLeagueApi());
+    } catch (e) {
+      toast.error(e, "Could not switch on the Stats API");
+    } finally {
+      setBusy(false);
+    }
+  };
+  let tone = "ok";
+  let text: string;
+  if (st.connected) text = "Stats API on: Recap is receiving goals, saves and the score live.";
+  else if (st.enabled && st.needsRestart) {
+    tone = "warn";
+    text = "Stats API switched on. Restart Rocket League once for it to take effect.";
+  } else if (st.enabled) text = "Stats API on. Plays and the score come from the game during matches.";
+  else if (!st.installs.length) {
+    tone = "warn";
+    text = "Rocket League wasn't found yet. Start the game once and Recap switches its Stats API on.";
+  } else {
+    tone = "warn";
+    text = st.needsAdmin
+      ? "Rocket League is installed in a protected folder. Switching its Stats API on needs administrator permission once."
+      : "Rocket League's Stats API is off.";
+  }
+  return (
+    <div className={`game-api-setup ${tone}`}>
+      <Icon name={tone === "ok" ? "check" : "warning"} size={16} />
+      <p>
+        {text}
+        {st.error && <span className="muted small"> ({st.error})</span>}
+      </p>
+      {!st.enabled && st.installs.length > 0 && (
+        <button className="btn btn-small" onClick={turnOn} disabled={busy}>
+          {busy ? "Switching on…" : "Switch on"}
+        </button>
+      )}
+    </div>
   );
 }

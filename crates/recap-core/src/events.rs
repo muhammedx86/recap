@@ -22,8 +22,8 @@ pub mod kind {
     pub const MATCH_END: &str = "match_end";
 }
 
-/// The 15 icons an event type can use (the UI draws them).
-pub const ICONS: [&str; 15] = [
+/// The 18 icons an event type can use (the UI draws them).
+pub const ICONS: [&str; 18] = [
     "crosshair",
     "skull",
     "handshake",
@@ -39,6 +39,9 @@ pub const ICONS: [&str; 15] = [
     "bookmark",
     "zap",
     "heart",
+    "goal",
+    "car",
+    "target",
 ];
 
 /// Kinds that mark round boundaries/results.

@@ -1,7 +1,18 @@
 // Mirrors docs/API.md exactly. All JSON is camelCase.
 
 export type CaptureMode = "game" | "window" | "monitor";
-export type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client" | "marvel-state-file";
+export type ApiSource = "league-live-client" | "cs2-gsi" | "riot-client" | "marvel-state-file" | "rocket-league-stats";
+
+/** Rocket League's Stats API on this computer. */
+export interface RlApiStatus {
+  installs: string[];
+  enabled: boolean;
+  needsRestart: boolean;
+  needsAdmin: boolean;
+  port: number;
+  connected: boolean;
+  error?: string;
+}
 
 export type EventSource =
   | { type: "vision"; detector: string }
@@ -214,7 +225,10 @@ export type EventIcon =
   | "shield"
   | "bookmark"
   | "zap"
-  | "heart";
+  | "heart"
+  | "goal"
+  | "car"
+  | "target";
 
 export interface EventTypeDef {
   id: string;

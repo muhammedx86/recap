@@ -286,12 +286,17 @@ pub enum ApiSource {
     RiotClient,
     /// Marvel Rivals: the game's own state file (`current_connect_info`) says when a match is on.
     MarvelStateFile,
+    /// Rocket League: the game's Stats API (TCP on 127.0.0.1:49123, `DefaultStatsAPI.ini`).
+    RocketLeagueStats,
 }
 
 impl ApiSource {
     /// Whether this source reports match start/end (so matches can be split on it).
     pub fn detects_matches(self) -> bool {
-        matches!(self, ApiSource::LeagueLiveClient | ApiSource::Cs2Gsi | ApiSource::MarvelStateFile)
+        matches!(
+            self,
+            ApiSource::LeagueLiveClient | ApiSource::Cs2Gsi | ApiSource::MarvelStateFile | ApiSource::RocketLeagueStats
+        )
     }
 }
 

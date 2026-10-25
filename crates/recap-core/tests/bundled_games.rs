@@ -48,5 +48,5 @@ fn bundled_games_load() {
     }
     assert!(games.iter().find(|g| g.def.id == "r6-siege").unwrap().has_rounds());
     assert!(games.iter().find(|g| g.def.id == "cs2").unwrap().has_rounds());
-    assert_eq!(ICONS.len(), 15);
+    assert_eq!(ICONS.len(), 18);
 }

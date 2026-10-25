@@ -31,7 +31,10 @@ API (League of Legends, CS2) can use it as an extra, exact event source.
   clips merged), **manual clips** from the player, and **montages**.
 - Instant stream-copy cuts, with an optional frame-accurate re-encode.
 
-Bundled games: League of Legends / TFT, VALORANT, Counter-Strike 2, Marvel Rivals.
+Bundled games: League of Legends / TFT, VALORANT, Counter-Strike 2, Rocket League, Marvel Rivals,
+Rainbow Six Siege, Apex Legends. Rocket League plays (goals, assists, saves, epic saves, shots,
+demos, goals against, MVP) come from the game's own Stats API, which Recap switches on in
+`TAGame\Config\DefaultStatsAPI.ini` (restart the game once afterwards).
 Vision detectors ship with regions but **no reference images**. You capture those
 from your own recordings in Detector Studio (a minute per detector), so they match
 your resolution, HUD scale and settings.

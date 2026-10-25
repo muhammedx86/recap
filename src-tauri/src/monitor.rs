@@ -42,6 +42,15 @@ pub fn spawn(app: AppHandle) {
                         .or_default()
                         .push(pid.as_u32());
                 }
+                // Rocket League's install folder (for its Stats API settings) from the running game.
+                if let Some(exe) = sys
+                    .processes()
+                    .values()
+                    .find(|p| p.name().to_string_lossy().eq_ignore_ascii_case("RocketLeague.exe"))
+                    .and_then(|p| p.exe())
+                {
+                    crate::sources::rocket_league_seen(exe);
+                }
                 let alive: HashSet<u32> = running.values().flatten().copied().collect();
                 handled.retain(|pid| alive.contains(pid));
                 state(&app).resume_pids.lock().unwrap().retain(|pid| alive.contains(pid));
