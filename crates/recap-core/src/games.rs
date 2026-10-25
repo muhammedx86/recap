@@ -50,6 +50,57 @@ impl Region {
         (x, y, w, h)
     }
 
+    /// This region, measured on a reference frame of aspect `ref_aspect` with the HUD element
+    /// pinned to `anchor`, moved onto a `frame_w`x`frame_h` frame. The HUD is assumed to scale
+    /// to fit (by height on wider screens, by width on narrower ones) and to stay pinned to the
+    /// anchor, which is how most games lay out their HUD on ultrawide and 16:10 screens.
+    /// Without an anchor the fractions are used as they are.
+    pub fn place(&self, anchor: Option<Anchor>, ref_aspect: f32, frame_w: u32, frame_h: u32) -> Region {
+        let Some(a) = anchor else { return *self };
+        let aspect = frame_w.max(1) as f32 / frame_h.max(1) as f32;
+        let s = hud_scale(ref_aspect, frame_w, frame_h);
+        let (ax, ay) = a.point();
+        // Work in units of the frame height: the reference frame is ref_aspect x 1.
+        let fx = ax * aspect + (self.x * ref_aspect - ax * ref_aspect) * s;
+        let fy = ay + (self.y - ay) * s;
+        Region {
+            x: fx / aspect,
+            y: fy,
+            w: self.w * ref_aspect * s / aspect,
+            h: self.h * s,
+        }
+        .clamped()
+    }
+
+    /// The inverse of [`Region::place`]: a box drawn on a `frame_w`x`frame_h` frame, expressed on
+    /// the reference frame.
+    pub fn unplace(&self, anchor: Option<Anchor>, ref_aspect: f32, frame_w: u32, frame_h: u32) -> Region {
+        let Some(a) = anchor else { return *self };
+        let aspect = frame_w.max(1) as f32 / frame_h.max(1) as f32;
+        let s = hud_scale(ref_aspect, frame_w, frame_h);
+        let (ax, ay) = a.point();
+        let rx = ax * ref_aspect + (self.x * aspect - ax * aspect) / s;
+        Region {
+            x: rx / ref_aspect,
+            y: ay + (self.y - ay) / s,
+            w: self.w * aspect / s / ref_aspect,
+            h: self.h / s,
+        }
+        .clamped()
+    }
+
+    /// Clamp into the frame (keeping at least a sliver of size).
+    pub fn clamped(&self) -> Region {
+        let x = self.x.clamp(0.0, 0.999);
+        let y = self.y.clamp(0.0, 0.999);
+        Region {
+            x,
+            y,
+            w: self.w.clamp(1e-3, 1.0 - x),
+            h: self.h.clamp(1e-3, 1.0 - y),
+        }
+    }
+
     /// Grow the region by `margin` (fraction of its own size) on every side, clamped to the frame.
     pub fn expanded(&self, margin: f32) -> Region {
         let dx = self.w * margin;
@@ -60,6 +111,167 @@ impl Region {
         let b = (self.y + self.h + dy).min(1.0);
         Region { x, y, w: r - x, h: b - y }
     }
+}
+
+/// The point of the game picture a HUD element is pinned to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Anchor {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Center,
+    Right,
+    BottomLeft,
+    Bottom,
+    BottomRight,
+}
+
+impl Anchor {
+    /// (x, y) of the anchor as fractions of the frame.
+    pub fn point(self) -> (f32, f32) {
+        match self {
+            Anchor::TopLeft => (0.0, 0.0),
+            Anchor::Top => (0.5, 0.0),
+            Anchor::TopRight => (1.0, 0.0),
+            Anchor::Left => (0.0, 0.5),
+            Anchor::Center => (0.5, 0.5),
+            Anchor::Right => (1.0, 0.5),
+            Anchor::BottomLeft => (0.0, 1.0),
+            Anchor::Bottom => (0.5, 1.0),
+            Anchor::BottomRight => (1.0, 1.0),
+        }
+    }
+}
+
+/// Aspect ratio anchored regions are measured on, unless a detector says otherwise.
+pub const DEFAULT_ANCHOR_ASPECT: f32 = 16.0 / 9.0;
+
+/// Size of the HUD on a `frame_w`x`frame_h` frame relative to the reference frame, in units of
+/// the frame height: 1.0 on the reference aspect and on wider screens (the HUD scales with the
+/// height), less on narrower ones (it scales with the width).
+pub fn hud_scale(ref_aspect: f32, frame_w: u32, frame_h: u32) -> f32 {
+    let aspect = frame_w.max(1) as f32 / frame_h.max(1) as f32;
+    (aspect / ref_aspect.max(0.1)).min(1.0)
+}
+
+/// The frame height a crop cut from a `frame_w`x`frame_h` frame corresponds to on the anchor's
+/// reference frame: anchored HUDs shrink on narrow frames, so their templates are stored at the
+/// reference scale (`frame_h * hud_scale`). Unanchored definitions use the frame height as is.
+pub fn reference_height(anchor: Option<Anchor>, ref_aspect: f32, frame_w: u32, frame_h: u32) -> u32 {
+    match anchor {
+        Some(_) => ((frame_h as f32 * hud_scale(ref_aspect, frame_w, frame_h)).round() as u32).max(1),
+        None => frame_h,
+    }
+}
+
+/// Optional HSV colour ranges: before matching, pixels inside any range become white and the rest
+/// black, so only the HUD colour (say, a red kill icon) is compared.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColorFilter {
+    pub ranges: Vec<HsvRange>,
+}
+
+/// Hue in degrees (0..360; `hue[0] > hue[1]` wraps through red), saturation and value 0..1.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HsvRange {
+    pub hue: [f32; 2],
+    pub sat: [f32; 2],
+    pub val: [f32; 2],
+}
+
+impl HsvRange {
+    pub fn contains(&self, h: f32, s: f32, v: f32) -> bool {
+        let hue_ok = if self.hue[0] <= self.hue[1] {
+            h >= self.hue[0] && h <= self.hue[1]
+        } else {
+            h >= self.hue[0] || h <= self.hue[1]
+        };
+        hue_ok && s >= self.sat[0] && s <= self.sat[1] && v >= self.val[0] && v <= self.val[1]
+    }
+}
+
+impl ColorFilter {
+    pub fn validate(&self) -> Result<()> {
+        if self.ranges.is_empty() {
+            bail!("a colour filter needs at least one range");
+        }
+        for r in &self.ranges {
+            let ok01 = |a: [f32; 2]| (0.0..=1.0).contains(&a[0]) && (0.0..=1.0).contains(&a[1]) && a[0] <= a[1];
+            if !(0.0..=360.0).contains(&r.hue[0]) || !(0.0..=360.0).contains(&r.hue[1]) || !ok01(r.sat) || !ok01(r.val) {
+                bail!("colour range {r:?}: hue 0..360, saturation and value 0..1 (min <= max)");
+            }
+        }
+        Ok(())
+    }
+
+    /// White where a pixel falls in one of the ranges, black elsewhere.
+    pub fn apply(&self, img: &image::RgbImage) -> image::GrayImage {
+        image::GrayImage::from_fn(img.width(), img.height(), |x, y| {
+            let [r, g, b] = img.get_pixel(x, y).0;
+            let (h, s, v) = rgb_to_hsv(r, g, b);
+            image::Luma([if self.ranges.iter().any(|rg| rg.contains(h, s, v)) {
+                255
+            } else {
+                0
+            }])
+        })
+    }
+}
+
+/// (hue degrees 0..360, saturation 0..1, value 0..1)
+pub fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
+    let (r, g, b) = (r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    let h = if d <= f32::EPSILON {
+        0.0
+    } else if max == r {
+        60.0 * (((g - b) / d).rem_euclid(6.0))
+    } else if max == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    let s = if max <= f32::EPSILON { 0.0 } else { d / max };
+    (h, s, max)
+}
+
+/// A detector whose references stand for values (digits on a kill counter, "2X"/"3X" multikill
+/// badges): it reports the value of the best-matching reference and fires when that value
+/// changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValueRule {
+    /// A value counts once `votes` of the last `window` samples agree on it.
+    #[serde(default = "default_votes")]
+    pub votes: u32,
+    #[serde(default = "default_window")]
+    pub window: u32,
+    #[serde(default)]
+    pub fire: ValueFire,
+}
+
+fn default_votes() -> u32 {
+    3
+}
+fn default_window() -> u32 {
+    5
+}
+
+/// When a value detector fires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ValueFire {
+    /// On any change of the settled value (not on the first one seen).
+    #[default]
+    Change,
+    /// When a numeric value goes up: one event per step (a counter going 1 -> 3 is two kills).
+    Increase,
 }
 
 /// Official local event sources a game can opt into.
@@ -276,9 +488,40 @@ pub struct DetectorDef {
     pub hold_margin: f32,
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// Pin `region` (and `templateBox`) to a point of the game picture, so the HUD element is found
+    /// on ultrawide and 16:10 screens too. The region is then measured on a frame of
+    /// `anchorAspect` (16:9 by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<Anchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor_aspect: Option<f32>,
+    /// Compare only pixels in these colours (see [`ColorFilter`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_filter: Option<ColorFilter>,
+    /// One value per reference image: the detector reports the value of the best match and
+    /// fires when it changes (see [`ValueRule`]). Empty = an ordinary detector.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_rule: Option<ValueRule>,
+    /// While this detector matches (spectating, a killcam, the scoreboard...), screen detections
+    /// of these event kinds are dropped. A blocker marks nothing itself (its `event` is unused;
+    /// by convention "_blocker").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<String>,
+    /// Extra time around a blocker's on-screen spans that is blocked too.
+    #[serde(default = "default_block_margin", skip_serializing_if = "is_default_block_margin")]
+    pub block_margin_ms: u64,
     /// Optional notes for people sharing detector files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+}
+
+fn default_block_margin() -> u64 {
+    1000
+}
+fn is_default_block_margin(v: &u64) -> bool {
+    *v == default_block_margin()
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -316,12 +559,48 @@ impl DetectorDef {
         if self.template_frame_height == 0 {
             bail!("detector {} templateFrameHeight must be > 0", self.id);
         }
+        if let Some(a) = self.anchor_aspect {
+            if !(0.5..=5.0).contains(&a) {
+                bail!("detector {} anchorAspect must be between 0.5 and 5", self.id);
+            }
+        }
+        if let Some(c) = &self.color_filter {
+            c.validate().with_context(|| format!("detector {}", self.id))?;
+        }
+        if !self.values.is_empty() && self.values.len() != self.templates.len() {
+            bail!(
+                "detector {} needs one value per reference image ({} values, {} references)",
+                self.id,
+                self.values.len(),
+                self.templates.len()
+            );
+        }
+        if let Some(r) = &self.value_rule {
+            if r.votes == 0 || r.window == 0 || r.votes > r.window || r.window > 60 {
+                bail!("detector {} valueRule: 1 <= votes <= window <= 60", self.id);
+            }
+        }
         Ok(())
     }
 
     /// A detector can only run once it has at least one reference image.
     pub fn is_ready(&self) -> bool {
         self.enabled && !self.templates.is_empty()
+    }
+
+    /// Aspect ratio the region is measured on (anchored detectors).
+    pub fn ref_aspect(&self) -> f32 {
+        self.anchor_aspect.unwrap_or(DEFAULT_ANCHOR_ASPECT)
+    }
+
+    /// The search region on a `w`x`h` frame.
+    pub fn region_for(&self, w: u32, h: u32) -> Region {
+        self.region.place(self.anchor, self.ref_aspect(), w, h)
+    }
+
+    /// Whether this detector reports values (see [`ValueRule`]).
+    pub fn is_value_detector(&self) -> bool {
+        !self.values.is_empty()
     }
 }
 
@@ -447,6 +726,11 @@ pub struct ReaderDef {
     /// Height of the frame the choice references were cut from.
     #[serde(default = "default_frame_height")]
     pub template_frame_height: u32,
+    /// Pin the box to a point of the game picture (see [`DetectorDef::anchor`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<Anchor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor_aspect: Option<f32>,
     #[serde(default = "yes")]
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -500,6 +784,12 @@ impl ReaderDef {
         let x = (self.region.x + dx).clamp(0.0, 1.0 - self.region.w);
         let y = (self.region.y + dy).clamp(0.0, 1.0 - self.region.h);
         Region { x, y, ..self.region }
+    }
+
+    /// Box of slot `i` on a `w`x`h` frame (anchored readers move with the HUD).
+    pub fn slot_region_for(&self, i: u32, w: u32, h: u32) -> Region {
+        self.slot_region(i)
+            .place(self.anchor, self.anchor_aspect.unwrap_or(DEFAULT_ANCHOR_ASPECT), w, h)
     }
 
     pub fn slot_count(&self) -> u32 {
@@ -871,6 +1161,13 @@ mod tests {
             scales: vec![],
             rearm_drop: 0.0,
             hold_margin: 0.0,
+            anchor: None,
+            anchor_aspect: None,
+            color_filter: None,
+            values: vec![],
+            value_rule: None,
+            blocks: vec![],
+            block_margin_ms: 1000,
             enabled: true,
             notes: None,
         }
@@ -993,5 +1290,71 @@ mod tests {
         assert!(det("../x").validate().is_err());
         let tmp = tempfile::tempdir().unwrap();
         assert!(save_user_detector(tmp.path(), &game("g"), &det("ok"), Some(("../evil.png", b""))).is_err());
+    }
+
+    #[test]
+    fn anchored_regions_follow_the_hud_on_other_aspects() {
+        use super::{Anchor, Region, DEFAULT_ANCHOR_ASPECT as R};
+        // A 220x220 box centred at (959, 863) on 1920x1080, pinned to the bottom centre.
+        let r = Region {
+            x: 849.0 / 1920.0,
+            y: 753.0 / 1080.0,
+            w: 220.0 / 1920.0,
+            h: 220.0 / 1080.0,
+        };
+        // Same aspect: unchanged.
+        let same = r.place(Some(Anchor::Bottom), R, 1280, 720);
+        assert!((same.x - r.x).abs() < 1e-4 && (same.w - r.w).abs() < 1e-4);
+        // Ultrawide 2592x1080: same pixels, centred.
+        let (x, y, w, h) = r.place(Some(Anchor::Bottom), R, 2592, 1080).to_pixels(2592, 1080);
+        assert_eq!((w, h), (220, 220));
+        assert!((x as i32 - (1296 - 111)).abs() <= 2 && y == 753, "{x} {y}");
+        // 16:10 1920x1200: the HUD fits the width, stays pinned to the bottom.
+        let (x, y, w, h) = r.place(Some(Anchor::Bottom), R, 1920, 1200).to_pixels(1920, 1200);
+        assert_eq!((x, w, h), (849, 220, 220));
+        assert_eq!(y, 1200 - (1080 - 753));
+        // Top-right pinned elements stay against the right edge on ultrawide.
+        let tr = Region {
+            x: 0.8,
+            y: 0.1,
+            w: 0.15,
+            h: 0.1,
+        };
+        let p = tr.place(Some(Anchor::TopRight), R, 2592, 1080);
+        assert!((1.0 - (p.x + p.w) - 0.05 * 1920.0 / 2592.0).abs() < 1e-3);
+        // Round trip.
+        for (fw, fh) in [(2592, 1080), (1920, 1200), (1280, 720)] {
+            for a in [Anchor::TopLeft, Anchor::Center, Anchor::BottomRight] {
+                let back = r.place(Some(a), R, fw, fh).unplace(Some(a), R, fw, fh);
+                assert!(
+                    (back.x - r.x).abs() < 1e-3 && (back.y - r.y).abs() < 1e-3 && (back.w - r.w).abs() < 1e-3,
+                    "{a:?} {fw}x{fh}"
+                );
+            }
+        }
+        // No anchor: fractions as they are.
+        assert_eq!(r.place(None, R, 2592, 1080), r);
+    }
+
+    #[test]
+    fn color_filter_keeps_only_the_hud_colour() {
+        use super::{rgb_to_hsv, ColorFilter, HsvRange};
+        let (h, s, v) = rgb_to_hsv(255, 0, 0);
+        assert!((h - 0.0).abs() < 1e-3 && (s - 1.0).abs() < 1e-3 && (v - 1.0).abs() < 1e-3);
+        let (h, _, _) = rgb_to_hsv(0, 0, 255);
+        assert!((h - 240.0).abs() < 1e-3);
+        // Reds wrap through 0 degrees.
+        let red = ColorFilter {
+            ranges: vec![HsvRange {
+                hue: [340.0, 20.0],
+                sat: [0.5, 1.0],
+                val: [0.4, 1.0],
+            }],
+        };
+        red.validate().unwrap();
+        let img = image::RgbImage::from_fn(3, 1, |x, _| image::Rgb([[230, 30, 40], [40, 200, 60], [250, 250, 250]][x as usize]));
+        let m = red.apply(&img);
+        assert_eq!(m.as_raw(), &vec![255, 0, 0]);
+        assert!(ColorFilter { ranges: vec![] }.validate().is_err());
     }
 }

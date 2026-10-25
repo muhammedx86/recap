@@ -8,6 +8,7 @@
     "w": 0.4,
     "h": 0.16
   },
+  "anchor": "top",
   "templates": [],
   "templateFrameHeight": 1080,
   "method": "ncc",

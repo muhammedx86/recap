@@ -9,13 +9,29 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use image::{imageops::FilterType, GrayImage};
+use image::{imageops::FilterType, GrayImage, RgbImage};
 use serde::Serialize;
 
 use crate::{
     events::{EventSource, GameEvent},
-    games::{DetectMethod, DetectorDef, LoadedDetector, Region},
+    games::{hud_scale, DetectMethod, DetectorDef, LoadedDetector, Region, ValueFire},
 };
+
+/// A decoded analysis frame: grayscale normally, colour when a detector filters by colour.
+#[derive(Debug, Clone, Copy)]
+pub enum FrameRef<'a> {
+    Gray(&'a GrayImage),
+    Rgb(&'a RgbImage),
+}
+
+impl FrameRef<'_> {
+    pub fn dimensions(&self) -> (u32, u32) {
+        match self {
+            FrameRef::Gray(g) => g.dimensions(),
+            FrameRef::Rgb(c) => c.dimensions(),
+        }
+    }
+}
 
 /// Longest side of a template after downscaling for matching.
 pub const MAX_TEMPLATE_DIM: u32 = 96;
@@ -317,7 +333,11 @@ impl PreparedDetector {
         let mut imgs = Vec::new();
         let mut given = Vec::new();
         for p in det.template_paths() {
-            imgs.push(load_gray(&p)?);
+            imgs.push(match &det.def.color_filter {
+                // The references go through the same colour filter as the frames.
+                Some(cf) => cf.apply(&load_rgb(&p)?),
+                None => load_gray(&p)?,
+            });
             given.push(mask_path(&p).filter(|m| m.exists()).and_then(|m| load_gray(&m).ok()));
         }
         Self::from_images_with_masks(det.def.clone(), imgs, given, frame_w, frame_h)
@@ -337,7 +357,13 @@ impl PreparedDetector {
         frame_w: u32,
         frame_h: u32,
     ) -> Result<Self> {
-        let base = frame_h as f32 / def.template_frame_height as f32;
+        // Anchored HUDs scale to fit the frame (by width on screens narrower than the reference).
+        let fit = if def.anchor.is_some() {
+            hud_scale(def.ref_aspect(), frame_w, frame_h)
+        } else {
+            1.0
+        };
+        let base = fit * frame_h as f32 / def.template_frame_height as f32;
         let mut scales = vec![1.0f32];
         for s in &def.scales {
             if (*s - 1.0).abs() > 1e-3 && *s > 0.2 && *s < 5.0 {
@@ -390,18 +416,45 @@ impl PreparedDetector {
         (self.frame_w, self.frame_h)
     }
 
+    /// Whether frames must be decoded in colour for this detector.
+    pub fn needs_color(&self) -> bool {
+        self.def.color_filter.is_some()
+    }
+
+    /// The detector's search box on `frame`, as the grayscale (or colour-filtered) image it
+    /// matches against, with its top-left corner.
+    fn crop(&self, frame: FrameRef) -> (GrayImage, u32, u32) {
+        let (fw, fh) = frame.dimensions();
+        let (x, y, w, h) = self.def.region_for(fw, fh).to_pixels(fw, fh);
+        let img = match (frame, &self.def.color_filter) {
+            (FrameRef::Gray(g), _) => image::imageops::crop_imm(g, x, y, w, h).to_image(),
+            (FrameRef::Rgb(c), Some(cf)) => cf.apply(&image::imageops::crop_imm(c, x, y, w, h).to_image()),
+            (FrameRef::Rgb(c), None) => image::imageops::grayscale(&image::imageops::crop_imm(c, x, y, w, h).to_image()),
+        };
+        (img, x, y)
+    }
+
     /// Score a full grayscale frame (must be the size given at load time).
     pub fn score_frame(&self, frame: &GrayImage) -> f32 {
-        let (x, y, w, h) = self.def.region.to_pixels(frame.width(), frame.height());
-        let crop = image::imageops::crop_imm(frame, x, y, w, h).to_image();
-        self.score_region(&crop)
+        self.score(FrameRef::Gray(frame)).0
+    }
+
+    /// Score a frame: (best score, index of the reference image that scored it).
+    pub fn score(&self, frame: FrameRef) -> (f32, usize) {
+        let (crop, _, _) = self.crop(frame);
+        self.score_region_ref(&crop)
     }
 
     /// Where the detector matches best on a full frame (same size as at load time).
     pub fn locate_frame(&self, frame: &GrayImage) -> Option<MatchLocation> {
-        let (fw, fh) = (frame.width() as f32, frame.height() as f32);
-        let (x0, y0, w, h) = self.def.region.to_pixels(frame.width(), frame.height());
-        let crop = image::imageops::crop_imm(frame, x0, y0, w, h).to_image();
+        self.locate(FrameRef::Gray(frame))
+    }
+
+    /// Where the detector matches best on a frame (same size as at load time).
+    pub fn locate(&self, frame: FrameRef) -> Option<MatchLocation> {
+        let (fw, fh) = frame.dimensions();
+        let (fw, fh) = (fw as f32, fh as f32);
+        let (crop, x0, y0) = self.crop(frame);
         let hay = self.prepare_hay(&crop);
         // Best template, with its match position in the (unpadded) work-scale crop.
         let mut best: Option<(f32, f32, f32, &PreparedTemplate)> = None;
@@ -450,18 +503,22 @@ impl PreparedDetector {
 
     /// Score an already-cropped region (at analysis resolution).
     pub fn score_region(&self, crop: &GrayImage) -> f32 {
-        let hay = if self.work_scale < 0.999 {
-            let w = ((crop.width() as f32 * self.work_scale).round() as u32).max(1);
-            let h = ((crop.height() as f32 * self.work_scale).round() as u32).max(1);
-            image::imageops::resize(crop, w, h, FilterType::Triangle)
-        } else {
-            crop.clone()
-        };
-        let hay = if self.def.method == DetectMethod::Edges { edges(&hay) } else { hay };
+        self.score_region_ref(crop).0
+    }
+
+    /// [`Self::score_region`] with the index of the reference image that scored best.
+    pub fn score_region_ref(&self, crop: &GrayImage) -> (f32, usize) {
+        let hay = self.prepare_hay(crop);
         self.templates
             .iter()
-            .map(|t| best_zncc(&pad_to(&hay, t.img.width(), t.img.height()), t))
-            .fold(-1.0, f32::max)
+            .map(|t| (best_zncc(&pad_to(&hay, t.img.width(), t.img.height()), t), t.reference))
+            .fold((-1.0, 0), |a, b| if b.0 > a.0 { b } else { a })
+    }
+
+    /// The value of reference `i` (value detectors).
+    pub fn value_of(&self, reference: usize) -> Option<&str> {
+        // A reference without a value (left blank) reads as nothing.
+        self.def.values.get(reference).map(|v| v.trim()).filter(|v| !v.is_empty())
     }
 }
 
@@ -504,6 +561,12 @@ pub fn mask_path(template: &Path) -> Option<std::path::PathBuf> {
         return None;
     }
     Some(template.with_file_name(format!("{stem}.mask.png")))
+}
+
+pub fn load_rgb(path: &Path) -> Result<RgbImage> {
+    Ok(image::open(path)
+        .with_context(|| format!("opening template {}", path.display()))?
+        .to_rgb8())
 }
 
 pub fn load_gray(path: &Path) -> Result<GrayImage> {
@@ -606,6 +669,82 @@ impl Trigger {
     }
 }
 
+/// Settles a value detector's readings by voting and reports changes.
+#[derive(Debug, Clone)]
+pub struct ValueTrigger {
+    threshold: f32,
+    votes: usize,
+    window: usize,
+    fire: ValueFire,
+    recent: std::collections::VecDeque<Option<String>>,
+    settled: Option<String>,
+}
+
+/// One change of a value detector's settled value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValueChange {
+    pub t_ms: u64,
+    pub value: String,
+    pub previous: String,
+    /// Events to emit for this change (more than one when a counter jumps by several steps).
+    pub count: u32,
+}
+
+impl ValueTrigger {
+    pub fn new(def: &DetectorDef) -> Self {
+        let rule = def.value_rule.clone().unwrap_or(crate::games::ValueRule {
+            votes: 3,
+            window: 5,
+            fire: ValueFire::Change,
+        });
+        Self {
+            threshold: def.threshold,
+            votes: rule.votes.max(1) as usize,
+            window: rule.window.max(rule.votes).max(1) as usize,
+            fire: rule.fire,
+            recent: Default::default(),
+            settled: None,
+        }
+    }
+
+    /// Feed one sample: the best score and the value of the reference that produced it.
+    pub fn push(&mut self, t_ms: u64, score: f32, value: Option<&str>) -> Option<ValueChange> {
+        let reading = (score >= self.threshold).then(|| value.map(str::to_string)).flatten();
+        self.recent.push_back(reading);
+        while self.recent.len() > self.window {
+            self.recent.pop_front();
+        }
+        // The value most of the window agrees on, if enough samples do.
+        let mut counts: Vec<(&String, usize)> = Vec::new();
+        for v in self.recent.iter().flatten() {
+            match counts.iter_mut().find(|(c, _)| *c == v) {
+                Some(e) => e.1 += 1,
+                None => counts.push((v, 1)),
+            }
+        }
+        let (winner, n) = counts.into_iter().max_by_key(|(_, n)| *n)?;
+        if n < self.votes || self.settled.as_ref() == Some(winner) {
+            return None;
+        }
+        let winner = winner.clone();
+        let previous = self.settled.replace(winner.clone());
+        let previous = previous?; // the first settled value is only a baseline
+        let count = match self.fire {
+            ValueFire::Change => 1,
+            ValueFire::Increase => match (winner.trim().parse::<i64>(), previous.trim().parse::<i64>()) {
+                (Ok(a), Ok(b)) if a > b => ((a - b) as u32).min(5),
+                _ => 0,
+            },
+        };
+        (count > 0).then_some(ValueChange {
+            t_ms,
+            value: winner,
+            previous,
+            count,
+        })
+    }
+}
+
 /// Convenience: run a detector over an iterator of (t_ms, frame) and collect events.
 pub fn detect_events<'a>(det: &PreparedDetector, frames: impl IntoIterator<Item = (u64, &'a GrayImage)>) -> Vec<GameEvent> {
     let mut trig = Trigger::new(&det.def);
@@ -651,6 +790,13 @@ mod tests {
             scales: vec![],
             rearm_drop: 0.0,
             hold_margin: 0.0,
+            anchor: None,
+            anchor_aspect: None,
+            color_filter: None,
+            values: vec![],
+            value_rule: None,
+            blocks: vec![],
+            block_margin_ms: 1000,
             enabled: true,
             notes: None,
         }
@@ -926,5 +1072,65 @@ mod tests {
             100
         )
         .is_err());
+    }
+
+    #[test]
+    fn value_trigger_votes_and_counts_steps() {
+        let mut d = def(Region {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        });
+        d.threshold = 0.7;
+        d.values = vec!["0".into(), "1".into(), "2".into(), "3".into()];
+        d.value_rule = Some(crate::games::ValueRule {
+            votes: 2,
+            window: 3,
+            fire: ValueFire::Increase,
+        });
+        let mut v = ValueTrigger::new(&d);
+        let feed = [
+            (0, 0.9, "0"),
+            (100, 0.9, "0"), // baseline 0: no event
+            (200, 0.9, "8"), // one stray reading: no vote
+            (300, 0.5, "1"), // below the threshold: ignored
+            (400, 0.9, "1"),
+            (500, 0.9, "1"), // settles on 1: one kill
+            (600, 0.9, "3"),
+            (700, 0.9, "3"), // 1 -> 3: two kills
+            (800, 0.9, "2"),
+            (900, 0.9, "2"), // a decrease never fires on "increase"
+        ];
+        let got: Vec<(u64, String, u32)> = feed
+            .iter()
+            .filter_map(|&(t, s, val)| v.push(t, s, Some(val)))
+            .map(|c| (c.t_ms, c.value, c.count))
+            .collect();
+        assert_eq!(got, vec![(500, "1".into(), 1), (700, "3".into(), 2)]);
+    }
+
+    #[test]
+    fn anchored_detector_finds_the_element_on_an_ultrawide_frame() {
+        // The element sits right of the bottom centre of a 16:9 frame; on a 2.4:1 frame of the
+        // same height it keeps its offset from the centre, at the same pixel size.
+        let tpl = pattern(40, 24);
+        let mut d = def(Region {
+            x: (560.0 - 40.0) / 640.0,
+            y: (300.0 - 10.0) / 360.0,
+            w: 80.0 / 640.0,
+            h: 44.0 / 360.0,
+        });
+        d.anchor = Some(crate::games::Anchor::Bottom);
+        let (fw, fh) = (864, 360);
+        let mut frame = noise_frame(fw, fh, 11);
+        // 240 px right of the centre, as on the 16:9 reference.
+        paste(&mut frame, &tpl, fw / 2 + 240, 300, 1.0, 0.0);
+        let anchored = PreparedDetector::from_images(d.clone(), vec![tpl.clone()], fw, fh).unwrap();
+        assert!(anchored.score_frame(&frame) > 0.95);
+        // Without the anchor the fractions land left of the element.
+        d.anchor = None;
+        let plain = PreparedDetector::from_images(d, vec![tpl], fw, fh).unwrap();
+        assert!(plain.score_frame(&frame) < 0.6, "{}", plain.score_frame(&frame));
     }
 }

@@ -281,6 +281,8 @@ fn reader(id: &str, label: &str, field: &str, kind: ReaderKind, region: Region) 
         threshold: 0.8,
         method: Default::default(),
         template_frame_height: HEIGHT as u32,
+        anchor: None,
+        anchor_aspect: None,
         enabled: true,
         notes: Some("Sample game fixture for Recap's end-to-end test.".into()),
     }

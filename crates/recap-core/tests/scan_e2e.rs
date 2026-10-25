@@ -85,6 +85,13 @@ fn finds_banner_appearances_in_a_real_video() {
         scales: vec![],
         rearm_drop: 0.0,
         hold_margin: 0.0,
+        anchor: None,
+        anchor_aspect: None,
+        color_filter: None,
+        values: vec![],
+        value_rule: None,
+        blocks: vec![],
+        block_margin_ms: 1000,
         enabled: true,
         notes: None,
     };

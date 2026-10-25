@@ -165,8 +165,38 @@ export interface DetectorDef {
   /** Fire again when the score dips by this much and recovers while still on screen. 0 = off. */
   rearmDrop?: number;
   holdMargin?: number;
+  /** Corner/edge the HUD element is pinned to; the region is then measured on a 16:9 frame (or anchorAspect). */
+  anchor?: Anchor;
+  anchorAspect?: number;
+  /** Keep only these colours before comparing (HUD colours), as HSV ranges. */
+  colorFilter?: ColorFilter;
+  /** One value per reference image: the detector reads which one is on screen (a counter, a state). */
+  values?: string[];
+  valueRule?: ValueRule;
+  /** Event kinds dropped while this element is on screen (spectating, killcam...). */
+  blocks?: string[];
+  blockMarginMs?: number;
   enabled: boolean;
   notes?: string;
+}
+
+export type Anchor = "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right";
+
+export interface HsvRange {
+  /** Degrees 0–360; from > to wraps through red. */
+  hue: [number, number];
+  sat: [number, number];
+  val: [number, number];
+}
+
+export interface ColorFilter {
+  ranges: HsvRange[];
+}
+
+export interface ValueRule {
+  votes: number;
+  window: number;
+  fire: "change" | "increase";
 }
 
 export type EventIcon =

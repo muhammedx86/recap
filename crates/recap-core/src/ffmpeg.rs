@@ -257,6 +257,20 @@ impl Ffmpeg {
     /// Decode a video as grayscale frames of height `height` sampled at `fps`, cropped to the game
     /// picture when `crop` is given.
     pub fn gray_frames(&self, video: &Path, fps: f32, info: &VideoInfo, height: u32, crop: Option<ContentRect>) -> Result<GrayFrames> {
+        self.analysis_frames(video, fps, info, height, crop, false)
+    }
+
+    /// Like [`Ffmpeg::gray_frames`]; with `color` the frames are RGB (3 bytes per pixel, for
+    /// detectors that filter by colour). Use [`GrayFrames::is_color`] to tell them apart.
+    pub fn analysis_frames(
+        &self,
+        video: &Path,
+        fps: f32,
+        info: &VideoInfo,
+        height: u32,
+        crop: Option<ContentRect>,
+        color: bool,
+    ) -> Result<GrayFrames> {
         let (src_w, src_h) = crop.map(|c| (c.w, c.h)).unwrap_or((info.width, info.height));
         let height = height.min(src_h).max(2) & !1;
         let width = (((src_w as f64 * height as f64 / src_h as f64).round() as u32).max(2)) & !1;
@@ -267,8 +281,11 @@ impl Ffmpeg {
             .arg("-i")
             .arg(video)
             .args(["-an", "-sn", "-vf"])
-            .arg(format!("fps={fps},{crop_filter}scale={width}:{height}:flags=area,format=gray"))
-            .args(["-f", "rawvideo", "-pix_fmt", "gray", "-"])
+            .arg(format!(
+                "fps={fps},{crop_filter}scale={width}:{height}:flags=area,format={}",
+                if color { "rgb24" } else { "gray" }
+            ))
+            .args(["-f", "rawvideo", "-pix_fmt", if color { "rgb24" } else { "gray" }, "-"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -282,6 +299,7 @@ impl Ffmpeg {
             height,
             fps,
             index: 0,
+            color,
         })
     }
 }
@@ -365,18 +383,45 @@ pub struct GrayFrames {
     pub height: u32,
     fps: f32,
     index: u64,
+    color: bool,
 }
 
-impl Iterator for GrayFrames {
-    type Item = (u64, GrayImage);
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut buf = vec![0u8; (self.width * self.height) as usize];
+/// A frame from [`Ffmpeg::analysis_frames`].
+pub enum AnalysisFrame {
+    Gray(GrayImage),
+    Rgb(image::RgbImage),
+}
+
+impl GrayFrames {
+    pub fn is_color(&self) -> bool {
+        self.color
+    }
+
+    /// The next frame, gray or colour depending on how the stream was opened.
+    pub fn next_frame(&mut self) -> Option<(u64, AnalysisFrame)> {
+        let bpp = if self.color { 3 } else { 1 };
+        let mut buf = vec![0u8; (self.width * self.height * bpp) as usize];
         if self.stdout.read_exact(&mut buf).is_err() {
             return None;
         }
         let t_ms = ((self.index as f64) * 1000.0 / self.fps as f64).round() as u64;
         self.index += 1;
-        GrayImage::from_raw(self.width, self.height, buf).map(|img| (t_ms, img))
+        let frame = if self.color {
+            AnalysisFrame::Rgb(image::RgbImage::from_raw(self.width, self.height, buf)?)
+        } else {
+            AnalysisFrame::Gray(GrayImage::from_raw(self.width, self.height, buf)?)
+        };
+        Some((t_ms, frame))
+    }
+}
+
+impl Iterator for GrayFrames {
+    type Item = (u64, GrayImage);
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next_frame()? {
+            (t, AnalysisFrame::Gray(g)) => Some((t, g)),
+            (t, AnalysisFrame::Rgb(c)) => Some((t, image::imageops::grayscale(&c))),
+        }
     }
 }
 

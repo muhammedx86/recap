@@ -1049,3 +1049,91 @@
   margin-bottom: 4px;
   color: var(--ink-2);
 }
+
+/* What a detector does, value references, hidden kinds, colour filter */
+.seg-full {
+  display: flex;
+  width: 100%;
+}
+.seg-full button {
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.value-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.value-list li {
+  display: grid;
+  gap: 4px;
+}
+.value-list img {
+  display: block;
+  width: 100%;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #000;
+}
+.value-list .input {
+  width: 100%;
+  text-align: center;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 12px;
+}
+.inline-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inline-pair .input {
+  min-width: 0;
+}
+.hsv-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 8px;
+  display: grid;
+  gap: 6px;
+}
+.hsv-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--raised-2);
+}
+.hsv-list label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.hsv-list .input-small {
+  width: 52px;
+  padding-left: 6px;
+  padding-right: 4px;
+}
+.hsv-list .icon-btn {
+  margin-left: auto;
+}
+.hsv-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
