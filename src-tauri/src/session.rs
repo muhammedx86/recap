@@ -11,13 +11,14 @@ use anyhow::{bail, Result};
 use recap_core::{
     cs2::Cs2Tracker,
     events::{kind, EventSource, GameEvent},
-    games::{ApiSource, CaptureMode, LoadedGame},
+    games::{ApiSource, LoadedGame},
     library::{MatchRecord, MatchStatus},
-    protocol::{AudioConfig, CaptureTarget, RecorderCommand, RecorderEvent, VideoConfig},
+    protocol::{RecorderCommand, RecorderEvent},
 };
 use tauri::{AppHandle, Emitter};
 
 use crate::{
+    arming,
     paths::sanitize,
     processing, sources,
     state::{add_live_events, now_unix_ms, refresh_status, state, Session},
@@ -47,36 +48,15 @@ pub fn start(app: &AppHandle, game: Option<LoadedGame>, process: Option<(u32, St
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
     let path: PathBuf = dir.join(format!("{stamp}.mp4"));
 
-    let capture = match &game {
-        Some(g) => CaptureTarget {
-            mode: g.def.capture,
-            process: process.as_ref().map(|p| p.1.clone()).or_else(|| g.def.processes.first().cloned()),
-            pid,
-            monitor: None,
-        },
-        None => CaptureTarget {
-            mode: CaptureMode::Monitor,
-            process: None,
-            pid: None,
-            monitor: Some(0),
-        },
-    };
+    // The same setup as the arm (see `arming`), so the recorder reuses the attached capture
+    // and its pre-roll buffer.
     let cmd = RecorderCommand::Start {
         id: match_id.clone(),
         path: path.to_string_lossy().into_owned(),
-        capture,
-        video: VideoConfig {
-            fps: settings.fps,
-            bitrate_kbps: settings.bitrate_kbps,
-            output_height: settings.output_height,
-            encoder: settings.encoder.clone(),
-        },
-        audio: AudioConfig {
-            desktop: settings.record_desktop_audio,
-            microphone: settings.record_microphone,
-            microphone_device: settings.microphone_device.clone(),
-            separate_mic_track: settings.separate_mic_track,
-        },
+        capture: arming::capture_target(game.as_ref(), process.as_ref()),
+        video: arming::video_config(&settings),
+        audio: arming::audio_config(&settings),
+        encoder_memory: arming::load_memory(&st),
     };
 
     let record = MatchRecord {
@@ -273,6 +253,8 @@ fn finalize(app: &AppHandle, match_id: &str, duration_ms: Option<u64>) {
 /// The recorder process exited (crash or kill). Keep whatever was written.
 pub fn on_recorder_exited(app: &AppHandle) {
     let st = state(app);
+    // A recording in the pre-roll buffer is moved to its match path first.
+    arming::on_recorder_exited(&st);
     let current = st
         .session
         .lock()
@@ -303,14 +285,28 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
             started_unix_ms,
             encoder,
             capture,
+            preroll_ms,
+            encoder_fallback,
+            encoder_memory,
             ..
         } => {
+            if let Some(m) = &encoder_memory {
+                arming::save_memory(&st, m);
+            }
             {
                 let mut guard = st.session.lock().unwrap();
                 if let Some(s) = guard.as_mut().filter(|s| s.match_id == id) {
-                    s.started = Some(Instant::now());
+                    // The file begins `preroll_ms` before now: event times count from there.
+                    let now = Instant::now();
+                    s.started = Some(now.checked_sub(Duration::from_millis(preroll_ms)).unwrap_or(now));
                     s.started_unix_ms = started_unix_ms;
                 }
+            }
+            if preroll_ms > 0 {
+                log::info!("{id}: recording kept {preroll_ms} ms from before the start");
+            }
+            if let Some(f) = &encoder_fallback {
+                log::warn!("{id}: {f}");
             }
             {
                 let lib = st.library.lock().unwrap();
@@ -332,7 +328,7 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
                 status.capture = Some(capture);
                 status.match_id = Some(id);
             }
-            refresh_status(app, None);
+            refresh_status(app, encoder_fallback);
             if let Some(name) = game {
                 crate::overlay::notify(app, crate::overlay::ToastKind::Recording, "Recording", Some(name));
             }
@@ -346,7 +342,38 @@ pub fn on_recorder_event(app: &AppHandle, ev: RecorderEvent) {
             }
             refresh_status(app, Some(reason));
         }
-        RecorderEvent::Stopped { id, duration_ms, .. } => finalize(app, &id, Some(duration_ms)),
+        RecorderEvent::Stopped {
+            id, duration_ms, health, ..
+        } => {
+            if let Some(h) = health {
+                arming::record_health(app, &id, h);
+            }
+            finalize(app, &id, Some(duration_ms))
+        }
+        RecorderEvent::Armed {
+            capture,
+            encoder,
+            buffering,
+            encoder_fallback,
+            encoder_memory,
+        } => {
+            log::info!("recorder armed: {capture:?} capture, encoder {encoder:?}, pre-roll buffer {buffering}");
+            if let Some(m) = &encoder_memory {
+                arming::save_memory(&st, m);
+            }
+            st.arming.lock().unwrap().last_armed = Some(serde_json::json!({
+                "capture": capture, "encoder": encoder, "buffering": buffering, "encoderFallback": encoder_fallback,
+            }));
+            if let Some(f) = encoder_fallback {
+                log::warn!("recorder: {f}");
+                refresh_status(app, Some(f));
+            }
+        }
+        RecorderEvent::Disarmed => log::info!("recorder disarmed"),
+        RecorderEvent::Warning { id, code, message } => {
+            log::warn!("recorder warning {code} ({id:?}): {message}");
+            refresh_status(app, Some(message));
+        }
         RecorderEvent::Error { id, message } => {
             log::error!("recorder error ({id:?}): {message}");
             let current = st

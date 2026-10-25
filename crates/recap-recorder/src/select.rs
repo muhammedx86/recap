@@ -102,7 +102,12 @@ fn same_set(a: &[String], b: &[String]) -> bool {
 
 /// Memory to report after a start: today's list, failures still valid plus new ones, and the
 /// encoder that started.
-pub fn updated_memory(previous: Option<&EncoderMemory>, available: &[String], failed_now: &[String], working: Option<&str>) -> EncoderMemory {
+pub fn updated_memory(
+    previous: Option<&EncoderMemory>,
+    available: &[String],
+    failed_now: &[String],
+    working: Option<&str>,
+) -> EncoderMemory {
     let mut failed = remembered_failures(previous, available);
     for f in failed_now {
         if !failed.contains(f) {
@@ -317,6 +322,26 @@ pub fn fallback_message(first: &EncodeAttempt, used: &EncodeAttempt, failed: &[S
     })
 }
 
+/// A monitor as far as the canvas choice is concerned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonitorCandidate {
+    /// Device name (`\\.\DISPLAY1`), as Windows reports it for monitors and windows.
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
+}
+
+/// The monitor the recording is sized for: the one the game window is on, else the requested
+/// index, else the primary, else the first. Returns its index.
+pub fn pick_monitor(monitors: &[MonitorCandidate], window_monitor: Option<&str>, index: Option<u32>) -> Option<usize> {
+    let by_name = window_monitor.and_then(|n| monitors.iter().position(|m| m.name.eq_ignore_ascii_case(n)));
+    by_name
+        .or_else(|| index.map(|i| i as usize).filter(|&i| i < monitors.len()))
+        .or_else(|| monitors.iter().position(|m| m.primary))
+        .or(if monitors.is_empty() { None } else { Some(0) })
+}
+
 /// The bits of a window we need to decide whether it belongs to the target game.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowCandidate {
@@ -377,7 +402,10 @@ mod tests {
             "obs_nvenc_h264_tex"
         );
         // Quick Sync beats AMF (AMD iGPUs list AMF but are slow).
-        assert_eq!(choose_encoder("auto", &s(&["obs_x264", "h264_texture_amf", "obs_qsv11_v2"])), "obs_qsv11_v2");
+        assert_eq!(
+            choose_encoder("auto", &s(&["obs_x264", "h264_texture_amf", "obs_qsv11_v2"])),
+            "obs_qsv11_v2"
+        );
         assert_eq!(choose_encoder("auto", &s(&["obs_x264"])), "obs_x264");
         assert_eq!(choose_encoder("auto", &[]), "obs_x264");
     }
@@ -514,6 +542,22 @@ mod tests {
         let only = plan_encoders("auto", &s(&["obs_x264"]), &[], (1920, 1080), None, 60);
         let m = fallback_message(&only[0], &only[0], &[]).unwrap();
         assert!(m.contains("no GPU encoder is available"), "{m}");
+    }
+
+    #[test]
+    fn canvas_follows_the_game_window() {
+        let m = |name: &str, w: u32, h: u32, primary: bool| MonitorCandidate {
+            name: name.into(),
+            width: w,
+            height: h,
+            primary,
+        };
+        let mons = vec![m(r"\\.\DISPLAY1", 1920, 1080, true), m(r"\\.\DISPLAY2", 2560, 1440, false)];
+        assert_eq!(pick_monitor(&mons, Some(r"\\.\display2"), None), Some(1));
+        assert_eq!(pick_monitor(&mons, Some("gone"), Some(1)), Some(1));
+        assert_eq!(pick_monitor(&mons, None, Some(7)), Some(0), "bad index: primary");
+        assert_eq!(pick_monitor(&mons[1..], None, None), Some(0), "no primary: first");
+        assert_eq!(pick_monitor(&[], None, None), None);
     }
 
     fn w(exe: &str, pid: u32, game: bool, title: bool) -> WindowCandidate {

@@ -116,6 +116,8 @@ pub struct AppState {
     /// Game pids whose recording the player stopped in a game without a match API: recording
     /// resumes in the background and the skipped match's remainder is dropped when splitting.
     pub resume_pids: Mutex<HashSet<u32>>,
+    /// Recorder readiness between matches, encoder memory, recent frame stats.
+    pub arming: Mutex<crate::arming::Arming>,
 }
 
 impl AppState {

@@ -16,8 +16,9 @@ use recap_core::{
 /// no command arrives.
 const TICK: Duration = Duration::from_millis(250);
 
-/// What the stdin reader thread delivers.
+/// What the stdin reader thread delivers (one at a time, so the size difference is fine).
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Incoming {
     Command(RecorderCommand),
     /// A line that is not a valid command.
@@ -561,10 +562,15 @@ mod tests {
         assert!(matches!(&ev[0], RecorderEvent::Armed { buffering: true, .. }));
         match &ev[1] {
             RecorderEvent::Started {
-                preroll_ms, started_unix_ms, ..
+                preroll_ms,
+                started_unix_ms,
+                ..
             } => {
                 assert_eq!(*preroll_ms, 4_000);
-                assert!(*started_unix_ms <= before.saturating_sub(3_900), "start is back-dated by the pre-roll");
+                assert!(
+                    *started_unix_ms <= before.saturating_sub(3_900),
+                    "start is back-dated by the pre-roll"
+                );
             }
             e => panic!("{e:?}"),
         }

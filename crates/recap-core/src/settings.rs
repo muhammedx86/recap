@@ -11,7 +11,18 @@ pub struct Settings {
     /// Where recordings and clips are written. Empty = `<Videos>/Recap`.
     pub recordings_dir: String,
     pub fps: u32,
+    /// Bitrate for [`RateControl::Cbr`].
     pub bitrate_kbps: u32,
+    /// Constant quality (default: small files in menus, sharp fights) or constant bitrate.
+    pub rate_control: crate::protocol::RateControl,
+    /// Quality level for constant quality.
+    pub quality: crate::protocol::QualityPreset,
+    /// Seconds kept from before a recording starts (0 = off). While a game runs, the recorder
+    /// writes short rotating segments next to the recordings so a match start is never missed.
+    pub preroll_secs: u32,
+    /// On laptops with two GPUs, make the recorder use the high-performance GPU (the one games
+    /// run on), so captured frames are not copied between GPUs.
+    pub gpu_preference: bool,
     /// None = native resolution.
     pub output_height: Option<u32>,
     /// "auto" | "nvenc" | "amf" | "qsv" | "x264"
@@ -87,6 +98,10 @@ impl Default for Settings {
             recordings_dir: String::new(),
             fps: 60,
             bitrate_kbps: 12_000,
+            rate_control: crate::protocol::RateControl::Quality,
+            quality: crate::protocol::QualityPreset::Medium,
+            preroll_secs: 10,
+            gpu_preference: true,
             output_height: None,
             encoder: "auto".into(),
             record_desktop_audio: true,
@@ -145,6 +160,15 @@ mod tests {
         assert_eq!(s.auto_clip.seconds_before, 8.0);
         assert_eq!(s.auto_clip.seconds_after, 3.0);
         assert_eq!(s.bookmark_hotkey, "F8");
+        // Settings from before quality mode: constant quality, 10 s pre-roll, GPU preference on.
+        assert_eq!(s.rate_control, crate::protocol::RateControl::Quality);
+        assert_eq!(s.preroll_secs, 10);
+        assert!(s.gpu_preference);
+        let cbr: Settings = serde_json::from_str(r#"{"rateControl":"cbr","quality":"high","prerollSecs":0}"#).unwrap();
+        assert_eq!(
+            (cbr.rate_control, cbr.quality, cbr.preroll_secs),
+            (crate::protocol::RateControl::Cbr, crate::protocol::QualityPreset::High, 0)
+        );
     }
 
     #[test]

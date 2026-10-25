@@ -105,7 +105,11 @@ pub fn after_processing(app: &AppHandle) {
                 })
                 .collect();
             v.sort_by_key(|m| m["startedUnixMs"].as_u64().unwrap_or(0));
-            write_json(&out.join("report2.json"), &json!({ "matches": v }));
+            drop(lib);
+            write_json(
+                &out.join("report2.json"),
+                &json!({ "matches": v, "recorder": crate::arming::report(&st) }),
+            );
             log::info!("self-test phase 2 report written");
         }
         return;
@@ -323,7 +327,10 @@ fn build_report(st: &AppState, checks: Value) -> Value {
         .filter(|c| c.kind == ClipKind::Montage)
         .map(|c| json!({ "path": c.path, "exists": Path::new(&c.path).exists(), "durationMs": c.duration_ms }))
         .collect();
-    json!({ "done": true, "games": games, "matches": matches, "montages": montages, "checks": checks, "errors": [], "ocrAvailable": recap_ocr::available() })
+    drop(lib);
+    // Arm, pre-roll buffer and per-recording frame stats as the recorder reported them.
+    let recorder = crate::arming::report(st);
+    json!({ "done": true, "games": games, "matches": matches, "montages": montages, "checks": checks, "errors": [], "ocrAvailable": recap_ocr::available(), "recorder": recorder })
 }
 
 fn write_json(path: &Path, v: &Value) {

@@ -130,6 +130,20 @@ if (-not (Test-Path $reportPath)) {
         if ($c.Value.ok) { Pass "check $($c.Name)" } else { Fail "check $($c.Name): $($c.Value.detail)" }
     }
 
+    # The recorder: armed for the game with a pre-roll buffer, and frame stats per recording.
+    $rec = $r.recorder
+    if ($rec.armed -and $rec.armed.buffering) { Pass "recorder armed with a pre-roll buffer ($($rec.armed.encoder), $($rec.armed.capture) capture)" }
+    else { Fail "recorder never reported a running pre-roll buffer: $($rec.armed | ConvertTo-Json -Compress)" }
+    if ($rec.armed.encoderFallback) { Write-Host "encoder note: $($rec.armed.encoderFallback)" }
+    $stats = @($rec.recordings)
+    if ($stats.Count -lt 1) { Fail "no frame stats reported for any recording" }
+    foreach ($s in $stats) {
+        $h = $s.health
+        $lost = if ($h.totalFrames -gt 0) { [math]::Round(100.0 * ($h.droppedFrames + $h.laggedFrames) / ($h.totalFrames + $h.droppedFrames), 1) } else { 100 }
+        if ($h.totalFrames -gt 0) { Pass "recording $($s.matchId): $($h.totalFrames) frames, $lost% dropped/lagged, $($h.encoder)" }
+        else { Fail "recording $($s.matchId) wrote no frames ($($h | ConvertTo-Json -Compress))" }
+    }
+
     $sample = @($r.matches | Where-Object { $_.gameId -eq "recap-sample-game" })
     if ($sample.Count -ne 2) { Fail "expected 2 sample matches after splitting, got $($sample.Count)" } else { Pass "session split into 2 matches" }
     foreach ($m in $r.matches) {
@@ -204,6 +218,11 @@ if (-not (Test-Path $report2Path)) {
         $kills = @($m2.events | Where-Object kind -eq "kill")
         if ($starts.Count -eq 1 -and $kills.Count -eq 1) { Pass "phase 2 match is match 2 (1 start, 1 kill)" } else { Fail "phase 2 match has $($starts.Count) starts and $($kills.Count) kills (expected 1 and 1)" }
     }
+    # The resumed recording starts from the pre-roll buffer that ran after the manual stop.
+    $pre = @($r2.recorder.recordings | Where-Object { $_.health.prerollMs -gt 0 })
+    if ($pre.Count -ge 1) { Pass "phase 2: resumed recording kept $($pre[0].health.prerollMs) ms of pre-roll" }
+    else { Fail "phase 2: no recording started from the pre-roll buffer ($($r2.recorder | ConvertTo-Json -Compress -Depth 5))" }
+    if ($r2.recorder.bufferLeftovers -eq 0) { Pass "phase 2: no recording left behind in the buffer" } else { Fail "phase 2: $($r2.recorder.bufferLeftovers) recording(s) stuck in the pre-roll buffer" }
 }
 foreach ($p in "library", "match", "clips", "studio", "games", "settings") {
     if (-not (Test-Path (Join-Path $Shots "page-$p.png"))) { Fail "no screenshot of the $p page (UI tour did not run)" }

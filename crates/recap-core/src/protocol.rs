@@ -284,15 +284,11 @@ mod tests {
         // Older apps: CBR, no memory.
         let old: VideoConfig = serde_json::from_str(r#"{"fps":60,"bitrateKbps":8000,"encoder":"auto"}"#).unwrap();
         assert_eq!((old.rate_control, old.quality), (RateControl::Cbr, QualityPreset::Medium));
-        assert_eq!(
-            serde_json::to_string(&RecorderCommand::Disarm).unwrap(),
-            r#"{"cmd":"disarm"}"#
-        );
+        assert_eq!(serde_json::to_string(&RecorderCommand::Disarm).unwrap(), r#"{"cmd":"disarm"}"#);
         // Older recorders' events still parse.
-        let st: RecorderEvent = serde_json::from_str(
-            r#"{"event":"started","id":"a","path":"p","startedUnixMs":1,"encoder":"obs_x264","capture":"game"}"#,
-        )
-        .unwrap();
+        let st: RecorderEvent =
+            serde_json::from_str(r#"{"event":"started","id":"a","path":"p","startedUnixMs":1,"encoder":"obs_x264","capture":"game"}"#)
+                .unwrap();
         assert!(matches!(st, RecorderEvent::Started { preroll_ms: 0, .. }));
         let sp: RecorderEvent = serde_json::from_str(r#"{"event":"stopped","id":"a","path":"p","durationMs":5}"#).unwrap();
         assert!(matches!(sp, RecorderEvent::Stopped { health: None, .. }));

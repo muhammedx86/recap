@@ -29,7 +29,9 @@ pub fn segment_path(dir: &Path, run: u64, n: u64) -> PathBuf {
 
 pub fn is_segment(p: &Path) -> bool {
     p.extension().is_some_and(|e| e.eq_ignore_ascii_case("mp4"))
-        && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(SEGMENT_PREFIX))
+        && p.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with(SEGMENT_PREFIX))
 }
 
 /// `<segment>.mp4.target`

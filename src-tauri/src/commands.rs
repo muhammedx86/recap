@@ -376,6 +376,9 @@ pub fn update_settings(app: AppHandle, st: State<'_, AppState>, settings: Settin
         }
     }
     st.settings.read().unwrap().save(&st.paths.settings_file).map_err(err)?;
+    if previous.gpu_preference != settings.gpu_preference {
+        crate::arming::gpu_preference::apply(&st.paths.recorder_exe, settings.gpu_preference);
+    }
     if previous.launch_at_startup != settings.launch_at_startup {
         crate::startup::apply(&app, settings.launch_at_startup);
     }
