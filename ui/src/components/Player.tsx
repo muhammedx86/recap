@@ -320,6 +320,9 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
           </div>
         )}
       </div>
+      <div className="player-seek-row">
+        <SeekBar time={time} total={total} onSeek={seek} />
+      </div>
       <div className="player-bar">
         <button className="icon-btn" onClick={toggle} aria-label={playing ? "Pause (Space)" : "Play (Space)"} title={playing ? "Pause (Space)" : "Play (Space)"}>
           <Icon name={playing ? "pause" : "play"} size={16} />
@@ -327,17 +330,7 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
         <span className="player-time num">
           {timecode(time)} <span className="muted">/ {timecode(total)}</span>
         </span>
-        <input
-          className="player-scrub"
-          type="range"
-          min={0}
-          max={Math.max(1, total)}
-          step={100}
-          value={time}
-          onChange={(e) => seek(Number(e.target.value))}
-          aria-label="Seek"
-          style={{ "--p": `${total > 0 ? Math.min(100, (time / total) * 100) : 0}%` } as React.CSSProperties}
-        />
+        <span className="player-spacer" />
         <label className="player-rate" title="Playback speed (↑ ↓, Backspace resets)">
           <span className="sr-only">Playback speed</span>
           <select value={rate} onChange={(e) => setRate(Number(e.target.value))}>
@@ -380,6 +373,73 @@ export const Player = forwardRef<PlayerHandle, Props>(function Player(
     </div>
   );
 });
+
+/**
+ * The seek bar: a full-width line over the controls. The fill and the knob sit at exactly
+ * time / total of the width (no slider-thumb inset), so on the Match page, where the bar and
+ * the timeline span the same width, a moment is at the same place on both.
+ */
+function SeekBar({ time, total, onSeek }: { time: number; total: number; onSeek: (ms: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [hover, setHover] = useState<{ x: number; ms: number } | null>(null);
+  const p = total > 0 ? Math.min(1, Math.max(0, time / total)) : 0;
+  const at = (clientX: number) => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r || r.width <= 0) return { x: 0, ms: 0 };
+    const x = Math.min(r.width, Math.max(0, clientX - r.left));
+    return { x, ms: Math.round((x / r.width) * total) };
+  };
+  return (
+    <div
+      ref={ref}
+      className={`seek ${dragging ? "dragging" : ""}`}
+      role="slider"
+      tabIndex={0}
+      aria-label="Seek"
+      aria-valuemin={0}
+      aria-valuemax={Math.max(1, total)}
+      aria-valuenow={Math.round(time)}
+      aria-valuetext={timecode(time)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setDragging(true);
+        onSeek(at(e.clientX).ms);
+      }}
+      onPointerMove={(e) => {
+        const h = at(e.clientX);
+        setHover(h);
+        if (dragging) onSeek(h.ms);
+      }}
+      onPointerUp={(e) => {
+        setDragging(false);
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }}
+      onPointerLeave={() => !dragging && setHover(null)}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? 1000 : 5000;
+        const to =
+          e.key === "ArrowLeft" ? time - step : e.key === "ArrowRight" ? time + step : e.key === "Home" ? 0 : e.key === "End" ? total : null;
+        if (to === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onSeek(Math.min(total, Math.max(0, to)));
+      }}
+    >
+      <div className="seek-rail">
+        <div className="seek-fill" style={{ width: `${p * 100}%` }} />
+        {hover && !dragging && <div className="seek-hover" style={{ width: `${hover.x}px` }} />}
+      </div>
+      <div className="seek-knob" style={{ left: `${p * 100}%` }} />
+      {hover && (
+        <div className="seek-tip num" style={{ left: `${hover.x}px` }}>
+          {timecode(hover.ms)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Save the position unless it is at the very start or end (then start fresh next time). */
 function rememberPosition(path: string, ms: number, total: number) {

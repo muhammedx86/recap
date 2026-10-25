@@ -79,7 +79,7 @@
 }
 .timeline-card {
   margin-top: 10px;
-  padding: 10px 14px 12px;
+  padding: 10px var(--seek-pad-x, 14px) 12px;
   border-radius: var(--r-lg);
   border: 1px solid var(--line);
   background: var(--raised);
@@ -323,10 +323,81 @@
   color: var(--ink-2);
   white-space: nowrap;
 }
-.player-scrub {
+/* Seek bar: a full-width line above the controls (padding set by --seek-pad-x, which the Match
+   page matches to the timeline card so both span the same width). */
+.player-seek-row {
+  padding: 6px var(--seek-pad-x, 12px) 0;
+  background: #0d0c12;
+}
+.player.is-fullscreen .player-seek-row {
+  background: var(--bg);
+  padding: 6px 12px 0;
+}
+.player-spacer {
   flex: 1;
-  min-width: 80px;
+}
+.seek {
+  position: relative;
   height: 14px;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+.seek-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+  transition: height 0.12s ease;
+}
+.seek:hover .seek-rail,
+.seek.dragging .seek-rail,
+.seek:focus-visible .seek-rail {
+  height: 5px;
+}
+.seek-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+}
+.seek-hover {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(255, 255, 255, 0.14);
+}
+.seek-knob {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(242, 163, 58, 0.35);
+  transform: translate(-50%, -50%) scale(0.85);
+  transition: transform 0.12s ease;
+  pointer-events: none;
+}
+.seek:hover .seek-knob,
+.seek.dragging .seek-knob,
+.seek:focus-visible .seek-knob {
+  transform: translate(-50%, -50%) scale(1);
+}
+.seek-tip {
+  position: absolute;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--overlay);
+  color: var(--ink);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 .player-rate select {
   appearance: none;
@@ -1733,7 +1804,15 @@
   width: 100%;
 }
 .match-page.side-hidden .timeline-card {
-  padding: 8px 16px 10px;
+  padding: 8px var(--seek-pad-x, 16px) 10px;
+}
+/* The seek bar over the video and the timeline track under it span the same width, so a
+   moment sits at the same place on both. */
+.match-page {
+  --seek-pad-x: 14px;
+}
+.match-page.side-hidden {
+  --seek-pad-x: 16px;
 }
 
 /* compact timeline header */
