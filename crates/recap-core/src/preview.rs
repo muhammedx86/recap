@@ -1,11 +1,7 @@
 //! Cheap previews for the library and the match page: the cut points a clip will really use, an
 //! audio waveform, and a strip of frames for hover scrubbing.
 
-use std::{
-    io::Read,
-    path::Path,
-    process::Stdio,
-};
+use std::{io::Read, path::Path, process::Stdio};
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -84,7 +80,11 @@ pub fn stream_copy_start(keyframes: &[u64], start_ms: u64) -> u64 {
 /// start on the keyframe before `start_ms`; re-encoded cuts are exact.
 pub fn cut_points(ff: &Ffmpeg, video: &Path, start_ms: u64, end_ms: u64, precise: bool) -> Result<CutPoints> {
     if precise {
-        return Ok(CutPoints { start_ms, end_ms, exact: true });
+        return Ok(CutPoints {
+            start_ms,
+            end_ms,
+            exact: true,
+        });
     }
     let kf = keyframes_between(ff, video, start_ms.saturating_sub(KEYFRAME_LOOKBACK_MS), start_ms + 1)?;
     Ok(CutPoints {
@@ -231,7 +231,12 @@ mod tests {
 
     fn ffmpeg_available() -> Option<Ffmpeg> {
         let ff = Ffmpeg::locate(&[]);
-        ff.command().arg("-version").output().ok().filter(|o| o.status.success()).map(|_| ff)
+        ff.command()
+            .arg("-version")
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|_| ff)
     }
 
     #[test]
@@ -278,13 +283,23 @@ mod tests {
         let kf = keyframes_between(&ff, &src, 0, 6000).unwrap();
         assert_eq!(kf, vec![0, 2000, 4000], "keyframes {kf:?}");
         let cp = cut_points(&ff, &src, 3_100, 5_000, false).unwrap();
-        assert_eq!(cp, CutPoints { start_ms: 2000, end_ms: 5000, exact: false });
+        assert_eq!(
+            cp,
+            CutPoints {
+                start_ms: 2000,
+                end_ms: 5000,
+                exact: false
+            }
+        );
         assert!(cut_points(&ff, &src, 3_100, 5_000, true).unwrap().exact);
         // The stream-copy clip really covers the snapped range.
         let clip = dir.path().join("clip.mp4");
         crate::clips::cut_clip(&ff, &src, 3_100, 5_000, &clip, false).unwrap();
         let got = ff.probe(&clip).unwrap().duration_ms;
-        assert!((2_850..=3_200).contains(&got), "clip covers {got} ms, expected ~3000 (2.0 s to 5.0 s)");
+        assert!(
+            (2_850..=3_200).contains(&got),
+            "clip covers {got} ms, expected ~3000 (2.0 s to 5.0 s)"
+        );
 
         let wave = waveform(&ff, &src, 6000, 12).unwrap();
         assert_eq!(wave.len(), 12);

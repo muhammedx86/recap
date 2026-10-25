@@ -345,7 +345,9 @@ impl Library {
             h.encoder = update.encoder.clone();
         }
         let json = (!h.is_empty()).then(|| serde_json::to_string(&h)).transpose()?;
-        let n = self.conn.execute("UPDATE matches SET health = ?2 WHERE id = ?1", params![match_id, json])?;
+        let n = self
+            .conn
+            .execute("UPDATE matches SET health = ?2 WHERE id = ?1", params![match_id, json])?;
         anyhow::ensure!(n == 1, "match {match_id} not found");
         Ok(())
     }
@@ -699,18 +701,29 @@ mod tests {
             },
         )
         .unwrap();
-        lib.set_health("a", &MatchHealth { low_disk: true, ..Default::default() }).unwrap();
+        lib.set_health(
+            "a",
+            &MatchHealth {
+                low_disk: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let h = lib.get_match("a").unwrap().unwrap().health;
         assert_eq!(h.dropped_frames, Some(0.04));
         assert_eq!(h.encoder.as_deref(), Some("NVENC H.264"));
         assert!(h.low_disk && !h.partial);
         // A resumed recording is partial.
-        lib.add_events("a", &[GameEvent::new(RESUMED_KIND, 0, EventSource::Manual)]).unwrap();
+        lib.add_events("a", &[GameEvent::new(RESUMED_KIND, 0, EventSource::Manual)])
+            .unwrap();
         assert!(lib.list_matches(None).unwrap()[0].health.partial);
         assert!(lib.set_health("zzz", &MatchHealth::default()).is_err());
         // Serialized without the unset fields.
         let v = serde_json::to_value(&lib.get_match("a").unwrap().unwrap().health).unwrap();
-        assert_eq!(v, serde_json::json!({"partial": true, "droppedFrames": 0.04f32, "lowDisk": true, "encoder": "NVENC H.264"}));
+        assert_eq!(
+            v,
+            serde_json::json!({"partial": true, "droppedFrames": 0.04f32, "lowDisk": true, "encoder": "NVENC H.264"})
+        );
     }
 
     #[test]

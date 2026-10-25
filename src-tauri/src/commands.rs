@@ -629,7 +629,13 @@ const STRIP_WIDTH: u32 = 1920;
 
 fn recording_for(app: &AppHandle, match_id: &str) -> CmdResult<MatchRecord> {
     let st = crate::state::state(app);
-    let m = st.library.lock().unwrap().get_match(match_id).map_err(err)?.ok_or("Recording not found")?;
+    let m = st
+        .library
+        .lock()
+        .unwrap()
+        .get_match(match_id)
+        .map_err(err)?
+        .ok_or("Recording not found")?;
     if !Path::new(&m.path).exists() {
         return Err("The recording file is missing".into());
     }
@@ -702,7 +708,10 @@ pub async fn match_scrub_strip(app: AppHandle, match_id: String) -> CmdResult<Sc
             fs::create_dir_all(&st.paths.thumbnails).map_err(err)?;
             recap_core::preview::scrub_strip(&st.ff, video, m.duration_ms, STRIP_FRAMES, STRIP_WIDTH, &out).map_err(err)?;
         }
-        Ok(ScrubStrip { path: out.to_string_lossy().into_owned(), frames: STRIP_FRAMES })
+        Ok(ScrubStrip {
+            path: out.to_string_lossy().into_owned(),
+            frames: STRIP_FRAMES,
+        })
     })
     .await
     .map_err(err)?
