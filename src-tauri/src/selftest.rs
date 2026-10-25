@@ -162,7 +162,15 @@ fn run_checks(st: &AppState) -> Value {
     let (k, v) = check("bundledGames", || {
         let games = st.games.read().unwrap();
         let ids: Vec<&str> = games.iter().map(|g| g.def.id.as_str()).collect();
-        for want in ["valorant", "cs2", "league-of-legends", "rocket-league", "marvel-rivals", "r6-siege", SAMPLE_GAME] {
+        for want in [
+            "valorant",
+            "cs2",
+            "league-of-legends",
+            "rocket-league",
+            "marvel-rivals",
+            "r6-siege",
+            SAMPLE_GAME,
+        ] {
             anyhow::ensure!(ids.contains(&want), "missing game {want}; loaded {ids:?}");
         }
         Ok(json!(ids))
