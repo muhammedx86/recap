@@ -105,6 +105,10 @@ pub fn spawn_riot_watcher(app: AppHandle) {
             };
             let mut puuid: Option<(u16, String)> = None;
             let mut player: Option<String> = None;
+            // VALORANT's own log: the agent you lock in during agent select (before recording starts).
+            let mut log: Option<recap_core::valorant_log::LogTail> = None;
+            let mut agents: std::collections::BTreeMap<String, String> = Default::default();
+            let mut agent: Option<String> = None;
             // Details for the recording in progress (reset per recording).
             let mut tracker: Option<(String, RiotTracker)> = None;
             loop {
@@ -132,6 +136,30 @@ pub fn spawn_riot_watcher(app: AppHandle) {
                     player = session.as_ref().and_then(riot_id);
                     puuid = session.and_then(|v| v["puuid"].as_str().map(|p| (lock.port, p.to_string())));
                 }
+                if log.is_none() {
+                    if let Some(p) = recap_core::valorant_log::default_log_path().filter(|p| p.exists()) {
+                        log = Some(recap_core::valorant_log::LogTail::new(&p));
+                        agents = valorant_dir(&app)
+                            .map(|d| recap_core::valorant_log::load_agent_names(&d))
+                            .unwrap_or_default();
+                    }
+                }
+                if let Some(l) = log.as_mut() {
+                    for ev in l.poll() {
+                        match ev {
+                            recap_core::valorant_log::LogEvent::Agent { uuid, locked } => {
+                                // A lock beats a hover; an unknown uuid (new agent) keeps the last name.
+                                if let Some(name) = agents.get(&uuid) {
+                                    if locked || agent.is_none() {
+                                        agent = Some(name.clone());
+                                    }
+                                }
+                            }
+                            recap_core::valorant_log::LogEvent::LoopState { to, .. } if to == "MENUS" => agent = None,
+                            _ => {}
+                        }
+                    }
+                }
                 let Some((_, me)) = puuid.as_ref() else { continue };
                 let private = get("/chat/v4/presences").ok().and_then(|p| decode_private(&p, me));
                 let Some(private) = private else {
@@ -157,12 +185,26 @@ pub fn spawn_riot_watcher(app: AppHandle) {
                     }
                     if let Some((_, t)) = tracker.as_mut() {
                         t.set_player(player.clone());
+                        t.set_character(agent.clone());
                         add_live_events(&app, &match_id, t.ingest(&private, elapsed));
                     }
                 }
             }
         })
         .ok();
+}
+
+/// The VALORANT game folder (user copy first), for its agent table.
+fn valorant_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    let st = state(app);
+    let games = st.games.read().unwrap();
+    let dirs: Vec<std::path::PathBuf> = games
+        .iter()
+        .filter(|g| g.def.api == Some(ApiSource::RiotClient))
+        .map(|g| g.dir.clone())
+        .chain(std::iter::once(st.paths.bundled_games.join("valorant")))
+        .collect();
+    dirs.into_iter().find(|d| d.join("agents.json").exists())
 }
 
 fn find_str<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {

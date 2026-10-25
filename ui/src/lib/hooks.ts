@@ -53,7 +53,8 @@ export function useNow(active: boolean, ms = 1000): number {
   return now;
 }
 
-/** Map of matchId -> processing progress (0..1), kept live from processing-progress events. */
+/** Map of matchId -> processing progress (0..1; -1 = waiting for the match being recorded to end),
+ * kept live from processing-progress events. */
 export function useProcessing(): Record<string, number> {
   const [map, setMap] = useState<Record<string, number>>(() => (isTauri ? {} : mock.processingSnapshot()));
   useEffect(
@@ -62,7 +63,7 @@ export function useProcessing(): Record<string, number> {
         setMap((m) => {
           const next = { ...m };
           if (p.stage === "done" || p.stage === "error") delete next[p.matchId];
-          else next[p.matchId] = p.progress;
+          else next[p.matchId] = p.stage === "waiting" ? -1 : p.progress;
           return next;
         });
       }),

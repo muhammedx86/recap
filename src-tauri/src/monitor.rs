@@ -46,6 +46,14 @@ pub fn spawn(app: AppHandle) {
                 handled.retain(|pid| alive.contains(pid));
                 state(&app).resume_pids.lock().unwrap().retain(|pid| alive.contains(pid));
                 tick(&app, &running, &mut handled);
+                // Decoders stay off the GPU while any known game runs.
+                let game_on = state(&app)
+                    .games
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .any(|g| g.def.processes.iter().any(|p| running.contains_key(&p.to_lowercase())));
+                recap_core::ffmpeg::set_game_running(game_on);
                 std::thread::sleep(Duration::from_secs(1));
             }
         })

@@ -103,6 +103,16 @@ pub struct AutoClipDef {
     /// Event kinds that produce clips.
     #[serde(default = "default_clip_events")]
     pub events: Vec<String>,
+    /// Seconds kept before/after each kind of play in this game (over the built-in defaults).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub timing: std::collections::BTreeMap<String, ClipTiming>,
+}
+
+/// Seconds of video kept before and after a play when it is clipped.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ClipTiming {
+    pub before: f32,
+    pub after: f32,
 }
 
 fn default_clip_events() -> Vec<String> {
@@ -113,6 +123,7 @@ impl Default for AutoClipDef {
     fn default() -> Self {
         Self {
             events: default_clip_events(),
+            timing: Default::default(),
         }
     }
 }

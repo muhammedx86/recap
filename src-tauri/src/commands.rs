@@ -280,6 +280,7 @@ pub fn save_game(st: State<'_, AppState>, game: GameInput) -> CmdResult<GameInfo
             } else {
                 game.auto_clip_events
             },
+            timing: existing.as_ref().map(|g| g.def.auto_clip.timing.clone()).unwrap_or_default(),
         },
         post_match: existing.as_ref().map(|g| g.def.post_match.clone()).unwrap_or_default(),
         event_types: existing.as_ref().map(|g| g.def.event_types.clone()).unwrap_or_default(),

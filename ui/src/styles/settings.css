@@ -157,3 +157,22 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Per-play clip timing */
+.timing-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 88px 88px;
+  gap: 6px 10px;
+  align-items: center;
+  max-width: 420px;
+  margin-top: 8px;
+}
+.timing-row { display: contents; }
+.timing-h {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.timing-kind { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.timing-grid .input-small { width: 100%; }

@@ -247,6 +247,13 @@ export interface AutoClipSettings {
   mergeGapSeconds: number;
   eventsOverride: string[];
   preciseCuts: boolean;
+  /** Your seconds before/after per kind of play (over the game's and built-in defaults). */
+  timing?: Record<string, ClipTiming>;
+}
+
+export interface ClipTiming {
+  before: number;
+  after: number;
 }
 
 export interface Settings {
@@ -359,7 +366,7 @@ export interface VideoInfo {
 
 export interface ProcessingProgress {
   matchId: string;
-  stage: "scanning" | "postMatch" | "details" | "splitting" | "clipping" | "done" | "error";
+  stage: "waiting" | "scanning" | "postMatch" | "details" | "splitting" | "clipping" | "done" | "error";
   progress: number;
   message?: string;
 }

@@ -36,13 +36,32 @@ pub fn plan_auto_clips(
     merge_gap_ms: u64,
     duration_ms: u64,
 ) -> Vec<ClipWindow> {
+    plan_auto_clips_timed(events, kinds, &|_| (before_ms, after_ms), merge_gap_ms, duration_ms)
+}
+
+/// Like [`plan_auto_clips`] with padding per event kind (`timing(kind) -> (before_ms, after_ms)`).
+/// Events that span time (a multikill with `meta.endMs`) pad from their start to their end.
+pub fn plan_auto_clips_timed(
+    events: &[GameEvent],
+    kinds: &[String],
+    timing: &dyn Fn(&str) -> (u64, u64),
+    merge_gap_ms: u64,
+    duration_ms: u64,
+) -> Vec<ClipWindow> {
     let mut triggers: Vec<&GameEvent> = events.iter().filter(|e| kinds.iter().any(|k| k == &e.kind)).collect();
     triggers.sort_by_key(|e| e.t_ms);
 
     let mut windows: Vec<ClipWindow> = Vec::new();
     for e in triggers {
+        let (before_ms, after_ms) = timing(&e.kind);
+        let span_end = e
+            .meta
+            .get("endMs")
+            .and_then(|v| v.as_u64())
+            .filter(|&t| t >= e.t_ms)
+            .unwrap_or(e.t_ms);
         let mut start = e.t_ms.saturating_sub(before_ms);
-        let mut end = e.t_ms.saturating_add(after_ms);
+        let mut end = span_end.saturating_add(after_ms);
         if duration_ms > 0 {
             end = end.min(duration_ms);
             start = start.min(end);
@@ -50,8 +69,10 @@ pub fn plan_auto_clips(
         if end <= start {
             continue;
         }
+        // Triggers are sorted by start, but a long before-padding can reach back past the last window.
         match windows.last_mut() {
             Some(last) if start <= last.end_ms.saturating_add(merge_gap_ms) => {
+                last.start_ms = last.start_ms.min(start);
                 last.end_ms = last.end_ms.max(end);
             }
             _ => windows.push(ClipWindow {
@@ -66,6 +87,80 @@ pub fn plan_auto_clips(
         w.event_kinds = kinds_in_window(events, w.start_ms, w.end_ms);
     }
     windows
+}
+
+/// Built-in padding (before, after) in seconds for event kinds whose moment is not centred on the
+/// event: a death is mostly what led to it, a bookmark is "save what just happened".
+pub fn default_timing(kind: &str) -> Option<(f32, f32)> {
+    use crate::events::kind as k;
+    Some(match kind {
+        k::KILL => (6.0, 3.0),
+        k::DEATH => (7.0, 2.0),
+        k::ASSIST => (5.0, 2.0),
+        k::MULTIKILL => (6.0, 4.0),
+        k::ACE => (8.0, 5.0),
+        k::BOOKMARK => (20.0, 3.0),
+        k::OBJECTIVE => (8.0, 4.0),
+        k::MVP => (6.0, 3.0),
+        k::BOMB_PLANT => (6.0, 3.0),
+        k::BOMB_DEFUSE => (8.0, 3.0),
+        k::ROUND_WIN | k::ROUND_LOSS => (6.0, 3.0),
+        "knock" => (5.0, 2.0),
+        _ => return None,
+    })
+}
+
+/// A clip's name from the plays inside it: "Triple kill", "Ace", or "2 kills + assist".
+/// `label(kind, plural)` names a kind.
+pub fn window_title(events: &[GameEvent], w: &ClipWindow, label: &dyn Fn(&str, bool) -> String) -> String {
+    use crate::events::kind as k;
+    let inside: Vec<&GameEvent> = {
+        let mut v: Vec<&GameEvent> = events.iter().filter(|e| e.t_ms >= w.start_ms && e.t_ms <= w.end_ms).collect();
+        v.sort_by_key(|e| e.t_ms);
+        v
+    };
+    if inside.iter().any(|e| e.kind == k::ACE) {
+        return "Ace".into();
+    }
+    let chain = inside
+        .iter()
+        .filter(|e| e.kind == k::MULTIKILL)
+        .filter_map(|e| e.meta.get("count").and_then(|c| c.as_u64()))
+        .max()
+        .unwrap_or(0);
+    if chain >= 2 {
+        const NAMES: [&str; 6] = ["", "", "Double kill", "Triple kill", "Quadra kill", "Penta kill"];
+        return NAMES
+            .get(chain as usize)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{chain} kills"));
+    }
+    // Counts per kind, in order of first appearance; structure kinds left out.
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for e in &inside {
+        if matches!(e.kind.as_str(), k::MATCH_START | k::MATCH_END | k::ROUND_START | k::MULTIKILL) {
+            continue;
+        }
+        match counts.iter_mut().find(|(kk, _)| *kk == e.kind) {
+            Some(c) => c.1 += 1,
+            None => counts.push((&e.kind, 1)),
+        }
+    }
+    if counts.is_empty() {
+        return w.event_kinds.first().map(|kk| label(kk, false)).unwrap_or_else(|| "Clip".into());
+    }
+    counts
+        .iter()
+        .take(3)
+        .map(|(kk, n)| {
+            if *n > 1 {
+                format!("{n} {}", label(kk, true).to_lowercase())
+            } else {
+                label(kk, false)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
 }
 
 /// Distinct kinds of events with `start_ms <= t <= end_ms`, in time order.
@@ -263,6 +358,44 @@ mod tests {
 
     fn ev(k: &str, t: u64) -> GameEvent {
         GameEvent::new(k, t, EventSource::Manual)
+    }
+
+    #[test]
+    fn per_kind_timing_spans_and_titles() {
+        let mut multi = ev(kind::MULTIKILL, 10_000);
+        multi.meta = serde_json::json!({ "count": 3, "endMs": 18_000 });
+        let events = vec![
+            ev(kind::KILL, 10_000),
+            ev(kind::KILL, 14_000),
+            ev(kind::KILL, 18_000),
+            multi,
+            ev(kind::DEATH, 60_000),
+            ev(kind::BOOKMARK, 120_000),
+        ];
+        let kinds: Vec<String> = [kind::MULTIKILL, kind::DEATH, kind::BOOKMARK]
+            .iter()
+            .map(|k| k.to_string())
+            .collect();
+        let timing = |k: &str| {
+            default_timing(k)
+                .map(|(b, a)| ((b * 1000.0) as u64, (a * 1000.0) as u64))
+                .unwrap_or((5_000, 3_000))
+        };
+        let w = plan_auto_clips_timed(&events, &kinds, &timing, 2_000, 0);
+        let spans: Vec<(u64, u64)> = w.iter().map(|w| (w.start_ms, w.end_ms)).collect();
+        // Multikill: 6 s before its first kill to 4 s after its last; death 7/2; bookmark 20/3.
+        assert_eq!(spans, vec![(4_000, 22_000), (53_000, 62_000), (100_000, 123_000)]);
+        let label = |k: &str, plural: bool| if plural { format!("{k}s") } else { k.to_string() };
+        let titles: Vec<String> = w.iter().map(|x| window_title(&events, x, &label)).collect();
+        assert_eq!(titles, vec!["Triple kill", "death", "bookmark"]);
+        let two = ClipWindow {
+            start_ms: 0,
+            end_ms: 70_000,
+            anchor_ms: 0,
+            event_kinds: vec![],
+        };
+        let no_multi: Vec<GameEvent> = events.iter().filter(|e| e.kind != kind::MULTIKILL).cloned().collect();
+        assert_eq!(window_title(&no_multi, &two, &label), "3 kills + death");
     }
 
     #[test]

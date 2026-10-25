@@ -414,8 +414,8 @@ function StatusLine({ m, r, progress }: { m: MatchRecord; r: RowData; progress?:
   if (r.processing)
     return (
       <span className="row-status">
-        <ProgressBar value={progress ?? 0.05} label="Processing" />
-        <span className="num">Finding plays{progress !== undefined ? ` ${Math.round(progress * 100)}%` : "…"}</span>
+        <ProgressBar value={progress !== undefined && progress >= 0 ? progress : 0.05} label="Processing" />
+        <span className="num">{progress !== undefined && progress < 0 ? "Finds plays after your match" : `Finding plays${progress !== undefined ? ` ${Math.round(progress * 100)}%` : "…"}`}</span>
       </span>
     );
   if (m.status === "error") return <span className="row-status err">{m.error ?? "This recording failed."}</span>;
