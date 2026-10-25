@@ -322,6 +322,8 @@ pub struct ObsBackend {
     saved: Option<SavedArm>,
     /// Encoder memory as last reported (survives re-arms within this process).
     memory: Option<EncoderMemory>,
+    /// Makes source names unique (a removed source may live on until OBS releases it).
+    names: u64,
 }
 
 fn same_setup(a: &ArmState, capture: &CaptureTarget, video: &VideoConfig, audio: &AudioConfig) -> bool {
@@ -354,6 +356,7 @@ impl ObsBackend {
                 rec: None,
                 saved: None,
                 memory: None,
+                names: 0,
             },
             version,
         ))
@@ -383,25 +386,33 @@ impl ObsBackend {
         // A separate mic track only makes sense when the mic is recorded.
         let mic_track = audio.microphone && audio.separate_mic_track;
         if audio.desktop {
+            let name = self.name("desktop");
             let mut data = self.ctx.data().map_err(err("audio settings"))?;
             data.set_string("device_id", "default").map_err(err("audio settings"))?;
             let item = self
                 .scene
-                .add_and_create_source(SourceInfo::new("wasapi_output_capture", "recap_desktop", Some(data), None))
+                .add_and_create_source(SourceInfo::new("wasapi_output_capture", name, Some(data), None))
                 .map_err(err("adding desktop audio"))?;
             set_audio_tracks(item.inner_source(), TRACK_1)?;
         }
         if audio.microphone {
+            let name = self.name("mic");
             let mut data = self.ctx.data().map_err(err("mic settings"))?;
             data.set_string("device_id", audio.microphone_device.as_deref().unwrap_or("default"))
                 .map_err(err("mic settings"))?;
             let item = self
                 .scene
-                .add_and_create_source(SourceInfo::new("wasapi_input_capture", "recap_mic", Some(data), None))
+                .add_and_create_source(SourceInfo::new("wasapi_input_capture", name, Some(data), None))
                 .map_err(err("adding microphone"))?;
             set_audio_tracks(item.inner_source(), if mic_track { TRACKS_1_AND_2 } else { TRACK_1 })?;
         }
         Ok(())
+    }
+
+    /// A source name not used before in this process.
+    fn name(&mut self, base: &str) -> String {
+        self.names += 1;
+        format!("recap_{base}_{}", self.names)
     }
 
     fn clear_scene(&mut self) {
@@ -1507,9 +1518,10 @@ mod capture {
             .or_else(|| monitors.iter().find(|m| m.0.is_primary))
             .or_else(|| monitors.first())
             .ok_or_else(|| "no monitor found".to_string())?;
+        let name = b.name("monitor");
         let item = b
             .ctx
-            .source_builder::<MonitorCaptureSourceBuilder, _>("recap_monitor")
+            .source_builder::<MonitorCaptureSourceBuilder, _>(name)
             .map_err(|e| format!("monitor capture: {e}"))?
             .set_monitor(monitor)
             .add_to_scene(&mut b.scene)
@@ -1520,9 +1532,10 @@ mod capture {
 
     pub fn add_game(b: &mut ObsBackend, window: &Window) -> Result<(SourcePtr, ObsRuntime), String> {
         let fail = |e: libobs_wrapper::utils::ObsError| format!("game capture: {e}");
+        let name = b.name("game");
         let item = b
             .ctx
-            .source_builder::<GameCaptureSourceBuilder, _>("recap_game")
+            .source_builder::<GameCaptureSourceBuilder, _>(name)
             .map_err(fail)?
             .set_capture_mode(ObsGameCaptureMode::CaptureSpecificWindow)
             .set_window(&window.0)
@@ -1538,9 +1551,10 @@ mod capture {
 
     pub fn add_window(b: &mut ObsBackend, window: &Window) -> Result<(), String> {
         let fail = |e: libobs_wrapper::utils::ObsError| format!("window capture: {e}");
+        let name = b.name("window");
         let item = b
             .ctx
-            .source_builder::<WindowCaptureSourceBuilder, _>("recap_window")
+            .source_builder::<WindowCaptureSourceBuilder, _>(name)
             .map_err(fail)?
             .set_window(window)
             .set_priority(ObsWindowPriority::Executable)
