@@ -386,6 +386,7 @@ fn split_session(
             event_counts: Default::default(),
             error: None,
             details: Default::default(),
+            health: Default::default(),
         };
         make_thumbnail(st, &mut m);
         // Details: read on the session recording, from just before this match to the next one.

@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { bytes, clockTime, duration, timeAgo } from "../lib/format";
 import { useLibraryChanged, useLoad, useProcessing } from "../lib/hooks";
 import { useToast } from "../lib/toast";
 import type { DetailValue, MatchRecord } from "../lib/types";
-import { Confirm, Empty, Icon, KindDot, Modal, ProgressBar, Thumb } from "../components/ui";
+import { Confirm, Empty, Icon, KindDot, Modal, ProgressBar } from "../components/ui";
 import { Dropdown, MoreMenu } from "../components/Dropdown";
 import { AssetImg } from "../components/AssetImg";
 import { kindStyle, sortKinds } from "../lib/kinds";
@@ -14,6 +14,9 @@ import { roundScore } from "../lib/rounds";
 import { kdaRatio, scoreParts } from "../lib/details";
 import { useAssetDirs } from "../lib/assets";
 import { loadPref, savePref } from "../lib/media";
+import { healthIssues } from "../lib/health";
+import { PreviewThumb } from "../components/PreviewThumb";
+import { DateScrubber } from "../components/DateScrubber";
 
 /** Full name for pickers and dialogs: the custom title, or game and start time. */
 export function matchTitle(m: MatchRecord): string {
@@ -65,6 +68,7 @@ export function Library() {
   const [renaming, setRenaming] = useState<MatchRecord | null>(null);
   const [deleting, setDeleting] = useState<MatchRecord | null>(null);
   const toast = useToast();
+  const listRef = useRef<HTMLUListElement>(null);
   useLibraryChanged(reload);
 
   const gamesPresent = useMemo(() => {
@@ -242,18 +246,20 @@ export function Library() {
       )}
 
       {view === "list" ? (
-        <ul className="match-list">
+        <ul className="match-list" ref={listRef}>
           {list.map((m) => (
             <MatchRow key={m.id} m={m} dir={dirs[m.gameId] ?? null} progress={processing[m.id]} showGame={activeGame === "all"} {...actions(m)} />
           ))}
         </ul>
       ) : (
-        <ul className="match-grid-view">
+        <ul className="match-grid-view" ref={listRef}>
           {list.map((m) => (
             <MatchCard key={m.id} m={m} dir={dirs[m.gameId] ?? null} progress={processing[m.id]} showGame={activeGame === "all"} {...actions(m)} />
           ))}
         </ul>
       )}
+
+      {list.length > 1 && <DateScrubber key={view} listRef={listRef} items={list} />}
 
       {renaming && <RenameDialog m={renaming} onClose={() => setRenaming(null)} onSaved={patch} />}
       {deleting && (
@@ -421,7 +427,7 @@ function MatchRow(p: RowProps) {
   const r = rowData(m);
   const hasStatus = r.live || r.processing || m.status === "error";
   return (
-    <li className={`mrow ${r.outcome ?? ""} ${r.live ? "is-live" : ""}`}>
+    <li className={`mrow ${r.outcome ?? ""} ${r.live ? "is-live" : ""}`} data-id={m.id}>
       <Link to={`/match/${m.id}`} className="mrow-link" aria-label={`Open ${matchTitle(m)}`}>
         <div className="mrow-main">
           <div className="mrow-title">
@@ -440,6 +446,7 @@ function MatchRow(p: RowProps) {
             <span title={new Date(m.startedUnixMs).toLocaleString()}>{timeAgo(m.startedUnixMs)}</span>
             {!r.live && m.durationMs > 0 && <span className="num"> · {duration(m.durationMs)}</span>}
           </div>
+          <HealthBadges m={m} />
         </div>
 
         {hasStatus ? (
@@ -479,6 +486,22 @@ function MatchRow(p: RowProps) {
   );
 }
 
+/** Small badges for anything that went wrong while recording (see `MatchHealth`). */
+function HealthBadges({ m }: { m: MatchRecord }) {
+  const issues = healthIssues(m.health);
+  if (!issues.length) return null;
+  return (
+    <div className="health" aria-label="Recording health">
+      {issues.map((i) => (
+        <span key={i.key} className={`health-badge ${i.tone}`} title={i.detail}>
+          <Icon name={i.key === "api" ? "unplug" : i.key === "disk" ? "storage" : i.key === "encoder" ? "monitor" : i.key === "dropped" ? "health" : "warning"} size={11} />
+          {i.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function PlayerName({ id }: { id: string }) {
   const [name, tag] = id.split("#");
   return (
@@ -493,9 +516,9 @@ function MatchCard(p: RowProps) {
   const { m, dir, showGame, progress } = p;
   const r = rowData(m);
   return (
-    <li className={`mcard ${r.outcome ?? ""} ${r.live ? "is-live" : ""}`}>
+    <li className={`mcard ${r.outcome ?? ""} ${r.live ? "is-live" : ""}`} data-id={m.id}>
       <Link to={`/match/${m.id}`} className="mcard-link" aria-label={`Open ${matchTitle(m)}`}>
-        <Thumb path={m.thumbnail} alt="" className="mcard-thumb">
+        <PreviewThumb matchId={m.id} path={m.path} thumbnail={m.thumbnail} durationMs={m.durationMs} enabled={r.done} className="mcard-thumb">
           {r.outcome && r.outcome !== "draw" && <span className={`mcard-badge ${r.outcome}`}>{r.outcome === "win" ? "Victory" : "Defeat"}</span>}
           {!r.live && m.durationMs > 0 && <span className="thumb-duration num">{duration(m.durationMs)}</span>}
           {r.live && (
@@ -503,7 +526,7 @@ function MatchCard(p: RowProps) {
               <span className="rec-dot" aria-hidden /> Recording
             </span>
           )}
-        </Thumb>
+        </PreviewThumb>
         <div className="mcard-body">
           <div className="mcard-top">
             {r.character && <AssetImg dir={dir} kind="agents" name={r.character} className="portrait small" />}
@@ -521,6 +544,7 @@ function MatchCard(p: RowProps) {
             {r.score && <Score score={r.score} outcome={r.outcome} />}
           </div>
           <StatusLine m={m} r={r} progress={progress} />
+          <HealthBadges m={m} />
           {r.done && (r.kda || r.rank || r.plays.length > 0) && (
             <div className="mcard-stats">
               <Kda r={r} />

@@ -17,6 +17,7 @@ pub mod library;
 pub mod matchgate;
 pub mod postmatch;
 pub mod prebuffer;
+pub mod preview;
 pub mod protocol;
 pub mod readers;
 pub mod riot_local;

@@ -621,3 +621,101 @@ pub fn selftest_enabled() -> bool {
 pub fn selftest_tour_step(page: String) {
     crate::selftest::tour_step(&page);
 }
+
+// ---- Timeline / library previews -------------------------------------------------------------
+
+/// Number of peaks in a recording's waveform.
+const WAVE_BUCKETS: usize = 1200;
+/// Frames tiled into a scrub-preview strip, and the strip's total width.
+const STRIP_FRAMES: u32 = 12;
+const STRIP_WIDTH: u32 = 1920;
+
+fn recording_for(app: &AppHandle, match_id: &str) -> CmdResult<MatchRecord> {
+    let st = crate::state::state(app);
+    let m = st
+        .library
+        .lock()
+        .unwrap()
+        .get_match(match_id)
+        .map_err(err)?
+        .ok_or("Recording not found")?;
+    if !Path::new(&m.path).exists() {
+        return Err("The recording file is missing".into());
+    }
+    Ok(m)
+}
+
+/// A cache file is fresh when it exists and is no older than the recording it was made from.
+fn cache_fresh(cache: &Path, video: &Path) -> bool {
+    let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    match (modified(cache), modified(video)) {
+        (Some(c), Some(v)) => c >= v,
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
+/// Where a stream-copy clip of `start_ms..end_ms` will really start and end (the keyframe it snaps to),
+/// or the exact range when frame-accurate cuts are on.
+#[tauri::command]
+pub async fn clip_cut_points(app: AppHandle, match_id: String, start_ms: u64, end_ms: u64) -> CmdResult<recap_core::preview::CutPoints> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = recording_for(&app, &match_id)?;
+        let st = crate::state::state(&app);
+        let precise = st.settings.read().unwrap().auto_clip.precise_cuts;
+        let end_ms = if m.duration_ms > 0 { end_ms.min(m.duration_ms) } else { end_ms };
+        recap_core::preview::cut_points(&st.ff, Path::new(&m.path), start_ms, end_ms, precise).map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Audio peaks (0..255) across the whole recording, evenly spaced; empty when it has no audio. Cached.
+#[tauri::command]
+pub async fn match_waveform(app: AppHandle, match_id: String) -> CmdResult<Vec<u8>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = recording_for(&app, &match_id)?;
+        let st = crate::state::state(&app);
+        let video = Path::new(&m.path);
+        let cache = st.paths.thumbnails.join(format!("{}.wave", m.id));
+        if cache_fresh(&cache, video) {
+            if let Ok(bytes) = fs::read(&cache) {
+                return Ok(bytes);
+            }
+        }
+        let peaks = recap_core::preview::waveform(&st.ff, video, m.duration_ms, WAVE_BUCKETS).map_err(err)?;
+        let _ = fs::create_dir_all(&st.paths.thumbnails);
+        let _ = fs::write(&cache, &peaks);
+        Ok(peaks)
+    })
+    .await
+    .map_err(err)?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrubStrip {
+    path: String,
+    frames: u32,
+}
+
+/// One JPG with `frames` evenly spaced stills side by side (frame i shows the middle of slot i). Cached.
+#[tauri::command]
+pub async fn match_scrub_strip(app: AppHandle, match_id: String) -> CmdResult<ScrubStrip> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = recording_for(&app, &match_id)?;
+        let st = crate::state::state(&app);
+        let video = Path::new(&m.path);
+        let out = st.paths.thumbnails.join(format!("{}.strip.jpg", m.id));
+        if !cache_fresh(&out, video) {
+            fs::create_dir_all(&st.paths.thumbnails).map_err(err)?;
+            recap_core::preview::scrub_strip(&st.ff, video, m.duration_ms, STRIP_FRAMES, STRIP_WIDTH, &out).map_err(err)?;
+        }
+        Ok(ScrubStrip {
+            path: out.to_string_lossy().into_owned(),
+            frames: STRIP_FRAMES,
+        })
+    })
+    .await
+    .map_err(err)?
+}

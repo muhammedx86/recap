@@ -456,3 +456,181 @@
     display: none;
   }
 }
+
+/* ---------- card previews: scrub stills, then the video ---------- */
+
+.preview-thumb .scrub-frame,
+.preview-thumb .preview-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.preview-thumb .scrub-frame {
+  background-repeat: no-repeat;
+  background-color: var(--sunken);
+}
+.preview-thumb .preview-video {
+  object-fit: cover;
+  background: #000;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.preview-thumb.playing .preview-video {
+  opacity: 1;
+}
+.scrub-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.scrub-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.scrub-time {
+  position: absolute;
+  left: 8px;
+  bottom: 9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(9, 10, 13, 0.82);
+  color: var(--ink);
+  font-size: 11px;
+  pointer-events: none;
+}
+.preview-thumb.hovering .thumb-duration {
+  opacity: 0;
+}
+
+/* ---------- recording health ---------- */
+
+.health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+.mcard-body .health {
+  margin-top: -4px;
+}
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: help;
+}
+.health-badge.warn {
+  color: #f5b85b;
+  background: rgba(242, 163, 58, 0.11);
+  box-shadow: inset 0 0 0 1px rgba(242, 163, 58, 0.24);
+}
+.health-badge.info {
+  color: var(--ink-2);
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.health-badge .icon {
+  opacity: 0.85;
+}
+
+/* ---------- date scrubber on the right edge ---------- */
+
+.date-scrubber {
+  position: fixed;
+  right: 10px;
+  top: 150px;
+  bottom: 28px;
+  width: 54px;
+  z-index: 20;
+  cursor: pointer;
+  user-select: none;
+}
+.ds-line {
+  position: absolute;
+  right: 6px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ds-view {
+  position: absolute;
+  right: 5px;
+  width: 4px;
+  border-radius: 2px;
+  background: rgba(242, 163, 58, 0.55);
+  transition: top 0.08s linear;
+}
+.ds-tick {
+  position: absolute;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.ds-tick::after {
+  content: "";
+  width: 8px;
+  height: 1px;
+  margin-right: 3px;
+  background: var(--faint);
+}
+.ds-tick-label {
+  font-size: 10px;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.ds-tick.major .ds-tick-label {
+  color: var(--muted);
+  font-weight: 650;
+}
+.date-scrubber:hover .ds-tick-label,
+.ds-tick.major .ds-tick-label {
+  opacity: 1;
+}
+.date-scrubber:hover .ds-line {
+  background: rgba(255, 255, 255, 0.1);
+}
+.ds-hover {
+  position: absolute;
+  right: 20px;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  color: var(--ink);
+  font-size: 11.5px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.page-library {
+  padding-right: calc(var(--gutter) + 40px);
+}
+@media (max-width: 760px) {
+  .date-scrubber {
+    display: none;
+  }
+  .page-library {
+    padding-right: var(--gutter);
+  }
+}

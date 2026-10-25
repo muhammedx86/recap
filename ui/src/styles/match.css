@@ -1133,3 +1133,669 @@
   padding-top: 4px;
   padding-bottom: 4px;
 }
+
+/* clustered markers: overlapping ticks become one chip with a count */
+.tl-lane.fanned {
+  z-index: 6;
+}
+.tl-cluster {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 18px;
+  width: calc(var(--span) + 10px);
+  transform: translateX(-50%);
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--kind) 26%, var(--raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kind) 70%, transparent);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+  transition:
+    background 0.12s,
+    box-shadow 0.12s;
+}
+.tl-cluster:hover,
+.tl-cluster:focus-visible,
+.tl-cluster.open {
+  background: color-mix(in srgb, var(--kind) 45%, var(--raised));
+  box-shadow: inset 0 0 0 1px var(--kind);
+}
+.tl-cluster-count {
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+}
+.tl-fan {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  z-index: 8;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  animation: tl-fan-in 0.12s ease-out;
+}
+.tl-fan.pinned {
+  border-color: var(--accent-line);
+}
+@keyframes tl-fan-in {
+  from {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
+.tl-fan-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.tl-fan-item:hover,
+.tl-fan-item:focus-visible {
+  background: var(--raised-2);
+  color: var(--ink);
+}
+.tl-fan-dot {
+  width: 3px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+/* audio waveform strip */
+.tl-labels .tl-wave-label {
+  height: 30px;
+  margin-top: 4px;
+}
+.tl-wave-icon {
+  display: inline-flex;
+  width: 12px;
+  color: var(--faint);
+}
+.tl-wave {
+  height: 30px;
+  margin-top: 4px;
+  border-top: 1px solid var(--hair);
+  padding-top: 3px;
+}
+.tl-wave svg {
+  display: block;
+}
+.tl-wave-bars {
+  stroke: #4a525e;
+}
+.tl-wave-bars.played {
+  stroke: color-mix(in srgb, var(--accent) 70%, #4a525e);
+}
+
+/* clip cut points: where the stream-copy cut really starts */
+.tl-cut-lead {
+  position: absolute;
+  top: 20px;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(135deg, rgba(242, 163, 58, 0.16) 0 3px, transparent 3px 7px);
+  border-left: 1px dashed var(--accent);
+}
+.tl-cut-flag {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* highlight mode: gaps between moments are dimmed */
+.tl-hl-gap {
+  position: absolute;
+  top: 20px;
+  bottom: 0;
+  background: rgba(11, 13, 16, 0.62);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* toggled tool buttons */
+.btn-on {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+.btn-on:hover:not(:disabled) {
+  background: rgba(242, 163, 58, 0.2);
+}
+.wave-toggle.on {
+  color: var(--ink-2);
+}
+.wave-toggle:not(.on) {
+  color: var(--faint);
+}
+
+/* where the clip will really be cut */
+.cut-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cut-note .icon {
+  color: var(--accent);
+  flex: none;
+}
+.cut-note .num {
+  color: var(--ink-2);
+}
+.cut-note a {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 2px;
+}
+.cut-note a:hover {
+  color: var(--accent);
+}
+
+/* highlight mode bar */
+.hl-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 8px;
+  padding: 5px 6px 5px 8px;
+  border-radius: var(--r);
+  background: linear-gradient(90deg, rgba(242, 163, 58, 0.09), rgba(242, 163, 58, 0.02) 60%);
+  border: 1px solid rgba(242, 163, 58, 0.22);
+}
+.hl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 2px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.hl-bar .icon-btn {
+  width: 24px;
+  height: 24px;
+}
+.hl-label {
+  min-width: 118px;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.hl-segs {
+  flex: 1 1 140px;
+  display: flex;
+  gap: 2px;
+  min-width: 100px;
+}
+.hl-seg {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+}
+.hl-seg:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.hl-seg-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line-soft);
+  font-size: 11.5px;
+}
+.stepper-label {
+  padding: 0 4px 0 7px;
+  color: var(--muted);
+}
+.stepper-value {
+  min-width: 30px;
+  text-align: center;
+  color: var(--ink);
+}
+.stepper-btn {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.stepper-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+}
+.stepper-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.tl-hl-win {
+  position: absolute;
+  top: 17px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ---------- single combined track (default timeline) ---------- */
+.timeline.single {
+  display: block;
+  margin-top: 8px;
+}
+.tl1 {
+  position: relative;
+  cursor: crosshair;
+  border-bottom: 0;
+  padding: 0;
+}
+.tl1-rounds {
+  position: absolute;
+  inset: 0 0 20px 0;
+  pointer-events: none;
+}
+.tl1-round {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.tl1-round.win {
+  background: linear-gradient(to bottom, rgba(62, 207, 142, 0.05), transparent 70%);
+}
+.tl1-round.loss {
+  background: linear-gradient(to bottom, rgba(242, 109, 109, 0.05), transparent 70%);
+}
+.tl1-round-line {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.tl1-round-num {
+  position: absolute;
+  top: 0;
+  left: 3px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  font-size: 10px;
+  line-height: 15px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.tl1-round-num:hover {
+  background: var(--raised-2);
+  color: var(--ink);
+}
+.tl1-band {
+  position: relative;
+  height: 58px;
+  margin-top: 16px;
+}
+.timeline.single:not(.has-rounds) .tl1-band {
+  margin-top: 6px;
+}
+.tl1-curve {
+  position: absolute;
+  inset: 4px 0 0 0;
+  width: 100%;
+  height: calc(100% - 4px);
+  pointer-events: none;
+}
+.tl1-curve-area {
+  fill: rgba(255, 255, 255, 0.035);
+}
+.tl1-curve-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.22);
+  stroke-width: 1.25;
+}
+.tl1-curve-area.played {
+  fill: rgba(242, 163, 58, 0.09);
+}
+.tl1-curve-line.played {
+  stroke: rgba(242, 163, 58, 0.7);
+}
+.tl1-curve.audio .tl1-curve-line {
+  stroke: rgba(255, 255, 255, 0.16);
+}
+.tl1-empty {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* markers: a round icon per play, all on the band's centre line */
+.tl1-marker,
+.tl1-cluster {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: #15181d;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--kind) 55%, transparent),
+    0 0 0 2px var(--raised);
+  cursor: pointer;
+  z-index: 3;
+  transition:
+    box-shadow 0.12s,
+    background 0.12s;
+}
+.tl1-marker {
+  width: 24px;
+  padding: 0;
+}
+.tl1-cluster {
+  min-width: 36px;
+  gap: 4px;
+  padding: 0 8px 0 6px;
+}
+.tl1-marker:hover,
+.tl1-marker:focus-visible,
+.tl1-cluster:hover,
+.tl1-cluster:focus-visible,
+.tl1-cluster.open {
+  background: color-mix(in srgb, var(--kind) 22%, #15181d);
+  box-shadow:
+    inset 0 0 0 1px var(--kind),
+    0 0 0 2px var(--raised);
+  z-index: 5;
+}
+.tl1-count {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--ink);
+  line-height: 1;
+}
+.tl1-cluster.mixed .tl1-count::after {
+  content: "";
+}
+/* a multikill / ace: amber ring and a lifted badge */
+.tl1-marker.big,
+.tl1-cluster.big {
+  background: color-mix(in srgb, var(--accent) 16%, #15181d);
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    0 0 0 2px var(--raised),
+    0 0 14px rgba(242, 163, 58, 0.35);
+}
+.tl1-cluster.big .tl1-count {
+  color: var(--accent);
+}
+.tl1-fan {
+  bottom: calc(50% + 16px);
+}
+.tl1-fan-title {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px 0 4px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--accent);
+  border-right: 1px solid var(--line);
+  margin-right: 2px;
+}
+.tl1-fan .kind-icon {
+  display: inline-flex;
+}
+
+/* ruler underneath */
+.tl1-ruler {
+  position: relative;
+  height: 20px;
+  margin-top: 2px;
+  border-top: 1px solid var(--hair);
+}
+.tl1-mark {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.tl1-mark.first {
+  transform: none;
+}
+.tl1-mark::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 1px;
+  height: 4px;
+  background: var(--line);
+}
+.tl1-mark.first::before {
+  left: 0;
+}
+
+/* playhead, trim range, highlight windows on the single track */
+.tl1-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 18px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 6;
+}
+.tl1-playhead::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--raised);
+}
+.tl1-range {
+  position: absolute;
+  top: -16px;
+  bottom: 0;
+  background: var(--accent-soft);
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+  pointer-events: none;
+  z-index: 1;
+}
+.tl1-cut-lead {
+  position: absolute;
+  top: -16px;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(135deg, rgba(242, 163, 58, 0.16) 0 3px, transparent 3px 7px);
+  border-left: 1px dashed var(--accent);
+  z-index: 1;
+}
+.tl1-hl-gap {
+  position: absolute;
+  top: -16px;
+  bottom: 0;
+  background: rgba(11, 13, 16, 0.5);
+  pointer-events: none;
+  z-index: 2;
+}
+.tl1-hl-win {
+  position: absolute;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+.timeline.single .tl-cut-flag {
+  top: -2px;
+  z-index: 7;
+}
+.timeline.single .tl-hover {
+  top: -24px;
+}
+
+/* ---------- Match page layout: panels hidden by default, video gets the room ---------- */
+.match-page.side-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+.match-page.side-hidden .match-col {
+  padding: 14px 22px 48px;
+}
+.panel-toggle {
+  flex: none;
+  margin-top: 1px;
+  color: var(--muted);
+}
+.panel-toggle.on {
+  color: var(--accent);
+}
+.panel-toggle-side .num {
+  font-weight: 500;
+}
+.side-tabs {
+  position: relative;
+}
+.side-collapse {
+  flex: none;
+  align-self: center;
+  margin: 0 8px;
+  color: var(--muted);
+}
+/* The video fills the window; the timeline stays in view under it. */
+.video-card .player:not(.is-fullscreen) .player-stage {
+  max-height: calc(100vh - 286px - var(--tl-extra, 0px));
+  min-height: 220px;
+  width: 100%;
+}
+.match-page.side-hidden .timeline-card {
+  padding: 8px 16px 10px;
+}
+
+/* compact timeline header */
+.tools-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tools-start .clipper {
+  padding-left: 6px;
+  margin-left: 2px;
+  border-left: 1px solid var(--line-soft);
+}
+.tools-start .clipper .input-small {
+  width: 150px;
+}
+.tools .tools-end {
+  gap: 8px;
+}
+.curve-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.curve-select {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 2px;
+  cursor: pointer;
+}
+.curve-select:focus-visible {
+  outline: 1px solid var(--accent-line);
+  border-radius: 3px;
+}
+.curve-select option {
+  background: var(--raised);
+  color: var(--ink);
+}
+.seg-icons button {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.seg-icons button.on {
+  color: var(--accent-ink);
+}
+.tools .shortcuts > summary.icon-btn {
+  color: var(--muted);
+}
+.match-page.lanes-view .video-card .player:not(.is-fullscreen) .player-stage {
+  max-height: calc(100vh - 420px - var(--tl-extra, 0px));
+}
+.tl1:focus-visible {
+  outline: 1px solid var(--accent-line);
+  outline-offset: 3px;
+  border-radius: 4px;
+}

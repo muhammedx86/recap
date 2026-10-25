@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, Route, Routes, useLocation } from "react-router-dom";
+import { useMatchPanel } from "./lib/layout";
 import { refreshEventTypes, useEventTypes } from "./lib/kinds";
 import { Sidebar } from "./components/Sidebar";
 import { ToastProvider } from "./lib/toast";
@@ -23,21 +24,31 @@ export function App() {
     <ToastProvider>
       <HashRouter>
         <SelfTestTour />
-        <div className="shell">
-          <Sidebar />
-          <main className="main">
-            <Routes>
-              <Route path="/" element={<Library />} />
-              <Route path="/match/:id" element={<MatchPage />} />
-              <Route path="/clips" element={<Clips />} />
-              <Route path="/studio" element={<Studio />} />
-              <Route path="/games" element={<Games />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="*" element={<Library />} />
-            </Routes>
-          </main>
-        </div>
+        <Shell />
       </HashRouter>
     </ToastProvider>
+  );
+}
+
+/** The Match page gives the video the room: the app sidebar is hidden there unless you bring it back. */
+function Shell() {
+  const onMatch = useLocation().pathname.startsWith("/match/");
+  const navOpen = useMatchPanel("nav");
+  const hideNav = onMatch && !navOpen;
+  return (
+    <div className={`shell ${hideNav ? "nav-hidden" : ""}`}>
+      {!hideNav && <Sidebar />}
+      <main className="main">
+        <Routes>
+          <Route path="/" element={<Library />} />
+          <Route path="/match/:id" element={<MatchPage />} />
+          <Route path="/clips" element={<Clips />} />
+          <Route path="/studio" element={<Studio />} />
+          <Route path="/games" element={<Games />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Library />} />
+        </Routes>
+      </main>
+    </div>
   );
 }

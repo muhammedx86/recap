@@ -133,6 +133,11 @@ impl Ffmpeg {
         c
     }
 
+    /// An ffprobe command (no console window on Windows).
+    pub fn ffprobe_command(&self) -> Command {
+        self.probe_command()
+    }
+
     pub fn probe(&self, video: &Path) -> Result<VideoInfo> {
         let out = self
             .probe_command()

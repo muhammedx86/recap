@@ -63,7 +63,43 @@ pub struct MatchRecord {
     /// Character, map, K/D/A, result... (see [`crate::details`]).
     #[serde(default)]
     pub details: MatchDetails,
+    /// What went wrong or was unusual while recording/processing. Computed on read (stored
+    /// facts plus derived ones); written only through [`Library::set_health`].
+    #[serde(default)]
+    pub health: MatchHealth,
 }
+
+/// Recording health facts shown as badges on a match. Every field is optional: unknown is not
+/// a problem.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchHealth {
+    /// The recording does not cover the whole match (resumed after a manual stop, or started
+    /// mid-match).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
+    /// The game's local API could not be reached, so plays come from the screen only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub api_unavailable: bool,
+    /// Share of frames the encoder skipped or dropped, 0..1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_frames: Option<f32>,
+    /// Free disk space ran low while recording.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub low_disk: bool,
+    /// The encoder that actually recorded, e.g. "NVENC H.264".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder: Option<String>,
+}
+
+impl MatchHealth {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Event kind marking a recording resumed after a manual stop (see the app's session code).
+const RESUMED_KIND: &str = "_resumed";
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -159,6 +195,8 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_clips_created ON clips(created_unix_ms);",
     // v2: match details (JSON object field -> {value, source, confidence})
     "ALTER TABLE matches ADD COLUMN details TEXT",
+    // v3: recording health facts (JSON, see MatchHealth)
+    "ALTER TABLE matches ADD COLUMN health TEXT",
 ];
 
 fn source_type(s: &EventSource) -> &'static str {
@@ -198,6 +236,7 @@ fn row_to_match(r: &Row) -> rusqlite::Result<MatchRecord> {
             .get::<_, Option<String>>(12)?
             .and_then(|d| serde_json::from_str(&d).ok())
             .unwrap_or_default(),
+        health: MatchHealth::default(),
     })
 }
 
@@ -267,7 +306,50 @@ impl Library {
 
     fn with_counts(&self, mut m: MatchRecord) -> Result<MatchRecord> {
         m.event_counts = self.event_counts(&m.id)?;
+        m.health = self.health(&m.id)?;
         Ok(m)
+    }
+
+    /// Stored health facts plus the ones the events tell (a resumed recording is partial).
+    fn health(&self, match_id: &str) -> Result<MatchHealth> {
+        let stored: Option<String> = self
+            .conn
+            .query_row("SELECT health FROM matches WHERE id = ?1", [match_id], |r| r.get(0))
+            .optional()?
+            .flatten();
+        let mut h: MatchHealth = stored.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        if !h.partial {
+            h.partial = self
+                .conn
+                .prepare_cached("SELECT 1 FROM events WHERE match_id = ?1 AND kind = ?2 LIMIT 1")?
+                .exists(params![match_id, RESUMED_KIND])?;
+        }
+        Ok(h)
+    }
+
+    /// Merge `update` into a match's stored health facts (set fields win; unset ones are kept).
+    pub fn set_health(&self, match_id: &str, update: &MatchHealth) -> Result<()> {
+        let stored: Option<String> = self
+            .conn
+            .query_row("SELECT health FROM matches WHERE id = ?1", [match_id], |r| r.get(0))
+            .optional()?
+            .flatten();
+        let mut h: MatchHealth = stored.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        h.partial |= update.partial;
+        h.api_unavailable |= update.api_unavailable;
+        h.low_disk |= update.low_disk;
+        if update.dropped_frames.is_some() {
+            h.dropped_frames = update.dropped_frames;
+        }
+        if update.encoder.is_some() {
+            h.encoder = update.encoder.clone();
+        }
+        let json = (!h.is_empty()).then(|| serde_json::to_string(&h)).transpose()?;
+        let n = self
+            .conn
+            .execute("UPDATE matches SET health = ?2 WHERE id = ?1", params![match_id, json])?;
+        anyhow::ensure!(n == 1, "match {match_id} not found");
+        Ok(())
     }
 
     pub fn insert_match(&self, m: &MatchRecord) -> Result<()> {
@@ -505,6 +587,7 @@ mod tests {
             event_counts: BTreeMap::new(),
             error: None,
             details: Default::default(),
+            health: Default::default(),
         }
     }
 
@@ -602,6 +685,45 @@ mod tests {
         let del: Vec<_> = lib.oldest_deletable_matches().unwrap().into_iter().map(|m| m.id).collect();
         assert_eq!(del, vec!["a", "b"]);
         assert_eq!(lib.storage_stats().unwrap(), (3, 0, 300));
+    }
+
+    #[test]
+    fn health_is_stored_merged_and_derived() {
+        let lib = Library::open_in_memory().unwrap();
+        lib.insert_match(&m("a", 1, MatchStatus::Ready)).unwrap();
+        assert!(lib.get_match("a").unwrap().unwrap().health.is_empty());
+        lib.set_health(
+            "a",
+            &MatchHealth {
+                dropped_frames: Some(0.04),
+                encoder: Some("NVENC H.264".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        lib.set_health(
+            "a",
+            &MatchHealth {
+                low_disk: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let h = lib.get_match("a").unwrap().unwrap().health;
+        assert_eq!(h.dropped_frames, Some(0.04));
+        assert_eq!(h.encoder.as_deref(), Some("NVENC H.264"));
+        assert!(h.low_disk && !h.partial);
+        // A resumed recording is partial.
+        lib.add_events("a", &[GameEvent::new(RESUMED_KIND, 0, EventSource::Manual)])
+            .unwrap();
+        assert!(lib.list_matches(None).unwrap()[0].health.partial);
+        assert!(lib.set_health("zzz", &MatchHealth::default()).is_err());
+        // Serialized without the unset fields.
+        let v = serde_json::to_value(&lib.get_match("a").unwrap().unwrap().health).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({"partial": true, "droppedFrames": 0.04f32, "lowDisk": true, "encoder": "NVENC H.264"})
+        );
     }
 
     #[test]

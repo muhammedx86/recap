@@ -27,6 +27,7 @@ import type {
   StorageInfo,
   TestResult,
   VideoInfo,
+  MatchHealth,
 } from "./types";
 
 const ROOT = "C:\\Users\\William\\Videos\\Recap";
@@ -305,22 +306,52 @@ interface MatchSeed {
   extra?: Array<[string, number]>;
   /** Round results; `starts` adds round_start markers, `meta` sets meta.round (API games). */
   rounds?: { won: number; lost: number; starts: boolean; meta: boolean };
+  /** Kill streaks: this many bursts of 3 kills within a few seconds (multikill moments). */
+  bursts?: number;
+  health?: MatchHealth;
+}
+
+function OLD_SEEDS(): MatchSeed[] {
+  const games = ["valorant", "valorant", "cs2", "league-of-legends", "valorant", "marvel-rivals", "r6-siege"];
+  const days = [8, 12, 17, 23, 29, 36, 44, 51, 58, 67, 79, 92, 104, 121, 139, 163, 190, 236, 281, 330];
+  return days.map((d, i) => {
+    const gameId = games[i % games.length];
+    const won = 13;
+    const lost = 4 + ((i * 5) % 11);
+    const win = i % 3 !== 1;
+    const rounds = gameId === "valorant" || gameId === "cs2" || gameId === "r6-siege" ? { won: win ? won : lost, lost: win ? lost : won, starts: true, meta: gameId === "cs2" } : undefined;
+    return {
+      id: `m-old-${i + 1}`,
+      gameId,
+      start: startOfToday - d * DAY + (18 + (i % 5)) * 60 * MIN,
+      durMin: 22 + ((i * 7) % 24),
+      status: "ready",
+      kills: 10 + ((i * 3) % 18),
+      deaths: 9 + ((i * 5) % 10),
+      assists: 3 + (i % 7),
+      bursts: i % 4 === 0 ? 1 : 0,
+      ...(rounds ? { rounds } : {}),
+      ...(i === 4 ? { health: { droppedFrames: 0.012 } } : i === 9 ? { health: { partial: true, lowDisk: true } } : {}),
+    } satisfies MatchSeed;
+  });
 }
 
 const seeds: MatchSeed[] = [
   { id: "m-live", gameId: "valorant", start: now - 23 * MIN, durMin: 23, status: "recording", kills: 0, deaths: 0, assists: 0 },
-  { id: "m-val-1", gameId: "valorant", start: startOfToday + 13.5 * 60 * MIN, durMin: 41.2, status: "ready", kills: 24, deaths: 15, assists: 7, extra: [["bookmark", 2], ["ult_used", 6]], rounds: { won: 13, lost: 9, starts: true, meta: false } },
-  { id: "m-val-2", gameId: "valorant", start: startOfToday + 12.6 * 60 * MIN, durMin: 38.4, status: "ready", kills: 19, deaths: 20, assists: 11, extra: [["ult_used", 4]], rounds: { won: 14, lost: 16, starts: true, meta: false } },
+  { id: "m-val-1", gameId: "valorant", start: startOfToday + 13.5 * 60 * MIN, durMin: 41.2, status: "ready", bursts: 3, kills: 24, deaths: 15, assists: 7, extra: [["bookmark", 2], ["ult_used", 6]], rounds: { won: 13, lost: 9, starts: true, meta: false } },
+  { id: "m-val-2", gameId: "valorant", start: startOfToday + 12.6 * 60 * MIN, durMin: 38.4, status: "ready", health: { partial: true }, kills: 19, deaths: 20, assists: 11, extra: [["ult_used", 4]], rounds: { won: 14, lost: 16, starts: true, meta: false } },
   { id: "m-val-3", gameId: "valorant", start: startOfToday + 9.2 * 60 * MIN, durMin: 33.1, status: "ready", kills: 26, deaths: 14, assists: 4, extra: [["ace", 1], ["ult_used", 5]], rounds: { won: 13, lost: 7, starts: true, meta: false } },
   { id: "m-lol-1", gameId: "league-of-legends", start: startOfToday + 11 * 60 * MIN, durMin: 31.4, status: "processing", kills: 9, deaths: 4, assists: 13, extra: [["objective", 5], ["multikill", 1]] },
   { id: "m-cs-1", gameId: "cs2", start: startOfToday - DAY + 21 * 60 * MIN, durMin: 47.8, status: "ready", kills: 27, deaths: 18, assists: 4, extra: [["mvp", 4], ["bomb_plant", 3], ["ace", 1], ["clutch", 2]], rounds: { won: 13, lost: 11, starts: true, meta: true } },
-  { id: "m-mr-1", gameId: "marvel-rivals", start: startOfToday - DAY + 19 * 60 * MIN, durMin: 18.6, status: "ready", kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 3], ["team_up", 4]], rounds: { won: 2, lost: 1, starts: true, meta: false } },
+  { id: "m-mr-1", gameId: "marvel-rivals", start: startOfToday - DAY + 19 * 60 * MIN, durMin: 18.6, status: "ready", health: { apiUnavailable: true }, kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 3], ["team_up", 4]], rounds: { won: 2, lost: 1, starts: true, meta: false } },
   { id: "m-r6-1", gameId: "r6-siege", start: startOfToday - 2 * DAY + 20.5 * 60 * MIN, durMin: 33.5, status: "ready", kills: 11, deaths: 6, assists: 3, extra: [["ace", 1]], rounds: { won: 5, lost: 4, starts: true, meta: false } },
-  { id: "m-val-4", gameId: "valorant", start: startOfToday - 2 * DAY + 22.4 * 60 * MIN, durMin: 29.5, status: "ready", kills: 12, deaths: 17, assists: 6, rounds: { won: 6, lost: 13, starts: true, meta: false } },
+  { id: "m-val-4", gameId: "valorant", start: startOfToday - 2 * DAY + 22.4 * 60 * MIN, durMin: 29.5, status: "ready", health: { droppedFrames: 0.034, encoder: "x264 (CPU)" }, kills: 12, deaths: 17, assists: 6, rounds: { won: 6, lost: 13, starts: true, meta: false } },
   { id: "m-val-5", gameId: "valorant", start: startOfToday - 2 * DAY + 21.6 * 60 * MIN, durMin: 44.2, status: "ready", favorite: true, kills: 31, deaths: 18, assists: 9, extra: [["clutch", 2], ["ult_used", 7]], rounds: { won: 13, lost: 11, starts: true, meta: false } },
-  { id: "m-lol-2", gameId: "league-of-legends", start: startOfToday - 3 * DAY + 22 * 60 * MIN, durMin: 36.1, status: "ready", title: "Kai'Sa pentakill game", favorite: true, kills: 17, deaths: 3, assists: 9, extra: [["multikill", 3], ["objective", 7]] },
+  { id: "m-lol-2", gameId: "league-of-legends", start: startOfToday - 3 * DAY + 22 * 60 * MIN, durMin: 36.1, status: "ready", health: { lowDisk: true }, title: "Kai'Sa pentakill game", favorite: true, kills: 17, deaths: 3, assists: 9, extra: [["multikill", 3], ["objective", 7]] },
   { id: "m-man-1", gameId: "manual", start: startOfToday - 3 * DAY + 17 * 60 * MIN, durMin: 12.3, status: "ready", title: "Slay the Spire 2 run", kills: 0, deaths: 0, assists: 0, extra: [["bookmark", 4]] },
-  { id: "m-cs-2", gameId: "cs2", start: startOfToday - 4 * DAY + 20 * 60 * MIN, durMin: 2.1, status: "error", error: "The recorder stopped unexpectedly. The file may be incomplete.", kills: 1, deaths: 1, assists: 0 },
+  { id: "m-cs-2", gameId: "cs2", start: startOfToday - 4 * DAY + 20 * 60 * MIN, durMin: 2.1, status: "error", error: "The recorder stopped unexpectedly. The file may be incomplete.", kills: 1, deaths: 1, assists: 0, health: { partial: true } },
+  // Older matches, months back, so the library has history to scrub through.
+  ...OLD_SEEDS(),
 ];
 
 function gameName(id: string) {
@@ -362,6 +393,10 @@ function makeEvents(seed: MatchSeed): GameEvent[] {
   add("death", seed.deaths);
   add("assist", seed.assists);
   for (const [k, n] of seed.extra ?? []) add(k, n);
+  for (let b = 0; b < (seed.bursts ?? 0); b++) {
+    const t = Math.round(90_000 + r() * (dur - 150_000));
+    [0, 1700 + r() * 800, 3600 + r() * 1200].forEach((dt) => evs.push({ kind: "kill", tMs: Math.round(t + dt), source: src("kill"), ...(isApi ? {} : { confidence: 0.9 + r() * 0.09 }) }));
+  }
   if (seed.rounds) {
     const { won, lost, starts, meta } = seed.rounds;
     const n = won + lost;
@@ -488,6 +523,29 @@ const seedDetails: Record<string, Record<string, DetailValue>> = {
   "m-r6-1": { map: dv("Clubhouse", "screen", 0.82), kills: dv("11", "events"), deaths: dv("6", "events"), assists: dv("3", "events"), result: dv("loss", "screen", 0.77), score: dv("4-5", "screen", 0.8) },
 };
 
+function oldDetails(s: MatchSeed): Record<string, DetailValue> {
+  if (!s.id.startsWith("m-old-")) return {};
+  const i = Number(s.id.slice(6));
+  const out: Record<string, DetailValue> = {
+    kills: dv(String(s.kills), "screen", 0.9),
+    deaths: dv(String(s.deaths), "screen", 0.9),
+    assists: dv(String(s.assists), "screen", 0.9),
+  };
+  if (s.rounds) {
+    out.result = dv(s.rounds.won > s.rounds.lost ? "win" : "loss", "events");
+    out.score = dv(`${s.rounds.won}-${s.rounds.lost}`, "events");
+  }
+  if (s.gameId === "valorant") {
+    out.map = dv(["Ascent", "Bind", "Haven", "Lotus", "Pearl", "Sunset", "Split"][i % 7], "api");
+    out.character = dv(["Jett", "Omen", "Reyna", "Sova", "Clove"][i % 5], "screen", 0.92);
+    out.mode = dv("Competitive", "api");
+    out.rank = dv(i > 12 ? "Silver 3" : "Gold 1", "api");
+    out.player = dv("11lumin#1111", "api");
+  }
+  if (s.gameId === "cs2") out.map = dv(["Inferno", "Ancient", "Nuke"][i % 3], "api");
+  return out;
+}
+
 let matches: MatchRecord[] = seeds.map((s) => {
   const evs = s.status === "recording" ? [] : makeEvents(s);
   eventsByMatch.set(s.id, evs);
@@ -505,7 +563,8 @@ let matches: MatchRecord[] = seeds.map((s) => {
     thumbnail: s.status === "recording" ? null : pathFor(s.gameId, s.start, "jpg"),
     eventCounts: countEvents(evs),
     error: s.error ?? null,
-    details: structuredClone(seedDetails[s.id] ?? {}),
+    details: structuredClone(seedDetails[s.id] ?? oldDetails(s)),
+    ...(s.health ? { health: s.health } : {}),
   };
 });
 
@@ -601,6 +660,7 @@ function gameFromPath(path: string): string {
 export function mediaUrl(path: string): string {
   // Demo art served from ui/public.
   if (path.startsWith("/demo-assets/")) return path;
+  if (path.endsWith(".strip.jpg")) return stripArt(path);
   const g = gameFromPath(path);
   const c = GAME_COLORS[g] ?? "#8d9099";
   const r = rng(path.split("").reduce((a, ch) => a + ch.charCodeAt(0) * 13, 3));
@@ -617,6 +677,29 @@ export function mediaUrl(path: string): string {
 <rect width="1600" height="900" fill="url(#s)"/><rect width="1600" height="900" fill="url(#l)"/>${shapes}
 <rect y="${(hz * 9).toFixed(0)}" width="1600" height="${(900 - hz * 9).toFixed(0)}" fill="#0d0f13" opacity=".85"/>
 <circle cx="800" cy="450" r="3" fill="#fff" opacity=".7"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+/** Twelve 160x90 stills side by side, like the backend's scrub strip. */
+function stripArt(path: string): string {
+  const id = path.split("\\").pop()!.replace(".strip.jpg", "");
+  const m = matches.find((x) => x.id === id);
+  const c = GAME_COLORS[m?.gameId ?? ""] ?? "#8d9099";
+  const r = rng(id.split("").reduce((a, ch) => a + ch.charCodeAt(0) * 7, 11));
+  const panels = Array.from({ length: 12 }, (_, i) => {
+    const x0 = i * 160;
+    const hz = 44 + r() * 22;
+    const blocks = Array.from({ length: 4 }, () => {
+      const x = x0 + r() * 140;
+      const w = 8 + r() * 40;
+      const h = 14 + r() * 40;
+      return `<rect x="${x.toFixed(0)}" y="${(hz - h).toFixed(0)}" width="${w.toFixed(0)}" height="${h.toFixed(0)}" fill="#0b0d10" opacity="${(0.4 + r() * 0.5).toFixed(2)}"/>`;
+    }).join("");
+    const banner = r() < 0.35 ? `<polygon points="${x0 + 80},70 ${x0 + 88},76 ${x0 + 80},82 ${x0 + 72},76" fill="${c}"/>` : "";
+    const sky = (0.25 + r() * 0.45).toFixed(2);
+    return `<g><rect x="${x0}" width="160" height="90" fill="#151820"/><rect x="${x0}" width="160" height="${hz.toFixed(0)}" fill="${c}" opacity="${sky}"/>${blocks}<rect x="${x0}" y="${hz.toFixed(0)}" width="160" height="${(90 - hz).toFixed(0)}" fill="#0d0f13" opacity=".8"/>${banner}<circle cx="${x0 + 80}" cy="45" r="1" fill="#fff" opacity=".7"/></g>`;
+  }).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 90" width="1920" height="90" preserveAspectRatio="none">${panels}</svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
@@ -1072,7 +1155,61 @@ const handlers: Record<string, (a: any) => unknown> = {
   },
   open_path: () => null,
   set_fullscreen: () => null,
+  clip_cut_points: ({ matchId, startMs, endMs }) => {
+    const m = matches.find((x) => x.id === matchId);
+    if (!m) throw "Recording not found";
+    const end = Math.min(endMs, m.durationMs || endMs);
+    if (settings.autoClip.preciseCuts) return { startMs, endMs: end, exact: true };
+    // Recordings have a keyframe every 2 s; a stream copy starts at the one before In.
+    return { startMs: Math.floor((startMs + 1) / MOCK_KEYINT_MS) * MOCK_KEYINT_MS, endMs: end, exact: false };
+  },
+  match_waveform: ({ matchId }) => mockWaveform(matchId),
+  match_scrub_strip: ({ matchId }) => {
+    const m = matches.find((x) => x.id === matchId);
+    if (!m) throw "Recording not found";
+    return { path: `${ROOT}\\thumbnails\\${matchId}.strip.jpg`, frames: 12 };
+  },
 };
+
+const MOCK_KEYINT_MS = 2000;
+
+/** Peaks with a quiet floor, round-to-round swells, and loud bursts around plays. */
+function mockWaveform(matchId: string): number[] {
+  const m = matches.find((x) => x.id === matchId);
+  if (!m) throw "Recording not found";
+  const n = 1200;
+  const r = rng(matchId.split("").reduce((a, c) => a + c.charCodeAt(0) * 17, 5));
+  const evs = eventsByMatch.get(matchId) ?? [];
+  const dur = Math.max(1, m.durationMs);
+  const loud = new Float32Array(n);
+  for (const e of evs) {
+    if (e.kind.startsWith("round_")) continue;
+    const c = Math.floor((e.tMs / dur) * n);
+    for (let k = -4; k <= 6; k++) {
+      const i = c + k;
+      if (i >= 0 && i < n) loud[i] = Math.max(loud[i], 1 - Math.abs(k) / 7);
+    }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const swell = 0.28 + 0.12 * Math.sin(i / 23) + 0.08 * Math.sin(i / 7.3);
+    const v = Math.min(1, swell * (0.55 + r() * 0.6) + loud[i] * (0.45 + r() * 0.3));
+    out.push(Math.round(Math.sqrt(Math.max(0, v)) * 255));
+  }
+  return out;
+}
+
+/**
+ * Hover previews in the browser play this clip when localStorage "mock-preview-video" holds a
+ * video URL; otherwise cards only scrub the drawn strip.
+ */
+export function mockPreviewVideo(): string | null {
+  try {
+    return localStorage.getItem("mock-preview-video");
+  } catch {
+    return null;
+  }
+}
 
 export async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
   if (cmd === "studio_test_detector") {

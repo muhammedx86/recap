@@ -198,12 +198,45 @@ pub fn record_health(app: &AppHandle, match_id: &str, h: RecordingHealth) {
         "recording-health",
         serde_json::json!({ "matchId": match_id, "health": h, "lostShare": h.lost_share() }),
     );
+    // Keep the essentials on the match so the library can badge it.
+    let stored = recap_core::library::MatchHealth {
+        dropped_frames: h.lost_share(),
+        encoder: Some(encoder_label(&h.encoder)),
+        ..Default::default()
+    };
+    if let Err(e) = st.library.lock().unwrap().set_health(match_id, &stored) {
+        log::warn!("{match_id}: could not store recording health: {e:#}");
+    }
     let mut a = st.arming.lock().unwrap();
     a.health.push((match_id.to_string(), h));
     let n = a.health.len();
     if n > 20 {
         a.health.drain(..n - 20);
     }
+}
+
+/// "NVENC", "Quick Sync", "AMF" or "x264 (CPU)" for an OBS encoder id.
+fn encoder_label(id: &str) -> String {
+    let l = id.to_ascii_lowercase();
+    let name = if l.contains("nvenc") {
+        "NVENC"
+    } else if l.contains("qsv") {
+        "Quick Sync"
+    } else if l.contains("amf") {
+        "AMF"
+    } else if l.contains("x264") {
+        "x264 (CPU)"
+    } else {
+        return id.to_string();
+    };
+    let codec = if l.contains("hevc") || l.contains("h265") {
+        " HEVC"
+    } else if l.contains("av1") {
+        " AV1"
+    } else {
+        ""
+    };
+    format!("{name}{codec}")
 }
 
 /// Windows' per-app GPU choice (Settings > System > Display > Graphics), for the recorder only.
