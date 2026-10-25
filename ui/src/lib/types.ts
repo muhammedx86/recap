@@ -230,6 +230,13 @@ export interface Settings {
   recordingsDir: string;
   fps: number;
   bitrateKbps: number;
+  /** Constant quality (small files in menus, sharp fights) or constant bitrate. */
+  rateControl: "quality" | "cbr";
+  quality: "high" | "medium" | "low";
+  /** Seconds kept from before a recording starts (0 = off). */
+  prerollSecs: number;
+  /** Laptops with two GPUs: record on the high-performance one. */
+  gpuPreference: boolean;
   outputHeight: number | null;
   encoder: EncoderChoice;
   recordDesktopAudio: boolean;

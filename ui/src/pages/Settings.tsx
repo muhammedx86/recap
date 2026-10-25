@@ -179,11 +179,50 @@ export function SettingsPage() {
             ))}
           </select>
         </Row>
-        <Row label="Bitrate" hint="12,000 kbps at 1080p60 is about 5 GB per hour." htmlFor="set-br">
-          <div className="input-row set-num">
-            <input id="set-br" type="number" className="input" min={1000} max={100000} step={500} value={s.bitrateKbps} onChange={(e) => set("bitrateKbps", Number(e.target.value))} />
-            <span className="unit">kbps</span>
-          </div>
+        <Row
+          label="Quality"
+          hint={
+            s.rateControl === "cbr"
+              ? "The same bitrate all the time: predictable file sizes."
+              : "Constant quality: small files in menus, full detail in fights. High is sharper and bigger."
+          }
+          htmlFor="set-q"
+        >
+          <select
+            id="set-q"
+            className="input set-select"
+            value={s.rateControl === "cbr" ? "cbr" : s.quality}
+            onChange={(e) => {
+              const v = e.target.value;
+              setS(v === "cbr" ? { ...s, rateControl: "cbr" } : { ...s, rateControl: "quality", quality: v as Settings["quality"] });
+            }}
+          >
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low (smallest files)</option>
+            <option value="cbr">Constant bitrate</option>
+          </select>
+        </Row>
+        {s.rateControl === "cbr" && (
+          <Row label="Bitrate" hint="12,000 kbps at 1080p60 is about 5 GB per hour." htmlFor="set-br">
+            <div className="input-row set-num">
+              <input id="set-br" type="number" className="input" min={1000} max={100000} step={500} value={s.bitrateKbps} onChange={(e) => set("bitrateKbps", Number(e.target.value))} />
+              <span className="unit">kbps</span>
+            </div>
+          </Row>
+        )}
+        <Row
+          label="Keep the seconds before a match"
+          hint="While a game runs, Recap keeps a few seconds in short temporary files next to your recordings, so a match's opening is never cut off."
+          htmlFor="set-pre"
+        >
+          <select id="set-pre" className="input set-select" value={s.prerollSecs} onChange={(e) => set("prerollSecs", Number(e.target.value))}>
+            {[0, 5, 10, 15, 20, 30].map((v) => (
+              <option key={v} value={v}>
+                {v === 0 ? "Off" : `${v} seconds`}
+              </option>
+            ))}
+          </select>
         </Row>
         <Row label="Encoder" htmlFor="set-enc">
           <select id="set-enc" className="input set-select" value={s.encoder} onChange={(e) => set("encoder", e.target.value as EncoderChoice)} title="Automatic picks your graphics card's encoder and falls back to the CPU.">
@@ -193,6 +232,13 @@ export function SettingsPage() {
               </option>
             ))}
           </select>
+        </Row>
+        <Row
+          on={s.gpuPreference}
+          label="Record on the high-performance GPU"
+          hint="Laptops with two graphics chips: record on the one games use, so frames are not copied between them. Applies after restarting Recap."
+        >
+          <Toggle checked={s.gpuPreference} onChange={(v) => set("gpuPreference", v)} label="High-performance GPU" />
         </Row>
       </Section>
 

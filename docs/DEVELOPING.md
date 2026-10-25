@@ -40,6 +40,13 @@ cargo run --release -p recap-core --example read -- <screenshot.png> games/valor
 cargo test -p recap-core                                                          # core tests
 ```
 
+The recorder (`crates/recap-recorder`) only records on Windows. Its pure logic (encoder plan,
+encoder settings, monitor choice, the command loop) is unit-tested anywhere with
+`cargo test -p recap-recorder`; on Linux the OBS backend can still be type-checked:
+`LIBOBS_PATH=<any empty dir> cargo clippy -p recap-recorder --features linux-typecheck` (needs libclang).
+Its log is `recorder.log` in the data folder: it names the encoder that recorded, any fallback,
+buffer splits and capture restarts.
+
 ## CI
 
 Every push to `main` builds the installer and runs the end-to-end test on a Windows runner
