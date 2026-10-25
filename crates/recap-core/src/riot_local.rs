@@ -148,11 +148,19 @@ pub struct RiotTracker {
     result: Option<String>,
     rank: Option<String>,
     player: Option<String>,
+    character: Option<String>,
 }
 
 impl RiotTracker {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Your agent, from the game's log (see [`crate::valorant_log`]).
+    pub fn set_character(&mut self, name: Option<String>) {
+        if name.is_some() {
+            self.character = name;
+        }
     }
 
     /// The player's Riot ID ("name#tag"), from the client's chat session.
@@ -232,6 +240,9 @@ impl RiotTracker {
         }
         if let Some(p) = &self.player {
             d.insert(field::PLAYER.to_string(), p.clone());
+        }
+        if let Some(c) = &self.character {
+            d.insert(field::CHARACTER.to_string(), c.clone());
         }
         out.extend(self.details.update(d, rec_elapsed_ms, SOURCE_NAME));
         out
