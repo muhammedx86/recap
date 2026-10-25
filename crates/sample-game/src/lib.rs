@@ -402,6 +402,13 @@ pub fn detector_def(b: Banner) -> DetectorDef {
         scales: vec![],
         rearm_drop: 0.0,
         hold_margin: 0.0,
+        anchor: None,
+        anchor_aspect: None,
+        color_filter: None,
+        values: vec![],
+        value_rule: None,
+        blocks: vec![],
+        block_margin_ms: 1000,
         enabled: true,
         notes: Some("Sample game fixture for Recap's end-to-end test.".into()),
     }

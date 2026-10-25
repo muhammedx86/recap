@@ -94,7 +94,7 @@ impl PreparedReader {
         let Some((color, tol, area)) = self.highlight else { return Some(0) };
         let mut best = (0.0f32, None);
         for i in 0..n {
-            let slot = self.def.slot_region(i);
+            let slot = self.def.slot_region_for(i, frame.width(), frame.height());
             let r = Region {
                 x: slot.x + area.x * slot.w,
                 y: slot.y + area.y * slot.h,
@@ -127,7 +127,7 @@ impl PreparedReader {
     /// Read one frame (game picture, full resolution). Returns (field, value, confidence).
     pub fn read_frame(&self, frame: &RgbImage, ocr: Option<&dyn TextReader>) -> Vec<(String, String, f32)> {
         let Some(slot) = self.pick_slot(frame) else { return vec![] };
-        let region = self.def.slot_region(slot);
+        let region = self.def.slot_region_for(slot, frame.width(), frame.height());
         let (x, y, w, h) = region.to_pixels(frame.width(), frame.height());
         let gray = image::imageops::grayscale(&image::imageops::crop_imm(frame, x, y, w, h).to_image());
         match self.def.kind {
@@ -276,6 +276,13 @@ fn choice_detector(def: &ReaderDef, value: &str) -> DetectorDef {
         scales: vec![],
         rearm_drop: 0.0,
         hold_margin: 0.0,
+        anchor: def.anchor,
+        anchor_aspect: def.anchor_aspect,
+        color_filter: None,
+        values: vec![],
+        value_rule: None,
+        blocks: vec![],
+        block_margin_ms: 1000,
         enabled: true,
         notes: None,
     }
@@ -691,6 +698,8 @@ mod tests {
             threshold: 0.75,
             method: Default::default(),
             template_frame_height: 1080,
+            anchor: None,
+            anchor_aspect: None,
             enabled: true,
             notes: None,
         }

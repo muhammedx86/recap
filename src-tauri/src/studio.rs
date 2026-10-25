@@ -180,10 +180,12 @@ pub fn save_detector(st: &AppState, game_id: &str, mut det: DetectorDef, source:
             bail!("the selected box is too small; drag a larger rectangle");
         }
         let mut crop = img.crop_imm(x, y, w, h);
+        // Anchored HUDs shrink on narrow frames: measure the crop against the reference frame.
+        let frame_h = recap_core::games::reference_height(det.anchor, det.ref_aspect(), img.width(), img.height());
         let has_existing = !det.templates.is_empty() && det.template_frame_height > 0;
-        if has_existing && det.template_frame_height != img.height() {
+        if has_existing && det.template_frame_height != frame_h {
             // All templates of a detector share one reference height: rescale this crop to it.
-            let f = det.template_frame_height as f32 / img.height() as f32;
+            let f = det.template_frame_height as f32 / frame_h as f32;
             let nw = ((w as f32 * f).round() as u32).max(4);
             let nh = ((h as f32 * f).round() as u32).max(4);
             crop = crop.resize_exact(nw, nh, image::imageops::FilterType::Triangle);
@@ -192,10 +194,15 @@ pub fn save_detector(st: &AppState, game_id: &str, mut det: DetectorDef, source:
         crop.write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)?;
         let name = format!("{}-{}.png", det.id, chrono::Local::now().format("%Y%m%d-%H%M%S"));
         det.templates.push(format!("templates/{name}"));
-        if !has_existing {
-            det.template_frame_height = img.height();
+        // Value detectors carry one value per reference: the new one starts blank.
+        if !det.values.is_empty() || det.value_rule.is_some() {
+            det.values.resize(det.templates.len(), String::new());
         }
-        det.template_box = Some(bx);
+        if !has_existing {
+            det.template_frame_height = frame_h;
+        }
+        // Stored on the anchor's reference frame, like the search region.
+        det.template_box = Some(bx.unplace(det.anchor, det.ref_aspect(), img.width(), img.height()).clamped());
         new_template = Some((name, png));
     }
     if det.label.trim().is_empty() {
@@ -360,8 +367,14 @@ pub fn save_reader(st: &AppState, game_id: &str, mut r: ReaderDef, source: Optio
     if !crops.is_empty() {
         let img = load_image(st, source.context("load a frame before adding a reference")?)?;
         let has_refs = r.options.iter().any(|o| !o.templates.is_empty());
+        let frame_h = recap_core::games::reference_height(
+            r.anchor,
+            r.anchor_aspect.unwrap_or(recap_core::games::DEFAULT_ANCHOR_ASPECT),
+            img.width(),
+            img.height(),
+        );
         if !has_refs {
-            r.template_frame_height = img.height();
+            r.template_frame_height = frame_h;
         }
         for (i, c) in crops.iter().enumerate() {
             let value = c.value.trim();
@@ -374,8 +387,8 @@ pub fn save_reader(st: &AppState, game_id: &str, mut r: ReaderDef, source: Optio
                 bail!("the box for {value} is too small; drag a larger rectangle");
             }
             let mut crop = img.crop_imm(x, y, w, h);
-            if has_refs && r.template_frame_height != img.height() {
-                let f = r.template_frame_height as f32 / img.height() as f32;
+            if has_refs && r.template_frame_height != frame_h {
+                let f = r.template_frame_height as f32 / frame_h as f32;
                 crop = crop.resize_exact(
                     ((w as f32 * f).round() as u32).max(4),
                     ((h as f32 * f).round() as u32).max(4),

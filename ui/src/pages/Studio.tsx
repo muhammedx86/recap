@@ -13,6 +13,8 @@ import { EventTypePicker } from "../components/EventTypePicker";
 import { matchTitle } from "./Library";
 import { NEW_READER, useReaderWorkspace } from "./StudioReaders";
 import { StudioViewer, type Marker, type Media, type Overlay, type ViewerHandle } from "./StudioViewer";
+import { BlockSettings, PlacementSettings, RolePicker, ValueSettings, roleOf } from "./StudioExtras";
+import { placeRegion, rangeAround, unplaceRegion } from "../lib/anchor";
 
 const NEW = "__new__";
 
@@ -109,6 +111,8 @@ export function Studio() {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [removeRef, setRemoveRef] = useState<number | null>(null);
+  /** Picking a colour for the colour filter: the next click on the frame samples it. */
+  const [pickColour, setPickColour] = useState(false);
   const [mode, setMode] = useState<"detectors" | "details">(params.get("mode") === "details" ? "details" : "detectors");
   const [readerId, setReaderId] = useState<string>(params.get("reader") ?? NEW_READER);
   const viewer = useRef<ViewerHandle>(null);
@@ -187,6 +191,11 @@ export function Studio() {
   }, [mode, match?.id]);
 
   const set = <K extends keyof DetectorDef>(k: K, v: DetectorDef[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const patch = (p: Partial<DetectorDef>) => setDraft((d) => ({ ...d, ...p }));
+  const role = roleOf(draft);
+  // Anchored detectors store boxes on a 16:9 reference frame: move them onto the frame shown.
+  const toFrame = (r: Region) => (picture ? placeRegion(r, draft.anchor, draft.anchorAspect, picture.width, picture.height) : r);
+  const toRef = (r: Region) => (picture ? unplaceRegion(r, draft.anchor, draft.anchorAspect, picture.width, picture.height) : r);
   const isNew = detId === NEW;
   const hasTemplates = draft.templates.length > 0;
   const kind = kindStyle(draft.event);
@@ -228,15 +237,15 @@ export function Studio() {
     if (!game) return;
     const { id, label } = nameForSave();
     if (!id) return toast.error("Give the detector a name first.");
-    const cut = withBox === "new" ? box : withBox === "same" ? (draft.templateBox ?? null) : null;
+    const cut = withBox === "new" ? box : withBox === "same" && draft.templateBox ? toFrame(draft.templateBox) : null;
     const source = withBox === "new" ? boxAt : withBox === "same" ? viewer.current?.source() : null;
     if (cut && !source) return toast.error("Show a frame first.");
     const det: DetectorDef = {
       ...draft,
       id,
       label,
-      region: withBox === "new" && box ? expand(box, margin) : draft.region,
-      templateBox: cut ?? draft.templateBox,
+      region: withBox === "new" && box ? toRef(expand(box, margin)) : draft.region,
+      templateBox: draft.templateBox,
     };
     setSaving(true);
     try {
@@ -254,12 +263,13 @@ export function Studio() {
 
   const dropReference = async (i: number) => {
     if (!game || !existing) return;
-    const def = { ...defOf(existing), templates: existing.templates.filter((_, j) => j !== i) };
+    const keep = (_: unknown, j: number) => j !== i;
+    const def = { ...defOf(existing), templates: existing.templates.filter(keep), values: existing.values?.length ? existing.values.filter(keep) : existing.values };
     try {
       const updated = await api.studioSaveDetector(game.id, def, { kind: "image", path: "" }, null);
       // Keep unsaved form edits; only the reference list changes.
       setGames((gs) => (gs ?? []).map((g) => (g.id === updated.id ? updated : g)));
-      setDraft((d) => ({ ...d, templates: def.templates }));
+      setDraft((d) => ({ ...d, templates: def.templates, values: d.values?.length ? d.values.filter(keep) : d.values }));
       setTest(null);
       toast.info("Reference removed");
     } catch (e) {
@@ -297,6 +307,16 @@ export function Studio() {
     }
   };
 
+  const pickColourAt = async (p: { x: number; y: number }) => {
+    setPickColour(false);
+    try {
+      const hex = await viewer.current!.sampleColour(p);
+      setDraft((d) => ({ ...d, colorFilter: { ranges: [...(d.colorFilter?.ranges ?? []), rangeAround(hex)] } }));
+    } catch (e) {
+      toast.error(e, "Could not read the colour");
+    }
+  };
+
   const onBoxDrawn = (r: Region) => {
     setBox(r);
     setBoxAt(viewer.current?.source() ?? null);
@@ -310,15 +330,15 @@ export function Studio() {
     ? [{ region: nearHit.region, className: "frame-match", label: `${pct(nearHit.score)} match` }]
     : [];
   // On a detection, the green match box replaces the saved box.
-  const shownBox = box ?? (nearHit ? null : (draft.templateBox ?? null));
-  const shownRegion = box ? expand(box, margin) : hasTemplates ? draft.region : null;
+  const shownBox = box ?? (nearHit || !draft.templateBox ? null : toFrame(draft.templateBox));
+  const shownRegion = box ? expand(box, margin) : hasTemplates ? toFrame(draft.region) : null;
   const advice = box ? boxAdvice(box, picture) : null;
   const boxMoved = box && boxAt?.kind === "video" && sourceKind === "video" && Math.abs(boxAt.tMs - now) > 250;
 
   // ---- the three steps ----
   const step = box ? 2 : !hasTemplates ? 1 : 3;
   const steps = [
-    { n: 1, text: `Find a moment with a ${kind.label.toLowerCase()} on screen`, done: !!box || hasTemplates },
+    { n: 1, text: role === "block" ? "Find a moment with it on screen" : `Find a moment with a ${kind.label.toLowerCase()} on screen`, done: !!box || hasTemplates },
     { n: 2, text: "Draw a tight box around it", done: hasTemplates && !box },
     { n: 3, text: "Test on the whole recording", done: !!test },
   ];
@@ -467,7 +487,8 @@ export function Studio() {
                   overlays: detectorOverlays,
                   drafting: !!box,
                   onBox: onBoxDrawn,
-                  onEscape: () => (setBox(null), setBoxAt(null)),
+                  onPoint: pickColour ? pickColourAt : undefined,
+                  onEscape: () => (setBox(null), setBoxAt(null), setPickColour(false)),
                   detections: hits,
                   samples: test?.samples,
                   threshold: test ? draft.threshold : undefined,
@@ -607,17 +628,22 @@ export function Studio() {
                 title={isNew ? `Saved as ${nameForSave().id || "…"}` : `Id ${draft.id}`}
               />
             </Field>
-            <div className="field">
-              <p className="field-label">Marks</p>
-              {game && (
-                <EventTypePicker
-                  game={game}
-                  value={draft.event}
-                  onChange={(id) => setDraft((d) => ({ ...d, event: id, ...(isNew ? defaultsFor(id) : {}) }))}
-                  onGameUpdated={(g) => setGames((gs) => (gs ?? []).map((x) => (x.id === g.id ? g : x)))}
-                />
-              )}
-            </div>
+            <RolePicker draft={draft} onChange={setDraft} />
+            {role === "block" ? (
+              <BlockSettings draft={draft} set={patch} />
+            ) : (
+              <div className="field">
+                <p className="field-label">{role === "value" ? "Marks each change as" : "Marks"}</p>
+                {game && (
+                  <EventTypePicker
+                    game={game}
+                    value={draft.event}
+                    onChange={(id) => setDraft((d) => ({ ...d, event: id, ...(isNew ? defaultsFor(id) : {}) }))}
+                    onGameUpdated={(g) => setGames((gs) => (gs ?? []).map((x) => (x.id === g.id ? g : x)))}
+                  />
+                )}
+              </div>
+            )}
             <Field label="Match needed" htmlFor="st-thr">
               <div className="range-row" title="How alike the screen must look to the reference. Higher: fewer false alarms, more misses.">
                 <input id="st-thr" type="range" min={0.5} max={0.99} step={0.01} value={draft.threshold} style={{ "--p": `${((draft.threshold - 0.5) / 0.49) * 100}%` } as React.CSSProperties} onChange={(e) => set("threshold", Number(e.target.value))} />
@@ -653,8 +679,11 @@ export function Studio() {
               )}
             </div>
 
-            <details className="advanced">
+            {role === "value" && <ValueSettings draft={draft} templateUrls={existing?.templateUrls ?? []} set={patch} />}
+
+            <details className="advanced" open={pickColour || undefined}>
               <summary>More settings</summary>
+              <PlacementSettings draft={draft} set={patch} picking={pickColour} onPick={setPickColour} />
               <Field label="Search area around the box" htmlFor="st-margin" hint={box ? undefined : "Draw a box to change it."}>
                 <div className="range-row" title="How far around your box to look, in case it moves a little.">
                   <input id="st-margin" type="range" min={0} max={1} step={0.05} value={margin} style={{ "--p": `${margin * 100}%` } as React.CSSProperties} onChange={(e) => setMargin(Number(e.target.value))} disabled={!box} />

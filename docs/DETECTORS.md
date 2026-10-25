@@ -114,6 +114,14 @@ games/valorant/
 | `scales` | `[]` | Extra template scales to try; `1.0` is always tried. |
 | `method` | `"ncc"` | `"ncc"` compares brightness. `"edges"` compares outlines (edge strength), so an icon drawn over a changing scene (snow one round, a dark corridor the next) still matches. Prefer `edges` for HUD icons over gameplay. |
 | `rearmDrop` | `0` | For indicators that stay up and pulse once per event (e.g. a kill emblem that flashes again on each kill of a multikill): fire again when the score dips by at least this much and recovers, still respecting `cooldownMs`. Try `0.1`. `0` = off. |
+| `holdMargin` | `0` | Once fired, the element counts as still on screen until its score falls this far below `threshold`, so a match flickering around the threshold is one event, not two. Try `0.15`. |
+| `anchor` | – | Pin the element to a point of the picture: `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom`, `bottom-right`. `region` and `templateBox` are then measured on a 16:9 frame (or `anchorAspect`), and on other screens they move with that point: see [Ultrawide and 16:10 screens](#ultrawide-and-1610-screens). Without it, regions are fractions of whatever frame is scanned. |
+| `anchorAspect` | `16/9` | Aspect ratio of the frame an anchored region was measured on. |
+| `colorFilter` | – | `{ "ranges": [{ "hue": [350, 10], "sat": [0.5, 1], "val": [0.4, 1] }] }`: before comparing, pixels in none of the HSV ranges are blacked out (hue in degrees, `from > to` wraps through red; saturation and brightness 0–1), in the frame and in the references. Use it for an element in a distinctive colour drawn over a busy scene. |
+| `values` | `[]` | One value per entry of `templates`: the detector becomes a *value detector*. Each check reads the value of the best-matching reference; a value counts once `valueRule.votes` of the last `valueRule.window` checks agree, and an event fires when it changes (the first value is only the baseline). The event's `meta` holds `value` and `previous`. Blank values read as nothing. |
+| `valueRule` | `{ "votes": 3, "window": 5, "fire": "change" }` | Value detectors: `fire: "increase"` fires only when a number goes up, once per step (a kill counter going 1 → 3 is two kills, at most 5 per change). |
+| `blocks` | `[]` | Makes this a *blocker*: while it matches (a spectating bar, a killcam, the scoreboard), detections of these event kinds by the other detectors are dropped. A blocker marks nothing itself; set `event` to `"_blocker"`. |
+| `blockMarginMs` | `1000` | Blockers: how long before and after each on-screen span is blocked too. |
 
 ### Where files live, and overrides
 
@@ -271,6 +279,37 @@ On real Valorant footage this lifted kill-emblem matches on unseen clips from ab
 while non-kill frames stayed below 0.3. References that show different things (say, two
 different agent icons) are not masked against each other; each still matches on its own.
 
+## Ultrawide and 16:10 screens
+
+Most games keep the HUD the same size as the screen gets wider (it scales with the height) and
+pin each element to an edge or corner: a kill feed stays in the top-right corner of a 21:9
+screen, a centre notice stays in the middle. On 16:10 the HUD shrinks a little to fit the width.
+A region stored as plain fractions of the frame does not follow that: 90 % across a 16:9
+picture is not where the kill feed is on 32:9.
+
+Give such a detector an `anchor` and measure its `region` on a 16:9 picture. Recap moves the
+region (and the expected template size) onto the recording's picture:
+
+* wider than 16:9: same size in pixels of height, same distance from the anchor;
+* narrower: scaled by `aspect / (16/9)`, then pinned to the anchor.
+
+Games that letterbox or pillarbox instead (VALORANT shows black bars on ultrawide) are handled
+by the content crop before any detector runs, so anchors change nothing there. In Studio the
+box is always drawn on the frame you see; **More settings → Pinned to** sets the anchor and the
+Studio converts for you. Readers take `anchor` and `anchorAspect` too (set them in the JSON).
+
+## Value detectors and blockers
+
+Two more kinds of detector, picked in Studio under **What it does**:
+
+* **Reads a value**: save one reference per value (each digit of a kill counter, each "2X" /
+  "3X" badge) and type the value under each. Recap reads which one is showing, waits until
+  several checks agree, and marks a play when the value changes or a number goes up.
+* **Hides plays**: box something that is only on screen when you are not the one playing, such
+  as the spectating bar after you die or a killcam. While it is up, detections of the chosen
+  kinds are dropped; its test shows where it is on screen. Round rules (see [Rounds](#rounds)) still
+  apply on top.
+
 ## Match details: screen readers
 
 Besides events, a game folder can describe how to read **match details** (character, map, mode,
@@ -304,6 +343,7 @@ K/D/A, result, score) from the screen. Readers live in `readers/<id>.json`; Dete
 | `values` | Text only: allowed values; readings snap to the closest (one typo per four letters) or are dropped. Use it for maps, agents and modes so a misplaced box yields nothing rather than nonsense. |
 | `options` | Choice only: `[{ "value": "Jett", "templates": ["templates/jett.png"] }]`. |
 | `threshold`, `method`, `templateFrameHeight` | Choice only: as for detectors. |
+| `anchor`, `anchorAspect` | Optional: as for detectors. |
 
 Where details come from, best first: what you typed on the match page, a local game API
 (League Live Client, CS2 GSI, the Riot Client on 127.0.0.1 for VALORANT map/mode/score), screen

@@ -2,8 +2,9 @@
 //!
 //!     cargo run --release -p recap-core --example scan -- <video> <game-folder> [analysis-height]
 //!
-//! Prints each event and, per detector, the peak score while firing and the highest score
-//! seen outside events (how close it came to a false positive).
+//! Prints each event (detections a blocker dropped are marked "s") and, per detector, the peak
+//! score while firing and the highest score seen outside events (how close it came to a false
+//! positive).
 
 use std::path::PathBuf;
 
@@ -47,6 +48,16 @@ fn main() -> anyhow::Result<()> {
         print!("{}", if dropped { "x" } else { " " });
         println!(
             "{:>8.2}s  {:<12} {:<20} conf {:.3}",
+            e.t_ms as f64 / 1000.0,
+            e.kind,
+            e.source.label(),
+            e.confidence.unwrap_or(0.0)
+        );
+    }
+    // Detections a blocker (spectating, killcam...) dropped are marked "s".
+    for e in &res.suppressed {
+        println!(
+            "s{:>8.2}s  {:<12} {:<20} conf {:.3}",
             e.t_ms as f64 / 1000.0,
             e.kind,
             e.source.label(),
