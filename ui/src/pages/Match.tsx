@@ -15,7 +15,8 @@ import { kdaRatio, scoreParts } from "../lib/details";
 import { roundScore } from "../lib/rounds";
 import { loadPref, savePref } from "../lib/media";
 import { Player, type PlayerHandle } from "../components/Player";
-import { Timeline } from "../components/Timeline";
+import { Timeline, type TimelineCurve, type TimelineView } from "../components/Timeline";
+import { toggleMatchPanel, useMatchPanel } from "../lib/layout";
 import { MatchDetailsStrip } from "../components/MatchDetails";
 import { Empty, Icon, KindCounts, KindDot, ProgressBar, Thumb } from "../components/ui";
 import { matchHeading } from "./Library";
@@ -42,6 +43,11 @@ export function MatchPage() {
     savePref("match.tab", t);
   };
   useLibraryChanged(reload, id);
+  const navOpen = useMatchPanel("nav");
+  const sideOpen = useMatchPanel("side");
+  const [view, setView] = useState<TimelineView>(() => loadPref<TimelineView>("match.tl.view", "track"));
+  const [curve, setCurve] = useState<TimelineCurve>(() => loadPref<TimelineCurve>("match.tl.curve", "activity"));
+  const [clipOpen, setClipOpen] = useState(false);
 
   // Moving between matches reuses this page: start each one fresh.
   useEffect(() => {
@@ -51,6 +57,7 @@ export function MatchPage() {
     setClipTitle("");
     setHidden(new Set());
     setHlOn(false);
+    setClipOpen(false);
   }, [id]);
 
   const events = data?.events ?? [];
@@ -130,7 +137,10 @@ export function MatchPage() {
     const end = Math.max(inMs + 1, outMs ?? (m.durationMs || inMs + 1));
     let dead = false;
     const t = window.setTimeout(() => {
-      api.clipCutPoints(m.id, inMs, end).then((c) => !dead && setCut(c), () => {});
+      api.clipCutPoints(m.id, inMs, end).then(
+        (c) => !dead && setCut(c),
+        () => {},
+      );
     }, 180);
     return () => {
       dead = true;
@@ -141,18 +151,22 @@ export function MatchPage() {
   // Audio waveform under the timeline: fetched lazily, once per recording (the backend caches it).
   const [showWave, setShowWave] = useState(() => loadPref<boolean>("match.wave", true));
   const [wave, setWave] = useState<number[] | null>(null);
+  const needWave = view === "lanes" ? showWave : curve === "audio";
   useEffect(() => {
     setWave(null);
-    if (!m || !showWave || m.status === "recording") return;
+    if (!m || !needWave || m.status === "recording") return;
     let dead = false;
     const t = window.setTimeout(() => {
-      api.matchWaveform(m.id).then((w) => !dead && setWave(w), () => {});
+      api.matchWaveform(m.id).then(
+        (w) => !dead && setWave(w),
+        () => {},
+      );
     }, 350);
     return () => {
       dead = true;
       window.clearTimeout(t);
     };
-  }, [m?.id, m?.status, showWave]);
+  }, [m?.id, m?.status, needWave]);
 
   const addMarker = useCallback(async () => {
     if (!m) return;
@@ -188,6 +202,10 @@ export function MatchPage() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, select, [contenteditable=true]") || e.metaKey || e.altKey) return;
+      if (!e.ctrlKey && (e.key === "[" || e.key === "]")) {
+        toggleMatchPanel(e.key === "[" ? "nav" : "side");
+        return;
+      }
       const p = player.current;
       if (!p) return;
       if (e.ctrlKey) {
@@ -241,9 +259,11 @@ export function MatchPage() {
         case "i":
           setIn(Math.round(p.time()));
           setOut(null);
+          setClipOpen(true);
           break;
         case "o":
           setOut(Math.round(p.time()));
+          setClipOpen(true);
           break;
         case "m":
           addMarker();
@@ -284,6 +304,7 @@ export function MatchPage() {
       setIn(null);
       setOut(null);
       setClipTitle("");
+      setClipOpen(false);
       toast.info("Clip saved");
     } catch (e) {
       toast.error(e, "Could not make clip");
@@ -317,24 +338,24 @@ export function MatchPage() {
   const current = [...visible].reverse().find((e) => e.tMs <= time + 500);
 
   const renderEvent = (e: GameEvent, i: number) => {
-            const src = `${sourceLabel(e.source)}${e.confidence !== undefined ? `, ${Math.round(e.confidence * 100)}% match` : ""}`;
-            return (
-              <li key={e.id ?? i} className={`ev ${current === e ? "current" : ""}`}>
-                <button className="ev-main" onClick={() => jump(e)} title={`${kindStyle(e.kind).label} at ${timecode(e.tMs)} · ${src}`}>
-                  <span className="ev-time num">{timecode(e.tMs)}</span>
-                  <KindDot kind={e.kind} tone="color" size={13} />
-                  <span className="ev-kind">
-                    {kindStyle(e.kind).label}
-                    {e.meta?.count ? ` ×${e.meta.count}` : ""}
-                  </span>
-                </button>
-                {e.id !== undefined && (
-                  <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(e.kind).label} at ${timecode(e.tMs)}`} onClick={() => deleteEvent(e)}>
-                    <Icon name="close" size={13} />
-                  </button>
-                )}
-              </li>
-            );
+    const src = `${sourceLabel(e.source)}${e.confidence !== undefined ? `, ${Math.round(e.confidence * 100)}% match` : ""}`;
+    return (
+      <li key={e.id ?? i} className={`ev ${current === e ? "current" : ""}`}>
+        <button className="ev-main" onClick={() => jump(e)} title={`${kindStyle(e.kind).label} at ${timecode(e.tMs)} · ${src}`}>
+          <span className="ev-time num">{timecode(e.tMs)}</span>
+          <KindDot kind={e.kind} tone="color" size={13} />
+          <span className="ev-kind">
+            {kindStyle(e.kind).label}
+            {e.meta?.count ? ` ×${e.meta.count}` : ""}
+          </span>
+        </button>
+        {e.id !== undefined && (
+          <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(e.kind).label} at ${timecode(e.tMs)}`} onClick={() => deleteEvent(e)}>
+            <Icon name="close" size={13} />
+          </button>
+        )}
+      </li>
+    );
   };
 
   const customTitle = !!m.title?.trim();
@@ -346,9 +367,21 @@ export function MatchPage() {
   ];
 
   return (
-    <div className="match-page">
+    <div
+      className={`match-page ${sideOpen ? "" : "side-hidden"} ${navOpen ? "" : "nav-hidden"} ${view === "lanes" ? "lanes-view" : ""}`}
+      style={{ ["--tl-extra" as string]: `${(hlOn ? 50 : 0) + (inMs !== null && cut ? 30 : 0)}px` }}
+    >
       <div className="match-col">
         <header className="match-top">
+          <button
+            className={`icon-btn panel-toggle ${navOpen ? "on" : ""}`}
+            onClick={() => toggleMatchPanel("nav")}
+            aria-pressed={navOpen}
+            aria-label={navOpen ? "Hide the app menu" : "Show the app menu"}
+            title={navOpen ? "Hide the app menu ([)" : "Show the app menu ([)"}
+          >
+            <Icon name="panel-left" size={16} />
+          </button>
           <BackLink />
           <div className="match-head-text">
             <h1 className="match-h1">
@@ -377,11 +410,25 @@ export function MatchPage() {
               <Icon name="refresh" size={14} />
               Rescan
             </button>
+            <button
+              className={`btn ${sideOpen ? "btn-on" : ""} panel-toggle-side`}
+              onClick={() => toggleMatchPanel("side")}
+              aria-pressed={sideOpen}
+              aria-label={sideOpen ? "Hide the match panel" : "Show the match panel"}
+              title={sideOpen ? "Hide overview and plays (])" : "Show overview and plays (])"}
+            >
+              <Icon name="panel-right" size={14} />
+              Plays <span className="num muted">{visible.length}</span>
+            </button>
           </div>
         </header>
         {m.status === "processing" && (
           <div className="banner">
-            <span>{progress !== undefined && progress < 0 ? "Plays are found once the match you are playing ends, so recording never costs frames." : `Finding plays${progress !== undefined ? ` · ${Math.round(progress * 100)}%` : "…"}`}</span>
+            <span>
+              {progress !== undefined && progress < 0
+                ? "Plays are found once the match you are playing ends, so recording never costs frames."
+                : `Finding plays${progress !== undefined ? ` · ${Math.round(progress * 100)}%` : "…"}`}
+            </span>
             <ProgressBar value={progress !== undefined && progress >= 0 ? progress : 0.05} />
           </div>
         )}
@@ -394,20 +441,7 @@ export function MatchPage() {
 
         <section className="timeline-card" aria-label="Timeline">
           <div className="tools">
-            <div className="clipper" role="group" aria-label="Make a clip">
-              <button className="btn btn-small" onClick={() => (setIn(Math.round(time)), setOut(null))} title="Set in point (I)">
-                In <span className="num">{inMs !== null ? timecode(inMs) : "–"}</span>
-              </button>
-              <button className="btn btn-small" onClick={() => setOut(Math.round(time))} disabled={inMs === null} title="Set out point (O)">
-                Out <span className="num">{outMs !== null ? timecode(outMs) : inMs !== null ? "playhead" : "–"}</span>
-              </button>
-              <input className="input input-small" placeholder="Clip title" value={clipTitle} onChange={(e) => setClipTitle(e.target.value)} aria-label="Clip title" />
-              <button className="btn btn-primary btn-small" disabled={inMs === null || busy || live} onClick={makeClip}>
-                <Icon name="scissors" size={13} />
-                {busy ? "Saving…" : "Save clip"}
-              </button>
-            </div>
-            <div className="tools-end">
+            <div className="tools-start">
               <button
                 className={`btn btn-small ${hlOn ? "btn-on" : "btn-ghost"}`}
                 onClick={hlOn ? stopHighlights : startHighlights}
@@ -418,23 +452,69 @@ export function MatchPage() {
                 <Icon name="sparkles" size={13} />
                 Highlights
               </button>
-              <button
-                className={`icon-btn wave-toggle ${showWave ? "on" : ""}`}
-                onClick={() => setShowWave((v) => (savePref("match.wave", !v), !v))}
-                aria-pressed={showWave}
-                aria-label={showWave ? "Hide the audio waveform" : "Show the audio waveform"}
-                title={showWave ? "Hide audio waveform" : "Show audio waveform"}
-              >
-                <Icon name="wave" size={14} />
-              </button>
+              {clipOpen || inMs !== null ? (
+                <div className="clipper" role="group" aria-label="Make a clip">
+                  <button className="btn btn-small" onClick={() => (setIn(Math.round(time)), setOut(null))} title="Set in point (I)">
+                    In <span className="num">{inMs !== null ? timecode(inMs) : "–"}</span>
+                  </button>
+                  <button className="btn btn-small" onClick={() => setOut(Math.round(time))} disabled={inMs === null} title="Set out point (O)">
+                    Out <span className="num">{outMs !== null ? timecode(outMs) : inMs !== null ? "playhead" : "–"}</span>
+                  </button>
+                  <input className="input input-small" placeholder="Clip title" value={clipTitle} onChange={(e) => setClipTitle(e.target.value)} aria-label="Clip title" />
+                  <button className="btn btn-primary btn-small" disabled={inMs === null || busy || live} onClick={makeClip}>
+                    <Icon name="scissors" size={13} />
+                    {busy ? "Saving…" : "Save clip"}
+                  </button>
+                  <button className="icon-btn" onClick={() => (setIn(null), setOut(null), setClipOpen(false))} aria-label="Cancel the clip" title="Cancel">
+                    <Icon name="close" size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button className="btn btn-small btn-ghost" onClick={() => setClipOpen(true)} disabled={live} title="Make a clip: set In and Out (I, O)">
+                  <Icon name="scissors" size={13} />
+                  Clip
+                </button>
+              )}
               <button className="btn btn-small btn-ghost" onClick={addMarker} disabled={live} title="Add a marker at the playhead (M)">
                 <Icon name="marker" size={13} />
                 Marker
               </button>
+            </div>
+            <div className="tools-end">
+              {view === "track" ? (
+                <label className="curve-pick" title="Curve behind the markers">
+                  <Icon name="curve" size={13} />
+                  <span className="sr-only">Curve</span>
+                  <select className="curve-select" value={curve} onChange={(e) => (setCurve(e.target.value as TimelineCurve), savePref("match.tl.curve", e.target.value))}>
+                    <option value="activity">Activity</option>
+                    <option value="audio">Audio</option>
+                    <option value="none">No curve</option>
+                  </select>
+                </label>
+              ) : (
+                <button
+                  className={`icon-btn wave-toggle ${showWave ? "on" : ""}`}
+                  onClick={() => setShowWave((v) => (savePref("match.wave", !v), !v))}
+                  aria-pressed={showWave}
+                  aria-label={showWave ? "Hide the audio waveform" : "Show the audio waveform"}
+                  title={showWave ? "Hide audio waveform" : "Show audio waveform"}
+                >
+                  <Icon name="wave" size={14} />
+                </button>
+              )}
+              <div className="seg seg-icons" role="group" aria-label="Timeline view">
+                <button className={view === "track" ? "on" : ""} onClick={() => (setView("track"), savePref("match.tl.view", "track"))} aria-pressed={view === "track"} title="Every play on one track">
+                  <Icon name="curve" size={13} />
+                  Track
+                </button>
+                <button className={view === "lanes" ? "on" : ""} onClick={() => (setView("lanes"), savePref("match.tl.view", "lanes"))} aria-pressed={view === "lanes"} title="A lane per kind of play">
+                  <Icon name="lanes" size={13} />
+                  Lanes
+                </button>
+              </div>
               <details className="shortcuts" key={`k-${m.id}`}>
-                <summary className="btn btn-small btn-ghost">
-                  <Icon name="keyboard" size={13} />
-                  Shortcuts
+                <summary className="icon-btn" aria-label="Keyboard shortcuts" title="Keyboard shortcuts">
+                  <Icon name="keyboard" size={15} />
                 </summary>
                 <dl className="shortcuts-panel">
                   <dt>
@@ -477,6 +557,14 @@ export function MatchPage() {
                     <kbd>H</kbd>
                   </dt>
                   <dd>Highlights: play only the moments</dd>
+                  <dt>
+                    <kbd>[</kbd>
+                  </dt>
+                  <dd>Show / hide the app menu</dd>
+                  <dt>
+                    <kbd>]</kbd>
+                  </dt>
+                  <dd>Show / hide overview and plays</dd>
                 </dl>
               </details>
             </div>
@@ -504,160 +592,169 @@ export function MatchPage() {
             inMs={inMs}
             outMs={outMs}
             cut={cut}
-            waveform={showWave ? wave : null}
+            waveform={needWave ? wave : null}
             windows={hlOn ? hlWindows : null}
             hiddenKinds={hidden}
+            view={view}
+            curve={curve}
             onSeek={(ms) => player.current?.seek(ms)}
             onEventClick={jump}
           />
-          {rounds.length > 0 && <RoundsStrip rounds={rounds} timeMs={time} onJump={(r) => player.current?.seek(Math.max(0, r.startMs - 2000))} />}
+          {view === "lanes" && rounds.length > 0 && <RoundsStrip rounds={rounds} timeMs={time} onJump={(r) => player.current?.seek(Math.max(0, r.startMs - 2000))} />}
         </section>
         <MatchClips clips={data!.clips} />
       </div>
 
-      <aside className="match-side" aria-label="Match">
-        <div className="side-tabs" role="tablist">
-          {tabs.map(([k, label]) => (
-            <button key={k} role="tab" aria-selected={tab === k} className={`side-tab ${tab === k ? "on" : ""}`} onClick={() => chooseTab(k)}>
-              {label}
-              {k === "plays" && <span className="side-tab-n num">{visible.length}</span>}
+      {sideOpen && (
+        <aside className="match-side" aria-label="Match">
+          <div className="side-tabs" role="tablist">
+            {tabs.map(([k, label]) => (
+              <button key={k} role="tab" aria-selected={tab === k} className={`side-tab ${tab === k ? "on" : ""}`} onClick={() => chooseTab(k)}>
+                {label}
+                {k === "plays" && <span className="side-tab-n num">{visible.length}</span>}
+              </button>
+            ))}
+            <button className="icon-btn side-collapse" onClick={() => toggleMatchPanel("side")} aria-label="Hide the match panel" title="Hide (])">
+              <Icon name="panel-right" size={15} />
             </button>
-          ))}
-        </div>
-
-        {tab === "overview" && (
-          <div className="side-body">
-            <MatchSummary m={m} />
-            {!live && (
-              <section className="side-section">
-                <h2 className="side-h">Details</h2>
-                <MatchDetailsStrip key={m.id} m={m} onSaved={(rec) => setData((x) => (x ? { ...x, match: rec } : x))} />
-              </section>
-            )}
-            <section className="side-section">
-              <h2 className="side-h">Plays</h2>
-              <KindCounts counts={m.eventCounts} max={8} />
-            </section>
           </div>
-        )}
 
-        {tab === "plays" && (
-          <div className="events-panel">
-            <div className="events-head">
-              <div className="seg" role="group" aria-label="List plays">
-                <button className={grouped ? "on" : ""} onClick={() => (setGrouped(true), savePref("match.grouped", true))} title="Plays close together as one moment">
-                  Moments
-                </button>
-                <button className={!grouped ? "on" : ""} onClick={() => (setGrouped(false), savePref("match.grouped", false))} title="Every play on its own">
-                  All
-                </button>
-              </div>
-              {grouped && moments.some((x) => momentTitle(x)) && (
-                <label className="check-inline small">
-                  <input type="checkbox" checked={onlyBig} onChange={(e) => setOnlyBig(e.target.checked)} />
-                  Multikills
-                </label>
+          {tab === "overview" && (
+            <div className="side-body">
+              <MatchSummary m={m} />
+              {!live && (
+                <section className="side-section">
+                  <h2 className="side-h">Details</h2>
+                  <MatchDetailsStrip key={m.id} m={m} onSaved={(rec) => setData((x) => (x ? { ...x, match: rec } : x))} />
+                </section>
               )}
-              <span className="muted small events-count">{grouped ? `${shownMoments.length}` : `${visible.length}`}</span>
-              {kinds.length > 1 && (
-                <details className="ev-filter" key={`f-${m.id}`}>
-                  <summary className="btn btn-small btn-ghost">
-                    <Icon name="filter" size={13} />
-                    {hidden.size > 0 ? `Filter · ${kinds.length - hidden.size}/${kinds.length}` : "Filter"}
-                  </summary>
-                  <div className="ev-filter-panel" role="group" aria-label="Show or hide event kinds">
-                    {kinds.map((k) => (
-                      <label key={k} className="ev-filter-item">
-                        <input
-                          type="checkbox"
-                          checked={!hidden.has(k)}
-                          onChange={() =>
-                            setHidden((h) => {
-                              const n = new Set(h);
-                              if (n.has(k)) n.delete(k);
-                              else n.add(k);
-                              return n;
-                            })
-                          }
-                        />
-                        <KindDot kind={k} tone="color" size={13} />
-                        <span>{kindStyle(k).plural}</span>
-                        <span className="num muted">{events.filter((e) => e.kind === k).length}</span>
-                      </label>
-                    ))}
-                  </div>
-                </details>
-              )}
+              <section className="side-section">
+                <h2 className="side-h">Plays</h2>
+                <KindCounts counts={m.eventCounts} max={8} />
+              </section>
             </div>
-            {events.length === 0 && (
-              <p className="muted small events-empty">
-                {live ? "Events show up here after the match." : "No plays found. Press M to add a marker, or teach Recap this game in Detector Studio."}
-              </p>
-            )}
-            {grouped ? (
-              <ol className="events-list moments-list">
-                {shownMoments.map((mo) => {
-                  const title = momentTitle(mo);
-                  const isOpen = open.has(mo.startMs);
-                  const isCurrent = time + 500 >= mo.startMs && time <= mo.endMs + 2000;
-                  return (
-                    <li key={mo.startMs} className={`moment ${title ? "big" : ""} ${!title && mo.events.length === 1 ? "single" : ""} ${isCurrent ? "current" : ""}`}>
-                      <div className="moment-row">
-                        <button className="ev-main" onClick={() => player.current?.seek(Math.max(0, mo.startMs - LEAD_IN_MS))} title={`Play from ${timecode(mo.startMs)}`}>
-                          <span className="ev-time num">{timecode(mo.startMs)}</span>
-                          <span className="moment-body">
-                            <span className="moment-title">{title ?? momentLabel(mo)}</span>
-                            <span className="moment-kinds">
-                              {mo.counts.map(([k, n]) => (
-                                <span key={k} className="moment-kind" title={`${n} ${n === 1 ? kindStyle(k).label : kindStyle(k).plural}`}>
-                                  <KindDot kind={k} tone="color" size={12} />
-                                  {n > 1 && <span className="num">{n}</span>}
-                                </span>
-                              ))}
-                              {mo.endMs - mo.startMs >= 1000 && <span className="moment-len num">{Math.round((mo.endMs - mo.startMs) / 1000)} s</span>}
-                            </span>
-                          </span>
-                        </button>
-                        {mo.events.length > 1 && (
-                          <button
-                            className="icon-btn moment-toggle"
-                            aria-expanded={isOpen}
-                            aria-label={isOpen ? "Hide the plays in this moment" : "Show the plays in this moment"}
-                            onClick={() =>
-                              setOpen((o) => {
-                                const n = new Set(o);
-                                if (n.has(mo.startMs)) n.delete(mo.startMs);
-                                else n.add(mo.startMs);
+          )}
+
+          {tab === "plays" && (
+            <div className="events-panel">
+              <div className="events-head">
+                <div className="seg" role="group" aria-label="List plays">
+                  <button className={grouped ? "on" : ""} onClick={() => (setGrouped(true), savePref("match.grouped", true))} title="Plays close together as one moment">
+                    Moments
+                  </button>
+                  <button className={!grouped ? "on" : ""} onClick={() => (setGrouped(false), savePref("match.grouped", false))} title="Every play on its own">
+                    All
+                  </button>
+                </div>
+                {grouped && moments.some((x) => momentTitle(x)) && (
+                  <label className="check-inline small">
+                    <input type="checkbox" checked={onlyBig} onChange={(e) => setOnlyBig(e.target.checked)} />
+                    Multikills
+                  </label>
+                )}
+                <span className="muted small events-count">{grouped ? `${shownMoments.length}` : `${visible.length}`}</span>
+                {kinds.length > 1 && (
+                  <details className="ev-filter" key={`f-${m.id}`}>
+                    <summary className="btn btn-small btn-ghost">
+                      <Icon name="filter" size={13} />
+                      {hidden.size > 0 ? `Filter · ${kinds.length - hidden.size}/${kinds.length}` : "Filter"}
+                    </summary>
+                    <div className="ev-filter-panel" role="group" aria-label="Show or hide event kinds">
+                      {kinds.map((k) => (
+                        <label key={k} className="ev-filter-item">
+                          <input
+                            type="checkbox"
+                            checked={!hidden.has(k)}
+                            onChange={() =>
+                              setHidden((h) => {
+                                const n = new Set(h);
+                                if (n.has(k)) n.delete(k);
+                                else n.add(k);
                                 return n;
                               })
                             }
-                          >
-                            <Icon name={isOpen ? "chev-up" : "chev-down"} size={13} />
+                          />
+                          <KindDot kind={k} tone="color" size={13} />
+                          <span>{kindStyle(k).plural}</span>
+                          <span className="num muted">{events.filter((e) => e.kind === k).length}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+              {events.length === 0 && (
+                <p className="muted small events-empty">{live ? "Events show up here after the match." : "No plays found. Press M to add a marker, or teach Recap this game in Detector Studio."}</p>
+              )}
+              {grouped ? (
+                <ol className="events-list moments-list">
+                  {shownMoments.map((mo) => {
+                    const title = momentTitle(mo);
+                    const isOpen = open.has(mo.startMs);
+                    const isCurrent = time + 500 >= mo.startMs && time <= mo.endMs + 2000;
+                    return (
+                      <li key={mo.startMs} className={`moment ${title ? "big" : ""} ${!title && mo.events.length === 1 ? "single" : ""} ${isCurrent ? "current" : ""}`}>
+                        <div className="moment-row">
+                          <button className="ev-main" onClick={() => player.current?.seek(Math.max(0, mo.startMs - LEAD_IN_MS))} title={`Play from ${timecode(mo.startMs)}`}>
+                            <span className="ev-time num">{timecode(mo.startMs)}</span>
+                            <span className="moment-body">
+                              <span className="moment-title">{title ?? momentLabel(mo)}</span>
+                              <span className="moment-kinds">
+                                {mo.counts.map(([k, n]) => (
+                                  <span key={k} className="moment-kind" title={`${n} ${n === 1 ? kindStyle(k).label : kindStyle(k).plural}`}>
+                                    <KindDot kind={k} tone="color" size={12} />
+                                    {n > 1 && <span className="num">{n}</span>}
+                                  </span>
+                                ))}
+                                {mo.endMs - mo.startMs >= 1000 && <span className="moment-len num">{Math.round((mo.endMs - mo.startMs) / 1000)} s</span>}
+                              </span>
+                            </span>
                           </button>
-                        )}
-                        {mo.events.length === 1 && mo.events[0].id !== undefined && (
-                          <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(mo.events[0].kind).label} at ${timecode(mo.startMs)}`} onClick={() => deleteEvent(mo.events[0])}>
-                            <Icon name="close" size={13} />
-                          </button>
-                        )}
-                      </div>
-                      {isOpen && <ol className="moment-children">{mo.events.map((e, i) => renderEvent(e, i))}</ol>}
-                    </li>
-                  );
-                })}
-              </ol>
-            ) : (
-              <ol className="events-list">{visible.map((e, i) => renderEvent(e, i))}</ol>
-            )}
-          </div>
-        )}
-      </aside>
+                          {mo.events.length > 1 && (
+                            <button
+                              className="icon-btn moment-toggle"
+                              aria-expanded={isOpen}
+                              aria-label={isOpen ? "Hide the plays in this moment" : "Show the plays in this moment"}
+                              onClick={() =>
+                                setOpen((o) => {
+                                  const n = new Set(o);
+                                  if (n.has(mo.startMs)) n.delete(mo.startMs);
+                                  else n.add(mo.startMs);
+                                  return n;
+                                })
+                              }
+                            >
+                              <Icon name={isOpen ? "chev-up" : "chev-down"} size={13} />
+                            </button>
+                          )}
+                          {mo.events.length === 1 && mo.events[0].id !== undefined && (
+                            <button className="icon-btn ev-del" aria-label={`Delete ${kindStyle(mo.events[0].kind).label} at ${timecode(mo.startMs)}`} onClick={() => deleteEvent(mo.events[0])}>
+                              <Icon name="close" size={13} />
+                            </button>
+                          )}
+                        </div>
+                        {isOpen && <ol className="moment-children">{mo.events.map((e, i) => renderEvent(e, i))}</ol>}
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <ol className="events-list">{visible.map((e, i) => renderEvent(e, i))}</ol>
+              )}
+            </div>
+          )}
+        </aside>
+      )}
     </div>
   );
 }
 
 function recordedDate(unixMs: number): string {
-  return new Date(unixMs).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return new Date(unixMs).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 /** The headline card: result, score, map, character, K/D/A and rank. */
@@ -815,8 +912,7 @@ function CutNote({ cut, inMs, outMs }: { cut: CutPoints; inMs: number; outMs: nu
         </span>
       ) : lead >= 40 ? (
         <span>
-          Starts at the keyframe at <span className="num">{timecode(cut.startMs, true)}</span>,{" "}
-          <span className="num">{(lead / 1000).toFixed(1)} s</span> before In
+          Starts at the keyframe at <span className="num">{timecode(cut.startMs, true)}</span>, <span className="num">{(lead / 1000).toFixed(1)} s</span> before In
           {len !== null && (
             <>
               {" "}
@@ -843,7 +939,10 @@ function CutNote({ cut, inMs, outMs }: { cut: CutPoints; inMs: number; outMs: nu
 const HL_SECONDS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 15];
 
 function SecondsStepper({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  const i = Math.max(0, HL_SECONDS.findIndex((x) => x >= value));
+  const i = Math.max(
+    0,
+    HL_SECONDS.findIndex((x) => x >= value),
+  );
   return (
     <span className="stepper" role="group" aria-label={`${label} each moment`}>
       <span className="stepper-label">{label}</span>
@@ -876,7 +975,12 @@ function HighlightBar({
   onGo,
   onExit,
 }: {
-  windows: Array<{ startMs: number; endMs: number; first: number; count: number }>;
+  windows: Array<{
+    startMs: number;
+    endMs: number;
+    first: number;
+    count: number;
+  }>;
   index: number;
   timeMs: number;
   total: number;

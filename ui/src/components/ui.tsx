@@ -27,6 +27,10 @@ import {
   Gamepad2,
   Activity,
   Unplug,
+  PanelLeft,
+  PanelRight,
+  Rows3,
+  ChartSpline,
   HardDrive,
   Info,
   Keyboard,
@@ -255,6 +259,10 @@ const ICONS: Record<string, LucideIcon> = {
   wave: AudioLines,
   health: Activity,
   unplug: Unplug,
+  "panel-left": PanelLeft,
+  "panel-right": PanelRight,
+  lanes: Rows3,
+  curve: ChartSpline,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {
