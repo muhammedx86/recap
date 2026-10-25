@@ -22,7 +22,8 @@ fn bundled_games_load() {
             g.def.id
         );
         let types = g.event_types();
-        for d in &g.detectors {
+        // Blockers mark nothing, so their `event` is not an event type.
+        for d in g.detectors.iter().filter(|d| d.def.blocks.is_empty()) {
             assert!(
                 types.iter().any(|t| t.id == d.def.event),
                 "{}/{} emits unknown event type {}",
