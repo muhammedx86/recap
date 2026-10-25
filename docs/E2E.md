@@ -105,11 +105,11 @@ driver can screenshot the desktop.
   en-US OCR capability if missing). A manual detail edit persists (`manualDetail` check).
 - Every entry in `checks` is ok.
 - The UI tour produced a screenshot for every page.
-- The recorder was armed for the sample game and reported a running pre-roll buffer; every
-  recording reported frame stats with frames written (dropped/lagged share is printed).
+- Every recording reported frame stats with frames written (dropped/lagged share is printed).
 - Phase 2: the sample game plays again and the driver presses "stop" (`stop.request`) at +18 s,
   in the middle of match 1. Recording resumes in the background; the rest of match 1 is dropped
-  and match 2 is recorded on its own (`report2.json`). The resumed recording starts from the
-  pre-roll buffer (`prerollMs` > 0) and no recording is left in `.recap-buffer`.
+  and match 2 is recorded on its own (`report2.json`). Between the stop and the resume the
+  recorder stays armed and reports a running pre-roll buffer; the resumed recording starts from
+  it (`prerollMs` > 0) and no recording is left in `.recap-buffer`.
 
 Artifacts: `report.json`, screenshots, `recap.log`, `recorder.log`, the recordings.

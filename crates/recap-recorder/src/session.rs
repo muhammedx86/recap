@@ -83,6 +83,9 @@ pub trait Backend {
     fn arm(&mut self, req: &ArmRequest) -> Vec<RecorderEvent>;
     /// Release everything `arm` set up.
     fn disarm(&mut self);
+    /// A `Disarm` arrived during a recording and runs when it stops: nothing needs to be
+    /// prepared for after it (no buffer restart).
+    fn disarm_pending(&mut self, _pending: bool) {}
     /// Start recording. Long waits (e.g. for the game window) must call `abort()`
     /// regularly and return `StartError::Aborted` when it returns true.
     fn start(&mut self, req: &StartRequest, abort: &mut dyn FnMut() -> bool) -> Result<StartOutcome, StartError>;
@@ -173,6 +176,7 @@ pub fn run<B: Backend>(backend: &mut B, rx: Receiver<Incoming>, emit: &mut dyn F
             }
             Incoming::Command(c @ (RecorderCommand::Arm { .. } | RecorderCommand::Disarm)) => {
                 if active.is_some() {
+                    backend.disarm_pending(matches!(c, RecorderCommand::Disarm));
                     deferred = Some(c);
                 } else {
                     arm_or_disarm(backend, c, emit);
@@ -392,6 +396,9 @@ mod tests {
             self.ticks += 1;
             vec![]
         }
+        fn disarm_pending(&mut self, pending: bool) {
+            self.log.push(format!("pending {pending}"));
+        }
         fn start(&mut self, req: &StartRequest, abort: &mut dyn FnMut() -> bool) -> Result<StartOutcome, StartError> {
             self.log.push(format!("start {}", req.id));
             if let Some(n) = self.wait_polls {
@@ -591,12 +598,28 @@ mod tests {
             ],
         );
         // The arm runs after the stop; EOF then disarms.
-        assert_eq!(f.log, ["start a", "stop", "arm 10", "disarm"]);
+        assert_eq!(f.log, ["start a", "pending false", "stop", "arm 10", "disarm"]);
         let kinds: Vec<String> = ev
             .iter()
             .map(|e| serde_json::to_value(e).unwrap()["event"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(kinds, ["captureChanged", "started", "stopped", "armed"]);
+    }
+
+    #[test]
+    fn disarm_during_a_recording_is_announced_and_runs_after_the_stop() {
+        let mut f = Fake::default();
+        let ev = drive(
+            &mut f,
+            vec![
+                parse_line(ARM).unwrap(),
+                start_cmd("a"),
+                parse_line(r#"{"cmd":"disarm"}"#).unwrap(),
+                parse_line(r#"{"cmd":"stop","id":"a"}"#).unwrap(),
+            ],
+        );
+        assert_eq!(f.log, ["arm 10", "start a", "pending true", "stop", "disarm"]);
+        assert!(matches!(ev.last(), Some(RecorderEvent::Disarmed)));
     }
 
     #[test]

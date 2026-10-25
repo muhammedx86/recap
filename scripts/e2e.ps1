@@ -130,11 +130,8 @@ if (-not (Test-Path $reportPath)) {
         if ($c.Value.ok) { Pass "check $($c.Name)" } else { Fail "check $($c.Name): $($c.Value.detail)" }
     }
 
-    # The recorder: armed for the game with a pre-roll buffer, and frame stats per recording.
+    # Frame stats per recording.
     $rec = $r.recorder
-    if ($rec.armed -and $rec.armed.buffering) { Pass "recorder armed with a pre-roll buffer ($($rec.armed.encoder), $($rec.armed.capture) capture)" }
-    else { Fail "recorder never reported a running pre-roll buffer: $($rec.armed | ConvertTo-Json -Compress)" }
-    if ($rec.armed.encoderFallback) { Write-Host "encoder note: $($rec.armed.encoderFallback)" }
     $stats = @($rec.recordings)
     if ($stats.Count -lt 1) { Fail "no frame stats reported for any recording" }
     foreach ($s in $stats) {
@@ -218,6 +215,12 @@ if (-not (Test-Path $report2Path)) {
         $kills = @($m2.events | Where-Object kind -eq "kill")
         if ($starts.Count -eq 1 -and $kills.Count -eq 1) { Pass "phase 2 match is match 2 (1 start, 1 kill)" } else { Fail "phase 2 match has $($starts.Count) starts and $($kills.Count) kills (expected 1 and 1)" }
     }
+    # After the manual stop the game kept running: the recorder stayed armed and buffered, and
+    # the resumed recording starts from that buffer.
+    $a2 = $r2.recorder.armed
+    if ($a2 -and $a2.buffering) { Pass "phase 2: recorder armed with a pre-roll buffer ($($a2.encoder), $($a2.capture) capture)" }
+    else { Fail "phase 2: recorder never reported a running pre-roll buffer: $($a2 | ConvertTo-Json -Compress)" }
+    if ($a2.encoderFallback) { Write-Host "encoder note: $($a2.encoderFallback)" }
     # The resumed recording starts from the pre-roll buffer that ran after the manual stop.
     $pre = @($r2.recorder.recordings | Where-Object { $_.health.prerollMs -gt 0 })
     if ($pre.Count -ge 1) { Pass "phase 2: resumed recording kept $($pre[0].health.prerollMs) ms of pre-roll" }

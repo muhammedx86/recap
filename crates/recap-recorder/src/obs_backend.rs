@@ -324,6 +324,8 @@ pub struct ObsBackend {
     memory: Option<EncoderMemory>,
     /// Makes source names unique (a removed source may live on until OBS releases it).
     names: u64,
+    /// The game exited during the recording: do not restart the buffer after it.
+    disarm_pending: bool,
 }
 
 fn same_setup(a: &ArmState, capture: &CaptureTarget, video: &VideoConfig, audio: &AudioConfig) -> bool {
@@ -357,6 +359,7 @@ impl ObsBackend {
                 saved: None,
                 memory: None,
                 names: 0,
+                disarm_pending: false,
             },
             version,
         ))
@@ -759,7 +762,7 @@ impl ObsBackend {
             .arm
             .as_ref()
             .is_some_and(|a| !a.temporary && a.buffer_dir.is_some() && a.preroll_ms > 0 && a.attached.is_some());
-        if !wants || self.run.is_some() {
+        if !wants || self.run.is_some() || self.disarm_pending {
             return vec![];
         }
         match self.launch_plan(None) {
@@ -922,6 +925,7 @@ impl ObsBackend {
     }
 
     fn disarm_inner(&mut self) {
+        self.disarm_pending = false;
         if let Err(e) = self.stop_output() {
             log(format!("{e:#}"));
         }
@@ -963,7 +967,7 @@ impl ObsBackend {
     /// `Armed`, once per arm, when the capture is attached and no recording runs (a recording
     /// that started before the window appeared reports it after it stops).
     fn armed_event(&mut self) -> Option<RecorderEvent> {
-        if self.rec.is_some() {
+        if self.rec.is_some() || self.disarm_pending {
             return None;
         }
         let buffering = self.buffering();
@@ -1415,6 +1419,10 @@ impl Backend for ObsBackend {
         self.saved = Some(setup.clone());
         self.arm_with(&setup, req.memory, false);
         self.settle_arm()
+    }
+
+    fn disarm_pending(&mut self, pending: bool) {
+        self.disarm_pending = pending;
     }
 
     fn disarm(&mut self) {
