@@ -6,10 +6,14 @@
 //! `<root>\events\config.yaml` and the game data in `<root>\events\games`, runs the game's official
 //! local source, and sends events and clip windows to `\\.\pipe\recapture-events` (`--stdout`
 //! prints them instead, for testing). Exits when the pipe closes.
+//!
+//! `Recapture.Events.exe --game <id> --scan <clip> [--ffmpeg <dir>] [--root <app folder>]` scans a saved clip's
+//! picture instead and prints what it finds (see `scan.rs`).
 
 mod config;
 mod planner;
 mod protocol;
+mod scan;
 mod sources;
 
 use std::io::Write;
@@ -34,6 +38,8 @@ struct Args {
     exe: Option<PathBuf>,
     root: Option<PathBuf>,
     stdout: bool,
+    scan: Option<PathBuf>,
+    ffmpeg: Vec<PathBuf>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -45,6 +51,8 @@ fn parse_args() -> Result<Args> {
             "--exe" => a.exe = it.next().map(PathBuf::from),
             "--root" => a.root = it.next().map(PathBuf::from),
             "--stdout" => a.stdout = true,
+            "--scan" => a.scan = Some(it.next().context("--scan needs a clip")?.into()),
+            "--ffmpeg" => a.ffmpeg.push(it.next().context("--ffmpeg needs a folder")?.into()),
             other => bail!("unknown argument {other}"),
         }
     }
@@ -101,6 +109,9 @@ fn run() -> Result<()> {
         log::info!("no game data for {}; nothing to do", args.game);
         return Ok(());
     };
+    if let Some(clip) = &args.scan {
+        return scan::run(&game, clip, &args.ffmpeg);
+    }
     let Some(api) = game.def.api else {
         // Screen-only games get their events from saved clips (vision scan), not live.
         log::info!("{} has no live source; nothing to do", game.def.name);
