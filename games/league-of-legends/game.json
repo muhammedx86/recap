@@ -12,7 +12,13 @@
       "kill",
       "multikill",
       "ace"
-    ]
+    ],
+    "timing": {
+      "multikill": {
+        "before": 6,
+        "after": 3
+      }
+    }
   },
   "postMatch": [],
   "color": "#C8AA6E"
