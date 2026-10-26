@@ -1,0 +1,12 @@
+Recapture.Events
+Copyright (C) 2026 muhammedx86
+
+Game event detection for Recapture (https://github.com/muhammedx86/recap, folder recapture-events).
+Licensed under the GNU General Public License
+v3.0 or later (see LICENSE).
+
+This program includes and is built on Recap (https://github.com/ywillxia/recap),
+Copyright (C) its authors, licensed GPL-3.0-or-later. Vendored from commit
+11df5127932bd9cb87f1b31494d2bc04946766cb (2026-10-25): the recap-core crate and the
+bundled game data (games/). Changes are listed in third_party/recap/UPSTREAM.md.
+Recap's licence: licenses/recap-LICENSE.

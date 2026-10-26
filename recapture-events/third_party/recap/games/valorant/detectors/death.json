@@ -1,0 +1,30 @@
+{
+  "id": "death",
+  "label": "Death (combat report)",
+  "event": "death",
+  "region": {
+    "x": 0.9427083333333334,
+    "y": 0.49722222222222223,
+    "w": 0.057291666666666664,
+    "h": 0.04814814814814815
+  },
+  "anchor": "right",
+  "templateBox": {
+    "x": 0.9510416666666667,
+    "y": 0.5083333333333333,
+    "w": 0.04375,
+    "h": 0.025925925925925925
+  },
+  "templates": [
+    "templates/killedyou-957.png"
+  ],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.75,
+  "cooldownMs": 5000,
+  "minConsecutive": 2,
+  "sampleFps": 4,
+  "holdMargin": 0.25,
+  "notes": "The \"KILLED YOU\" tag in the combat report that opens when you die. Round rules drop repeats and the copy shown in the next buy phase.",
+  "enabled": true
+}

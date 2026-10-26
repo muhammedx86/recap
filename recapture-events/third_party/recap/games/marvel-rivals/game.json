@@ -1,0 +1,25 @@
+{
+  "id": "marvel-rivals",
+  "name": "Marvel Rivals",
+  "processes": [
+    "Marvel-Win64-Shipping.exe"
+  ],
+  "capture": "game",
+  "api": "marvel-state-file",
+  "preferApi": true,
+  "autoClip": {
+    "events": [
+      "kill"
+    ]
+  },
+  "postMatch": [],
+  "color": "#F2C230",
+  "exclusions": [
+    {
+      "drop": "kill",
+      "near": "death",
+      "beforeMs": 1500,
+      "afterMs": 15000
+    }
+  ]
+}

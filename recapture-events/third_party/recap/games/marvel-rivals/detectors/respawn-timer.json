@@ -1,0 +1,32 @@
+{
+  "id": "respawn-timer",
+  "label": "Death (respawn timer)",
+  "event": "death",
+  "region": {
+    "x": 0.0390625,
+    "y": 0.03888888888888889,
+    "w": 0.0703125,
+    "h": 0.08888888888888889
+  },
+  "anchor": "top-left",
+  "templateBox": {
+    "x": 0.05078125,
+    "y": 0.05694444444444444,
+    "w": 0.025,
+    "h": 0.06111111111111111
+  },
+  "templates": [
+    "templates/respawn-s-a.png",
+    "templates/respawn-s-b.png",
+    "templates/respawn-s-c.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.75,
+  "cooldownMs": 12000,
+  "minConsecutive": 3,
+  "sampleFps": 4,
+  "holdMargin": 0.15,
+  "enabled": true,
+  "notes": "The yellow \"Ns\" respawn countdown at the top left while you wait to respawn."
+}

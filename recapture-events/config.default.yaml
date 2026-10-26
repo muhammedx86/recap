@@ -1,0 +1,16 @@
+# Recapture game events (Recapture.Events.exe). Edit here or in Settings > Game events.
+#
+# enabled: false turns the module off without removing it.
+# Per game (the folder name in events\games, e.g. cs2, league-of-legends, valorant, rocket-league), per event kind:
+#   action: clip    save a clip around it (before / after in seconds; defaults from the game data)
+#   action: marker  only mark it in clips you save
+#   action: ignore  drop it
+# Kinds not listed: the game's auto-clip kinds (usually kill) are clips, the rest are markers.
+enabled: true
+games:
+  cs2:
+    events:
+      kill: { action: clip }
+  league-of-legends:
+    events:
+      kill: { action: clip }

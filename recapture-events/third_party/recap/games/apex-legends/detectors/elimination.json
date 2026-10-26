@@ -1,0 +1,31 @@
+{
+  "id": "elimination",
+  "label": "Eliminated",
+  "event": "kill",
+  "region": {
+    "x": 0.234375,
+    "y": 0.6319444444444444,
+    "w": 0.53125,
+    "h": 0.06388888888888888
+  },
+  "anchor": "center",
+  "templateBox": {
+    "x": 0.45,
+    "y": 0.6513888888888889,
+    "w": 0.1,
+    "h": 0.02638888888888889
+  },
+  "templates": [
+    "templates/eliminated-a.png",
+    "templates/eliminated-b.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.7,
+  "cooldownMs": 1500,
+  "minConsecutive": 2,
+  "sampleFps": 8,
+  "holdMargin": 0.15,
+  "enabled": true,
+  "notes": "The \"ELIMINATED <name>\" notice under the crosshair."
+}

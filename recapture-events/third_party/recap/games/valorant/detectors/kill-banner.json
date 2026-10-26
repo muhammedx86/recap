@@ -1,0 +1,36 @@
+{
+  "id": "kill-banner",
+  "label": "Kill banner",
+  "event": "kill",
+  "region": {
+    "x": 0.4421875,
+    "y": 0.6972222222222222,
+    "w": 0.11458333333333333,
+    "h": 0.2037037037037037
+  },
+  "anchor": "bottom",
+  "templateBox": {
+    "x": 0.4630208333333333,
+    "y": 0.7342592592592593,
+    "w": 0.07291666666666667,
+    "h": 0.12962962962962962
+  },
+  "templates": [
+    "templates/ring.png"
+  ],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.6,
+  "cooldownMs": 450,
+  "minConsecutive": 1,
+  "sampleFps": 8,
+  "scales": [
+    1.06,
+    1.12,
+    1.18,
+    1.24
+  ],
+  "holdMargin": 0.2,
+  "notes": "Matches the white ring inside every kill banner, so it works with any banner skin. The ring grows with the multi-kill frame; scales cover that.",
+  "enabled": true
+}

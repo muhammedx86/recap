@@ -1,0 +1,208 @@
+{
+  "id": "scoreboard-agent",
+  "label": "Your agent (scoreboard)",
+  "field": "character",
+  "kind": "choice",
+  "region": {
+    "x": 0.296875,
+    "y": 0.31296296296296294,
+    "w": 0.019791666666666666,
+    "h": 0.03333333333333333
+  },
+  "slots": {
+    "count": 5,
+    "stepY": 0.03148148148148148
+  },
+  "highlight": {
+    "box": {
+      "x": 13.078947368421053,
+      "y": 0.3,
+      "w": 2.5,
+      "h": 0.4
+    },
+    "color": "#dbeca1",
+    "tolerance": 30
+  },
+  "when": "any",
+  "sampleFps": 0.5,
+  "options": [
+    {
+      "value": "Astra",
+      "templates": [
+        "assets/agents/astra.png"
+      ]
+    },
+    {
+      "value": "Breach",
+      "templates": [
+        "assets/agents/breach.png"
+      ]
+    },
+    {
+      "value": "Brimstone",
+      "templates": [
+        "assets/agents/brimstone.png"
+      ]
+    },
+    {
+      "value": "Chamber",
+      "templates": [
+        "assets/agents/chamber.png"
+      ]
+    },
+    {
+      "value": "Clove",
+      "templates": [
+        "assets/agents/clove.png"
+      ]
+    },
+    {
+      "value": "Cypher",
+      "templates": [
+        "assets/agents/cypher.png"
+      ]
+    },
+    {
+      "value": "Deadlock",
+      "templates": [
+        "assets/agents/deadlock.png"
+      ]
+    },
+    {
+      "value": "Fade",
+      "templates": [
+        "assets/agents/fade.png"
+      ]
+    },
+    {
+      "value": "Gekko",
+      "templates": [
+        "assets/agents/gekko.png"
+      ]
+    },
+    {
+      "value": "Harbor",
+      "templates": [
+        "assets/agents/harbor.png"
+      ]
+    },
+    {
+      "value": "Iso",
+      "templates": [
+        "assets/agents/iso.png"
+      ]
+    },
+    {
+      "value": "Jett",
+      "templates": [
+        "assets/agents/jett.png"
+      ]
+    },
+    {
+      "value": "KAY/O",
+      "templates": [
+        "assets/agents/kay-o.png"
+      ]
+    },
+    {
+      "value": "Killjoy",
+      "templates": [
+        "assets/agents/killjoy.png"
+      ]
+    },
+    {
+      "value": "Miks",
+      "templates": [
+        "assets/agents/miks.png"
+      ]
+    },
+    {
+      "value": "Neon",
+      "templates": [
+        "assets/agents/neon.png"
+      ]
+    },
+    {
+      "value": "Omen",
+      "templates": [
+        "assets/agents/omen.png"
+      ]
+    },
+    {
+      "value": "Phoenix",
+      "templates": [
+        "assets/agents/phoenix.png"
+      ]
+    },
+    {
+      "value": "Raze",
+      "templates": [
+        "assets/agents/raze.png"
+      ]
+    },
+    {
+      "value": "Reyna",
+      "templates": [
+        "assets/agents/reyna.png"
+      ]
+    },
+    {
+      "value": "Sage",
+      "templates": [
+        "assets/agents/sage.png"
+      ]
+    },
+    {
+      "value": "Skye",
+      "templates": [
+        "assets/agents/skye.png"
+      ]
+    },
+    {
+      "value": "Sova",
+      "templates": [
+        "assets/agents/sova.png"
+      ]
+    },
+    {
+      "value": "Tejo",
+      "templates": [
+        "assets/agents/tejo.png"
+      ]
+    },
+    {
+      "value": "Veto",
+      "templates": [
+        "assets/agents/veto.png"
+      ]
+    },
+    {
+      "value": "Viper",
+      "templates": [
+        "assets/agents/viper.png"
+      ]
+    },
+    {
+      "value": "Vyse",
+      "templates": [
+        "assets/agents/vyse.png"
+      ]
+    },
+    {
+      "value": "Waylay",
+      "templates": [
+        "assets/agents/waylay.png"
+      ]
+    },
+    {
+      "value": "Yoru",
+      "templates": [
+        "assets/agents/yoru.png"
+      ]
+    }
+  ],
+  "threshold": 0.55,
+  "method": "ncc",
+  "templateFrameHeight": 3240,
+  "notes": "Your row on the Tab scoreboard (its gun is drawn yellow), matched against the bundled agent icons."
+}

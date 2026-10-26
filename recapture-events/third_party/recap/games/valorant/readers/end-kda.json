@@ -1,0 +1,28 @@
+{
+  "id": "end-kda",
+  "label": "Your K/D/A",
+  "field": "kda",
+  "kind": "text",
+  "region": {
+    "x": 0.1042,
+    "y": 0.563,
+    "w": 0.1448,
+    "h": 0.0537
+  },
+  "slots": {
+    "count": 5,
+    "stepX": 0.162
+  },
+  "highlight": {
+    "box": {
+      "x": 0.1,
+      "y": -1.172,
+      "w": 0.8,
+      "h": 0.948
+    },
+    "color": "#e2e88f",
+    "tolerance": 40
+  },
+  "pattern": "(?P<kills>\\d+)\\D{1,4}(?P<deaths>\\d+)\\D{1,4}(?P<assists>\\d+)",
+  "notes": "Positions from Riot's published end-of-match screen (1920x1080). If yours differs, redraw the box in Detector Studio. Your card is the one whose name is yellow."
+}

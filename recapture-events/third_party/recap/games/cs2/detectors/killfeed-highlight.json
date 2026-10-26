@@ -1,0 +1,25 @@
+{
+  "id": "killfeed-highlight",
+  "label": "Own kill-feed entry",
+  "event": "kill",
+  "region": {
+    "x": 0.74,
+    "y": 0.05,
+    "w": 0.25,
+    "h": 0.2
+  },
+  "anchor": "top-right",
+  "templates": [],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.82,
+  "cooldownMs": 400,
+  "minConsecutive": 2,
+  "sampleFps": 8.0,
+  "scales": [
+    0.9,
+    1.1
+  ],
+  "enabled": true,
+  "notes": "Only used when Game State Integration is unavailable (GSI covers kills exactly). Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this indicator is showing, drag a box around it and save. Adjust the region if your HUD differs."
+}

@@ -1,0 +1,18 @@
+{
+  "id": "r6-siege",
+  "name": "Rainbow Six Siege",
+  "processes": [
+    "RainbowSix.exe",
+    "RainbowSix_Vulkan.exe",
+    "RainbowSix_DX11.exe"
+  ],
+  "capture": "game",
+  "preferApi": true,
+  "autoClip": {
+    "events": [
+      "kill"
+    ]
+  },
+  "postMatch": [],
+  "color": "#C9A227"
+}

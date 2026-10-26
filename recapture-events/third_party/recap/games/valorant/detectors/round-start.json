@@ -1,0 +1,30 @@
+{
+  "id": "round-start",
+  "label": "Round start (buy phase)",
+  "event": "round_start",
+  "region": {
+    "x": 0.4265625,
+    "y": 0.14074074074074075,
+    "w": 0.14791666666666667,
+    "h": 0.08888888888888889
+  },
+  "anchor": "top",
+  "templateBox": {
+    "x": 0.4348958333333333,
+    "y": 0.15555555555555556,
+    "w": 0.13125,
+    "h": 0.05925925925925926
+  },
+  "templates": [
+    "templates/buy-320.png",
+    "templates/buy-967.5.png",
+    "templates/buy-995.5.png"
+  ],
+  "templateFrameHeight": 1080,
+  "method": "edges",
+  "threshold": 0.8,
+  "cooldownMs": 45000,
+  "minConsecutive": 2,
+  "sampleFps": 4,
+  "enabled": true
+}

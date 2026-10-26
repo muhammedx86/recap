@@ -1,0 +1,19 @@
+[package]
+name = "recap-core"
+description = "Platform-neutral core of Recap: events, detector files, template matching, clip planning, library."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+regex = "1"
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+image.workspace = true
+base64.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

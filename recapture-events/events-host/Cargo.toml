@@ -1,0 +1,24 @@
+[package]
+name = "events-host"
+description = "Recapture.Events: game event detection for Recapture, built on Recap's core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "recapture-events"  # copied as Recapture.Events.exe by build.ps1
+path = "src/main.rs"
+
+[dependencies]
+recap-core = { path = "../third_party/recap/recap-core" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log = { workspace = true, features = ["std"] }
+base64.workspace = true
+serde_yaml = "0.9"
+tiny_http = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

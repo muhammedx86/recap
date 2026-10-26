@@ -1,0 +1,26 @@
+# Recapture.Events: game event detection for Recapture, built on Recap's core.
+# GPL-3.0-or-later (see LICENSE and NOTICE). A separate workspace from the Recapture engine on purpose:
+# the two only talk over a named pipe.
+[workspace]
+resolver = "2"
+members = ["third_party/recap/recap-core", "events-host"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/ywillxia/recap"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+base64 = "0.22"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

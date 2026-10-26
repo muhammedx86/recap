@@ -1,0 +1,57 @@
+{
+  "id": "end-agent",
+  "label": "Your agent",
+  "field": "character",
+  "kind": "text",
+  "region": {
+    "x": 0.1042,
+    "y": 0.4676,
+    "w": 0.1448,
+    "h": 0.0324
+  },
+  "slots": {
+    "count": 5,
+    "stepX": 0.162
+  },
+  "highlight": {
+    "box": {
+      "x": 0.1,
+      "y": 1.0,
+      "w": 0.8,
+      "h": 1.571
+    },
+    "color": "#e2e88f",
+    "tolerance": 40
+  },
+  "values": [
+    "Astra",
+    "Breach",
+    "Brimstone",
+    "Chamber",
+    "Clove",
+    "Cypher",
+    "Deadlock",
+    "Fade",
+    "Gekko",
+    "Harbor",
+    "Iso",
+    "Jett",
+    "KAY/O",
+    "Killjoy",
+    "Neon",
+    "Omen",
+    "Phoenix",
+    "Raze",
+    "Reyna",
+    "Sage",
+    "Skye",
+    "Sova",
+    "Tejo",
+    "Veto",
+    "Viper",
+    "Vyse",
+    "Waylay",
+    "Yoru"
+  ],
+  "notes": "Positions from Riot's published end-of-match screen (1920x1080). If yours differs, redraw the box in Detector Studio. Your card is the one whose name is yellow."
+}

@@ -1,0 +1,31 @@
+{
+  "id": "kill",
+  "label": "Kill (+100 Kill)",
+  "event": "kill",
+  "region": {
+    "x": 0.8984375,
+    "y": 0.5,
+    "w": 0.0703125,
+    "h": 0.125
+  },
+  "anchor": "right",
+  "templateBox": {
+    "x": 0.9203125,
+    "y": 0.5277777777777778,
+    "w": 0.0359375,
+    "h": 0.04722222222222222
+  },
+  "templates": [
+    "templates/kill-a.png",
+    "templates/kill-b.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.88,
+  "cooldownMs": 400,
+  "minConsecutive": 2,
+  "sampleFps": 8,
+  "enabled": true,
+  "holdMargin": 0.12,
+  "notes": "The \"+100 Kill\" entry at the bottom of the points feed (right of the crosshair). English game text; older entries move up and out of the box, so back-to-back kills each count."
+}

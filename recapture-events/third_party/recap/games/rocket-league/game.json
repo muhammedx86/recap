@@ -1,0 +1,98 @@
+{
+  "id": "rocket-league",
+  "name": "Rocket League",
+  "processes": [
+    "RocketLeague.exe"
+  ],
+  "capture": "game",
+  "api": "rocket-league-stats",
+  "preferApi": true,
+  "autoClip": {
+    "events": [
+      "goal",
+      "assist",
+      "epic_save",
+      "demo"
+    ],
+    "timing": {
+      "goal": {
+        "before": 8,
+        "after": 3
+      },
+      "assist": {
+        "before": 8,
+        "after": 3
+      },
+      "save": {
+        "before": 5,
+        "after": 2
+      },
+      "epic_save": {
+        "before": 6,
+        "after": 2
+      },
+      "shot": {
+        "before": 5,
+        "after": 2
+      },
+      "demo": {
+        "before": 4,
+        "after": 2
+      },
+      "demoed": {
+        "before": 5,
+        "after": 1
+      },
+      "goal_against": {
+        "before": 8,
+        "after": 2
+      }
+    }
+  },
+  "postMatch": [],
+  "color": "#1F8EF1",
+  "eventTypes": [
+    {
+      "id": "goal",
+      "label": "Goal",
+      "icon": "goal",
+      "color": "#f2c14e"
+    },
+    {
+      "id": "save",
+      "label": "Save",
+      "icon": "shield",
+      "color": "#80acc9"
+    },
+    {
+      "id": "epic_save",
+      "label": "Epic save",
+      "icon": "shield",
+      "color": "#5fb4ff"
+    },
+    {
+      "id": "shot",
+      "label": "Shot",
+      "icon": "target",
+      "color": "#9aa7b8"
+    },
+    {
+      "id": "demo",
+      "label": "Demo",
+      "icon": "car",
+      "color": "#e8875f"
+    },
+    {
+      "id": "demoed",
+      "label": "Demoed",
+      "icon": "car",
+      "color": "#a08a90"
+    },
+    {
+      "id": "goal_against",
+      "label": "Goal against",
+      "icon": "goal",
+      "color": "#d68b80"
+    }
+  ]
+}

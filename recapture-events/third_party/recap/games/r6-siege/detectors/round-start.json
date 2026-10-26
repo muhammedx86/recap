@@ -1,0 +1,22 @@
+{
+  "id": "round-start",
+  "label": "Action phase banner",
+  "event": "round_start",
+  "region": {
+    "x": 0.38,
+    "y": 0.05,
+    "w": 0.24,
+    "h": 0.1
+  },
+  "anchor": "top",
+  "templates": [],
+  "templateFrameHeight": 1080,
+  "method": "ncc",
+  "threshold": 0.8,
+  "cooldownMs": 30000,
+  "minConsecutive": 2,
+  "sampleFps": 2.0,
+  "scales": [],
+  "enabled": true,
+  "notes": "Best-guess region at 16:9. Templates are not bundled: open a recording in Detector Studio, pause on a frame where this shows, drag a box around it and save. Mark when the action phase begins (after preparation)."
+}

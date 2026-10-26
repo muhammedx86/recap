@@ -1,0 +1,14 @@
+{
+  "id": "end-team-score",
+  "label": "Your team score",
+  "field": "team_score",
+  "kind": "text",
+  "region": {
+    "x": 0.0885,
+    "y": 0.0417,
+    "w": 0.0833,
+    "h": 0.0926
+  },
+  "pattern": "^\\s*(\\d{1,2})\\s*$",
+  "notes": "Positions from Riot's published end-of-match screen (1920x1080). If yours differs, redraw the box in Detector Studio."
+}

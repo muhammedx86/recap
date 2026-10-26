@@ -1,0 +1,36 @@
+{
+  "id": "spectating",
+  "label": "Spectating (hides kills)",
+  "event": "_blocker",
+  "region": {
+    "x": 0.046875,
+    "y": 0.7708333333333334,
+    "w": 0.109375,
+    "h": 0.05555555555555555
+  },
+  "anchor": "bottom-left",
+  "templateBox": {
+    "x": 0.0609375,
+    "y": 0.7847222222222222,
+    "w": 0.0828125,
+    "h": 0.025
+  },
+  "templates": [
+    "templates/spectating-1.png",
+    "templates/spectating-2.png"
+  ],
+  "templateFrameHeight": 720,
+  "method": "edges",
+  "threshold": 0.55,
+  "cooldownMs": 1000,
+  "minConsecutive": 2,
+  "sampleFps": 2,
+  "scales": [],
+  "blocks": [
+    "kill",
+    "assist"
+  ],
+  "blockMarginMs": 1500,
+  "enabled": true,
+  "notes": "The SWITCH PLAYER prompt under the spectated player's card after you die. While it is up, kill banners belong to a teammate."
+}
