@@ -22,5 +22,25 @@
       "icon": "crosshair",
       "color": "#F2A541"
     }
-  ]
+  ],
+  "moments": {
+    "liveClips": false,
+    "events": [
+      {
+        "id": "kill",
+        "label": "Kill",
+        "clip": false
+      },
+      {
+        "id": "knock",
+        "label": "Knock",
+        "clip": false
+      },
+      {
+        "id": "assist",
+        "label": "Assist",
+        "clip": false
+      }
+    ]
+  }
 }

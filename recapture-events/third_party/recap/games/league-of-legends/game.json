@@ -21,5 +21,40 @@
     }
   },
   "postMatch": [],
-  "color": "#C8AA6E"
+  "color": "#C8AA6E",
+  "moments": {
+    "liveClips": true,
+    "events": [
+      {
+        "id": "kill",
+        "label": "Kill",
+        "clip": false
+      },
+      {
+        "id": "multikill",
+        "label": "Multikill",
+        "clip": true
+      },
+      {
+        "id": "ace",
+        "label": "Ace",
+        "clip": true
+      },
+      {
+        "id": "assist",
+        "label": "Assist",
+        "clip": false
+      },
+      {
+        "id": "death",
+        "label": "Death",
+        "clip": false
+      },
+      {
+        "id": "objective",
+        "label": "Objective (dragon, baron…)",
+        "clip": false
+      }
+    ]
+  }
 }

@@ -21,5 +21,35 @@
       "beforeMs": 1500,
       "afterMs": 15000
     }
-  ]
+  ],
+  "moments": {
+    "liveClips": false,
+    "events": [
+      {
+        "id": "kill",
+        "label": "Kill",
+        "clip": false
+      },
+      {
+        "id": "death",
+        "label": "Death",
+        "clip": false
+      },
+      {
+        "id": "round_win",
+        "label": "Round won",
+        "clip": false
+      },
+      {
+        "id": "round_loss",
+        "label": "Round lost",
+        "clip": false
+      },
+      {
+        "id": "match_end",
+        "label": "Match end",
+        "clip": false
+      }
+    ]
+  }
 }

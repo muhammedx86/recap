@@ -13,5 +13,45 @@
     ]
   },
   "postMatch": [],
-  "color": "#DE9B35"
+  "color": "#DE9B35",
+  "moments": {
+    "liveClips": true,
+    "events": [
+      {
+        "id": "kill",
+        "label": "Kill",
+        "clip": false
+      },
+      {
+        "id": "mvp",
+        "label": "MVP",
+        "clip": true
+      },
+      {
+        "id": "bomb_plant",
+        "label": "Bomb planted",
+        "clip": false
+      },
+      {
+        "id": "bomb_defuse",
+        "label": "Bomb defused",
+        "clip": false
+      },
+      {
+        "id": "round_win",
+        "label": "Round won",
+        "clip": false
+      },
+      {
+        "id": "assist",
+        "label": "Assist",
+        "clip": false
+      },
+      {
+        "id": "death",
+        "label": "Death",
+        "clip": false
+      }
+    ]
+  }
 }

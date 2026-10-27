@@ -398,6 +398,11 @@ pub struct GameDef {
     /// Screen detections to drop when another event is close by (see [`crate::events::apply_exclusions`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exclusions: Vec<Exclusion>,
+    /// What Recapture's Game moments page shows for the game: whether its events can save a clip while playing
+    /// (`liveClips`) and the events it reports (`id`, `label`, `clip`: saves a clip by default). Read by the app only;
+    /// a user's copy of the game keeps the bundled one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moments: Option<serde_json::Value>,
 }
 
 /// Drop vision events of kind `drop` from `beforeMs` before to `afterMs` after any event of kind
@@ -1239,6 +1244,7 @@ mod tests {
             event_types: vec![],
             rounds: None,
             exclusions: vec![],
+            moments: None,
         }
     }
 

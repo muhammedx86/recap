@@ -94,5 +94,45 @@
       "icon": "goal",
       "color": "#d68b80"
     }
-  ]
+  ],
+  "moments": {
+    "liveClips": true,
+    "events": [
+      {
+        "id": "goal",
+        "label": "Goal",
+        "clip": true
+      },
+      {
+        "id": "epic_save",
+        "label": "Epic save",
+        "clip": true
+      },
+      {
+        "id": "save",
+        "label": "Save",
+        "clip": false
+      },
+      {
+        "id": "assist",
+        "label": "Assist",
+        "clip": false
+      },
+      {
+        "id": "shot",
+        "label": "Shot on goal",
+        "clip": false
+      },
+      {
+        "id": "demo",
+        "label": "Demolition",
+        "clip": false
+      },
+      {
+        "id": "mvp",
+        "label": "MVP",
+        "clip": false
+      }
+    ]
+  }
 }
